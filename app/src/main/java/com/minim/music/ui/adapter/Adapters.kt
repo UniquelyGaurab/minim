@@ -14,6 +14,7 @@ import com.minim.music.data.model.Track
 import com.minim.music.ui.GridTile
 import com.minim.music.ui.Painter
 import com.minim.music.ui.Pal
+import com.minim.music.ui.RoundPhoto
 import com.minim.music.util.ArtworkPipeline
 
 /*
@@ -39,6 +40,19 @@ private fun styleCard(card: View, art: ImageView, texts: List<TextView>, icons: 
     val on = if (filled) "bg" else "fg"
     texts.forEach { it.tag = "text:$on" }
     icons.forEach { it.tag = "tint:$on" }
+}
+
+/**
+ * v4.9.6: song rows (search, Liked Songs, playlists, albums) look like the Stats "today's songs"
+ * list: a soft-filled rounded row. The playing song is fully filled with the colours swapped,
+ * like before, so it still stands out.
+ */
+private fun styleSongRow(card: View, art: ImageView, texts: List<TextView>, active: Boolean) {
+    card.setBackgroundResource(R.drawable.shape_card)
+    card.tag = if (active) "fill:fg" else "fill:soft"
+    art.tag = if (active) "fill:bg" else "fill:fg"
+    val on = if (active) "bg" else "fg"
+    texts.forEach { it.tag = "text:$on" }
 }
 
 // =============================================================================================
@@ -83,7 +97,8 @@ class TrackAdapter(
     }
 
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
-        val card: View = view.findViewById(R.id.track_card)
+        // clipToOutline keeps the press ripple inside the rounded row
+        val card: View = view.findViewById<View>(R.id.track_card).apply { clipToOutline = true }
         private val art: ImageView = view.findViewById<ImageView>(R.id.track_art).apply { clipToOutline = true }
         private val title: TextView = view.findViewById(R.id.track_title)
         private val artist: TextView = view.findViewById(R.id.track_artist)
@@ -91,8 +106,8 @@ class TrackAdapter(
         fun bind(track: Track, active: Boolean, artwork: ArtworkPipeline, pal: Pal) {
             title.text = track.title
             artist.text = track.artist
-            styleCard(card, art, listOf(title, artist), emptyList(), active)
-            artwork.loadInto(art, track.thumbnailUrl, dp(48))
+            styleSongRow(card, art, listOf(title, artist), active)
+            artwork.loadInto(art, track.thumbnailUrl, dp(44))
             Painter.paint(itemView, pal)
         }
     }
@@ -221,8 +236,8 @@ class SearchResultsAdapter(
     }
 
     private class ArtistHolder(view: View) : RecyclerView.ViewHolder(view) {
-        val pill: View = view.findViewById(R.id.artist_pill)
-        private val photo: ImageView = view.findViewById<ImageView>(R.id.artist_photo_small).apply { clipToOutline = true }
+        val pill: View = view.findViewById<View>(R.id.artist_pill).apply { clipToOutline = true }
+        private val photo: ImageView = view.findViewById<ImageView>(R.id.artist_photo_small).also { RoundPhoto.apply(it) }
         private val name: TextView = view.findViewById(R.id.artist_result_name)
         private val subs: TextView = view.findViewById(R.id.artist_result_subs)
 
@@ -230,7 +245,7 @@ class SearchResultsAdapter(
             name.text = artist.name
             subs.text = formatArtistCount(itemView.resources, artist.count, artist.countKind)
             pill.contentDescription = "${artist.name}, ${subs.text}"
-            artwork.loadInto(photo, artist.thumbnailUrl, dp(48))
+            artwork.loadInto(photo, artist.thumbnailUrl, dp(44))
             Painter.paint(itemView, pal)
         }
     }

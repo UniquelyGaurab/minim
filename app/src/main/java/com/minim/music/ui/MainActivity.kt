@@ -1,5 +1,9 @@
 package com.minim.music.ui
 
+import com.minim.music.data.update.AppUpdates
+import com.minim.music.data.update.AvailableUpdate
+import com.minim.music.data.update.UpdateCheckResult
+import com.minim.music.data.update.UpdateFlowState
 import android.Manifest
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
@@ -318,6 +322,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        // v4.9.6: every app open (first start, or back from the background) quietly checks for an update
+        if (wasStopped || !app.updateOpenSeen) onAppOpenedForUpdates()
+        // v4.9.6: new greetings from GitHub, about once a day (does nothing when not due)
+        app.syncRemoteGreetings()
         // Coming back from the background counts as opening the app: time-based greeting first
         if (wasStopped) {
             wasStopped = false
@@ -331,6 +339,8 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         isActivityResumed = true
         syncGreetingRotation()
+        // v4.9.6: back from the "Install unknown apps" setting with it turned on: carry on installing
+        resumeUpdateInstallIfAllowed()
         checkRecapPopup()
     }
 
@@ -1110,7 +1120,7 @@ class MainActivity : AppCompatActivity() {
     /** A regular greeting to fall back on; personal ones (v4.7) only when they fit the saved name. */
     private fun nextRegularGreeting(): Int {
         val name = app.preferences.userName
-        return greetingRotation.nextRegular { Greetings.personalLines(it, name) != null }
+        return greetingRotation.nextRegular { Greetings.fits(it, GreetingFacts(), name) }
     }
 
     /** The lines for [greetingIndex]; a fun one whose data has gone (song stopped...) becomes a regular one. */
@@ -1121,12 +1131,22 @@ class MainActivity : AppCompatActivity() {
             Greetings.dataLines(greetingIndex, liveGreetingFacts())?.let { return it }
             greetingIndex = nextRegularGreeting()
         }
-        if (Greetings.isPersonal(greetingIndex)) {
-            // The name was added or removed since it was picked: use a regular one instead
-            Greetings.personalLines(greetingIndex, name)?.let { return it }
-            greetingIndex = nextRegularGreeting()
-            Greetings.personalLines(greetingIndex, name)?.let { return it }
+        // A personal one whose name was added or removed since it was picked, or a remote one (v4.9.6)
+        // that left the file or its dates: use a regular one instead
+        repeat(3) {
+            when {
+                Greetings.isPersonal(greetingIndex) -> {
+                    Greetings.personalLines(greetingIndex, name)?.let { return it }
+                    greetingIndex = nextRegularGreeting()
+                }
+                Greetings.isRemote(greetingIndex) -> {
+                    Greetings.remoteLines(greetingIndex, name)?.let { return it }
+                    greetingIndex = nextRegularGreeting()
+                }
+                else -> return Greetings.lines(greetingIndex, name)
+            }
         }
+        if (greetingIndex !in 0 until Greetings.COUNT) greetingIndex = Greetings.TIME_BASED
         return Greetings.lines(greetingIndex, name)
     }
 
@@ -2742,6 +2762,14 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) {
         }
         findViewById<TextView>(R.id.set_about).text = getString(R.string.about_text, version, build)
+
+        // v4.9.6: "Check for updates" with the version beside it
+        findViewById<TextView>(R.id.set_check_updates_version).text =
+            getString(R.string.update_settings_version, version)
+        findViewById<View>(R.id.set_check_updates).setOnClickListener {
+            haptic(it)
+            checkForUpdatesNow()
+        }
     }
 
     /** A lyrics timing button: one step per tap, repeating every 80 ms while held. */
@@ -2880,6 +2908,8 @@ class MainActivity : AppCompatActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch { app.playbackController.uiState.collect { renderPlayback(it) } }
                 launch { app.playbackController.lyricsState.collect { renderLyrics(it) } }
+                // v4.9.6: update download progress / done / failed
+                launch { app.updates.state.collect { onUpdateFlowState(it) } }
                 launch { app.database.likedIds.collect { renderLikes(it); greetingFactsAt = 0L } }
                 // v4.3: a counted play (30+ s) can add a song to Recents
                 launch {
@@ -3348,6 +3378,9 @@ class MainActivity : AppCompatActivity() {
             return true
         } finally {
             takeoverPreparing = false
+            // v4.9.6: an update pop-up that waited for this may go now if no takeover came of it
+            // (no photo, song changed...); finishTakeover() covers the case where one did start.
+            if (!isTakeoverActive) checkUpdatePrompt()
         }
     }
 
@@ -3486,6 +3519,8 @@ class MainActivity : AppCompatActivity() {
         val ours = takeoverLinesShown
         takeoverLinesShown = null
         if (ours != null && greetingOverride == ours) endGreetingMessage()
+        // v4.9.6: an update pop-up may have been waiting for the takeover to end
+        checkUpdatePrompt()
     }
 
     private fun openTakeoverArtist() {
@@ -3610,25 +3645,22 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Exception) {
                 null
             } ?: return@launch
-            // The photo is a bit bigger than the icon; the label moves back so it still lines up
+            // The photo is a bit bigger than the icon. v4.9.6: it grows to the right from the
+            // row's padding edge and the label's gap shrinks by the same amount, so the label still
+            // lines up. (4.9.3 pulled the photo left with a negative margin, into the row's
+            // padding, and the row clips its children to its padding: that cut the left side flat.)
             icon.tag = null
             icon.imageTintList = null
-            icon.scaleType = ImageView.ScaleType.CENTER_CROP
-            icon.outlineProvider = object : android.view.ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: android.graphics.Outline) {
-                    outline.setOval(0, 0, view.width, view.height)
-                }
-            }
-            icon.clipToOutline = true
+            RoundPhoto.apply(icon)
             (icon.layoutParams as ViewGroup.MarginLayoutParams).let { lp ->
                 val grow = sizePx - lp.width
                 if (grow > 0) {
                     lp.width = sizePx
                     lp.height = sizePx
-                    lp.marginStart = -grow / 2
+                    lp.marginStart = 0
                     icon.layoutParams = lp
                     (label.layoutParams as ViewGroup.MarginLayoutParams).let { llp ->
-                        llp.marginStart = (llp.marginStart - grow / 2).coerceAtLeast(0)
+                        llp.marginStart = (llp.marginStart - grow).coerceAtLeast(dp(8f).toInt())
                         label.layoutParams = llp
                     }
                 }
@@ -3690,6 +3722,12 @@ class MainActivity : AppCompatActivity() {
      * It shows a moment later, after a re-check, so it never lands mid-animation.
      */
     private fun checkRecapPopup() {
+        checkRecapPopupOnly()
+        // v4.9.6: the update pop-up waits for the same things (sheets, the recap story)
+        checkUpdatePrompt()
+    }
+
+    private fun checkRecapPopupOnly() {
         if (!::statsScreen.isInitialized || !::sheetRoot.isInitialized) return
         val action = recapGateAction()
         if (action != RecapPopupGate.Action.SHOW) {
@@ -3701,6 +3739,8 @@ class MainActivity : AppCompatActivity() {
         val r = Runnable {
             recapPopupPending = null
             if (recapGateAction() == RecapPopupGate.Action.SHOW) showRecapPopup()
+            // v4.9.6: the recap popup didn't come after all: an update pop-up queued behind it may go
+            else checkUpdatePrompt()
         }
         recapPopupPending = r
         root.postDelayed(r, RECAP_POPUP_DELAY_MS)
@@ -3747,6 +3787,370 @@ class MainActivity : AppCompatActivity() {
             box.addView(v)
         }
         updateStatsBadges()
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // v4.9.6: in-app updates. A quiet check of the latest GitHub Release on every app open, the
+    // update pop-up (Download now / Later), the download with progress, and Android's installer.
+    // "Check for updates" in Settings is the only manual way in; there's no "new version" pill.
+    // ------------------------------------------------------------------------------------------
+
+    private class UpdateSheetViews(
+        val root: View,
+        val status: TextView,
+        val progress: ProgressLine,
+        val primary: TextView,
+        val secondary: TextView
+    )
+
+    private enum class UpdatePrimary { DOWNLOAD, INSTALL, RETRY, SETTINGS, HIDE }
+
+    private var updateSheet: UpdateSheetViews? = null
+    private var updateSheetFor: AvailableUpdate? = null
+    private var updatePromptPending: Runnable? = null
+    private var updateCheckJob: Job? = null
+    private var updateManualJob: Job? = null
+    /** The finished download for the offered version, found on disk when the check came back. */
+    private var updateSavedApk: java.io.File? = null
+    /** The user tapped Download now: open the installer as soon as the file is ready. */
+    private var updateWantsInstall = false
+    /** Waiting for the user to allow "Install unknown apps" (the file is ready). */
+    private var updateAwaitingPermission: Pair<AvailableUpdate, java.io.File>? = null
+    /** Coming back from the installer or that setting isn't a new app open for the pop-up. */
+    private var updateSkipNextOpen = false
+
+    private fun onAppOpenedForUpdates() {
+        app.updateOpenSeen = true
+        if (updateSkipNextOpen) {
+            updateSkipNextOpen = false
+            return
+        }
+        val gate = app.updateGate
+        gate.onAppOpened()
+        if (updateCheckJob?.isActive == true) return
+        updateCheckJob = lifecycleScope.launch {
+            val result = app.updates.check()
+            updateSavedApk = savedApkFor(result)
+            // A failed or empty check shows nothing on open
+            gate.onCheckResult(result)
+            checkUpdatePrompt()
+        }
+    }
+
+    private suspend fun savedApkFor(result: UpdateCheckResult): java.io.File? {
+        val u = (result as? UpdateCheckResult.Available)?.update ?: return null
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try { app.updates.savedApk(u) } catch (e: Exception) { null }
+        }
+    }
+
+    /** True while something else is in front: the pop-up waits (queued) until it's clear. */
+    private fun updatePromptBusy(): Boolean {
+        val sheetVisible = ::sheetRoot.isInitialized && sheetRoot.visibility == View.VISIBLE
+        return !isActivityResumed || isWelcomeOpen || !app.preferences.welcomeDone || sheetVisible ||
+            recapStory != null || recapStoryOpening || recapPopupPending != null ||
+            isTakeoverActive || takeoverPreparing
+    }
+
+    private fun updateFlowActive(): Boolean =
+        app.updates.isBusy || updateWantsInstall || updateAwaitingPermission != null
+
+    /** Asks [UpdatePromptGate] whether the pop-up may show; shows it a moment later after a re-check. */
+    private fun checkUpdatePrompt() {
+        if (!::sheetRoot.isInitialized || !::root.isInitialized) return
+        maybeContinueUpdateInstall()
+        val action = app.updateGate.action(updatePromptBusy(), updateFlowActive())
+        if (action != UpdatePromptGate.Action.SHOW) {
+            if (action == UpdatePromptGate.Action.NONE) {
+                updatePromptPending?.let { root.removeCallbacks(it) }
+                updatePromptPending = null
+            }
+            return
+        }
+        if (updatePromptPending != null) return
+        val r = Runnable {
+            updatePromptPending = null
+            val u = app.updateGate.pending
+            if (u != null && app.updateGate.action(updatePromptBusy(), updateFlowActive()) == UpdatePromptGate.Action.SHOW) {
+                showUpdatePopup(u)
+            }
+        }
+        updatePromptPending = r
+        root.postDelayed(r, UPDATE_POPUP_DELAY_MS)
+    }
+
+    /** Settings: check right away; "You're on the latest", a friendly error, or the pop-up. */
+    private fun checkForUpdatesNow() {
+        if (updateManualJob?.isActive == true) return
+        val now = app.updates.state.value
+        if (now is UpdateFlowState.Downloading) {
+            // Already on its way: show the progress
+            updateWantsInstall = true
+            if (!isSheetOpen) showUpdatePopup(now.update)
+            return
+        }
+        val label = findViewById<TextView>(R.id.set_check_updates)
+        label.text = getString(R.string.update_checking)
+        updateManualJob = lifecycleScope.launch {
+            val result = app.updates.check()
+            val saved = savedApkFor(result)
+            label.text = getString(R.string.update_check)
+            when (result) {
+                is UpdateCheckResult.Available -> {
+                    updateSavedApk = saved
+                    app.updateGate.onManualCheck(result)
+                    updatePromptPending?.let { root.removeCallbacks(it) }
+                    updatePromptPending = null
+                    if (!isSheetOpen && isActivityResumed) showUpdatePopup(result.update)
+                    else checkUpdatePrompt()
+                }
+                is UpdateCheckResult.UpToDate, UpdateCheckResult.NoRelease -> {
+                    app.updateGate.onCheckResult(result)
+                    showNote(getString(R.string.update_latest))
+                }
+                is UpdateCheckResult.Failed -> showNote(
+                    getString(if (result.offline) R.string.update_check_offline else R.string.update_check_failed)
+                )
+            }
+        }
+    }
+
+    /** The pop-up: Minim's sheet with the new version, short notes, Later and Download now. */
+    private fun showUpdatePopup(update: AvailableUpdate) {
+        if (isWelcomeOpen) return
+        app.updateGate.markShown()
+        openSheet { box ->
+            sheetHeading(
+                box,
+                getString(R.string.update_title, update.version.toString()),
+                getString(R.string.update_sub, app.updates.installedVersionLabel)
+            )
+            val v = layoutInflater.inflate(R.layout.sheet_update, box, false)
+            v.findViewById<TextView>(R.id.update_notes).text =
+                update.notes.ifBlank { getString(R.string.update_no_notes) }
+            val views = UpdateSheetViews(
+                root = v,
+                status = v.findViewById(R.id.update_status),
+                progress = v.findViewById<ProgressLine>(R.id.update_progress).apply { isEnabled = false },
+                primary = v.findViewById(R.id.update_primary),
+                secondary = v.findViewById(R.id.update_secondary)
+            )
+            views.primary.setOnClickListener { p ->
+                if (sheetClosing) return@setOnClickListener
+                haptic(p)
+                onUpdatePrimary(p.tag as? UpdatePrimary ?: UpdatePrimary.DOWNLOAD)
+            }
+            views.secondary.setOnClickListener { s ->
+                if (sheetClosing) return@setOnClickListener
+                haptic(s)
+                onUpdateSecondary()
+            }
+            box.addView(v)
+            updateSheet = views
+            updateSheetFor = update
+            renderUpdateSheet()
+        }
+    }
+
+    private fun onUpdatePrimary(what: UpdatePrimary) {
+        val update = updateSheetFor ?: return
+        when (what) {
+            UpdatePrimary.DOWNLOAD, UpdatePrimary.RETRY, UpdatePrimary.INSTALL -> {
+                updateWantsInstall = true
+                val saved = updateSavedApk?.takeIf {
+                    it.isFile && it.name == com.minim.music.data.update.UpdateRules.apkFileName(update.version)
+                }
+                val st = app.updates.state.value
+                when {
+                    st is UpdateFlowState.Ready && st.update.version == update.version -> proceedToInstall(st.update, st.file)
+                    saved != null && what == UpdatePrimary.INSTALL -> proceedToInstall(update, saved)
+                    else -> {
+                        app.updates.reset()
+                        app.updates.startDownload(update)
+                    }
+                }
+            }
+            UpdatePrimary.SETTINGS -> openUnknownSourcesSetting()
+            UpdatePrimary.HIDE -> closeSheet()
+        }
+        renderUpdateSheet()
+    }
+
+    /** Later (or Cancel while downloading). */
+    private fun onUpdateSecondary() {
+        val st = app.updates.state.value
+        if (st is UpdateFlowState.Downloading) {
+            app.updates.cancelDownload()
+            updateWantsInstall = false
+            renderUpdateSheet()
+            return
+        }
+        updateWantsInstall = false
+        updateAwaitingPermission = null
+        app.updates.reset()
+        closeSheet()
+    }
+
+    /** Draws the pop-up for where the update has got to. */
+    private fun renderUpdateSheet() {
+        val v = updateSheet ?: return
+        val update = updateSheetFor ?: return
+        if (v.root.parent == null) { updateSheet = null; return }
+        val st = app.updates.state.value
+        val mine = when (st) {
+            is UpdateFlowState.Downloading -> st.update.version == update.version
+            is UpdateFlowState.Ready -> st.update.version == update.version
+            is UpdateFlowState.Failed -> st.update.version == update.version
+            else -> false
+        }
+        fun buttons(primary: Int, tag: UpdatePrimary, secondary: Int) {
+            v.primary.setText(primary)
+            v.primary.tag = tag
+            v.secondary.setText(secondary)
+        }
+        when {
+            updateAwaitingPermission != null -> {
+                v.progress.visibility = View.GONE
+                v.status.visibility = View.VISIBLE
+                v.status.setText(R.string.update_permission)
+                buttons(R.string.update_open_settings, UpdatePrimary.SETTINGS, R.string.update_later)
+            }
+            mine && st is UpdateFlowState.Downloading -> {
+                v.status.visibility = View.VISIBLE
+                v.progress.visibility = View.VISIBLE
+                val total = st.total
+                if (total > 0) {
+                    val f = (st.done.toFloat() / total).coerceIn(0f, 1f)
+                    v.progress.setFraction(f)
+                    v.status.text = if (st.done <= 0L) getString(R.string.update_starting)
+                    else getString(R.string.update_downloading, (f * 100).toInt(), mb(st.done), mb(total))
+                } else {
+                    v.progress.setFraction(0f)
+                    v.status.text = if (st.done <= 0L) getString(R.string.update_starting)
+                    else getString(R.string.update_downloading_plain, mb(st.done))
+                }
+                buttons(R.string.update_hide, UpdatePrimary.HIDE, R.string.update_cancel)
+            }
+            mine && st is UpdateFlowState.Failed -> {
+                v.progress.visibility = View.GONE
+                v.status.visibility = View.VISIBLE
+                v.status.text = updateProblemText(st.problem)
+                buttons(R.string.update_try_again, UpdatePrimary.RETRY, R.string.update_later)
+            }
+            else -> {
+                v.progress.visibility = View.GONE
+                v.status.visibility = View.GONE
+                val ready = (mine && st is UpdateFlowState.Ready) || updateSavedApk?.isFile == true
+                if (ready) buttons(R.string.update_install_now, UpdatePrimary.INSTALL, R.string.update_later)
+                else buttons(R.string.update_download_now, UpdatePrimary.DOWNLOAD, R.string.update_later)
+            }
+        }
+        Painter.paint(v.root, pal)
+    }
+
+    private fun mb(bytes: Long): String {
+        val m = bytes / (1024.0 * 1024.0)
+        return if (m >= 10) String.format(java.util.Locale.US, "%.0f MB", m)
+        else String.format(java.util.Locale.US, "%.1f MB", m)
+    }
+
+    private fun updateProblemText(p: UpdateFlowState.Problem): String = getString(
+        when (p) {
+            UpdateFlowState.Problem.OFFLINE -> R.string.update_err_offline
+            UpdateFlowState.Problem.SERVER -> R.string.update_err_server
+            UpdateFlowState.Problem.STORAGE -> R.string.update_err_storage
+            UpdateFlowState.Problem.BROKEN -> R.string.update_err_broken
+            UpdateFlowState.Problem.OTHER_APP -> R.string.update_err_other_app
+            UpdateFlowState.Problem.OLDER -> R.string.update_err_older
+        }
+    )
+
+    /** Progress, done or failed, from [AppUpdates.state] (collected while the app is in front). */
+    private fun onUpdateFlowState(st: UpdateFlowState) {
+        renderUpdateSheet()
+        when (st) {
+            is UpdateFlowState.Ready -> {
+                updateSavedApk = st.file
+                maybeContinueUpdateInstall()
+            }
+            is UpdateFlowState.Failed -> if (updateSheet == null && updateWantsInstall) {
+                // Failed while the pop-up was hidden: say so in the small note
+                updateWantsInstall = false
+                showNote(updateProblemText(st.problem))
+                app.updates.reset()
+            }
+            else -> Unit
+        }
+    }
+
+    /** The download finished while the pop-up was hidden (or behind something): install when it's clear. */
+    private fun maybeContinueUpdateInstall() {
+        val st = app.updates.state.value as? UpdateFlowState.Ready ?: return
+        if (!updateWantsInstall || !isActivityResumed) return
+        val otherSheet = ::sheetRoot.isInitialized && sheetRoot.visibility == View.VISIBLE && updateSheet == null
+        if (otherSheet || recapStory != null || recapStoryOpening || isWelcomeOpen) return
+        proceedToInstall(st.update, st.file)
+    }
+
+    /** Opens Android's installer, or first asks for "Install unknown apps" when it's off. */
+    private fun proceedToInstall(update: AvailableUpdate, file: java.io.File) {
+        if (!file.isFile) {
+            updateSavedApk = null
+            app.updates.reset()
+            app.updates.startDownload(update)
+            return
+        }
+        if (!app.updates.canInstall()) {
+            // Another sheet is up: keep wanting the install, carry on once it closes
+            if (updateSheet == null && ::sheetRoot.isInitialized && sheetRoot.visibility == View.VISIBLE) return
+            updateAwaitingPermission = update to file
+            updateWantsInstall = false
+            if (updateSheet == null) showUpdatePopup(update) else renderUpdateSheet()
+            return
+        }
+        updateWantsInstall = false
+        updateAwaitingPermission = null
+        val intent = app.updates.installIntent(file)
+        if (intent == null || !AppUpdates.tryStart(this, intent)) {
+            app.updates.reset()
+            showNote(getString(R.string.update_err_installer))
+            renderUpdateSheet()
+            return
+        }
+        // The installer is in front now; coming back from it isn't a new open
+        updateSkipNextOpen = true
+        app.updates.reset()
+        if (updateSheet != null) closeSheet()
+    }
+
+    private fun openUnknownSourcesSetting() {
+        updateSkipNextOpen = true
+        val ok = AppUpdates.tryStart(this, app.updates.unknownSourcesIntent()) ||
+            AppUpdates.tryStart(this, app.updates.securitySettingsIntent())
+        if (!ok) {
+            updateSkipNextOpen = false
+            showNote(getString(R.string.update_err_settings))
+        }
+    }
+
+    /** onResume: if they turned "Install unknown apps" on, open the installer right away. */
+    private fun resumeUpdateInstallIfAllowed() {
+        val (update, file) = updateAwaitingPermission ?: return
+        if (!app.updates.canInstall()) return
+        updateAwaitingPermission = null
+        proceedToInstall(update, file)
+    }
+
+    /** The pop-up was closed (Later, Hide, a swipe, or the installer opening). */
+    private fun onUpdateSheetClosed() {
+        updateSheet = null
+        if (app.updates.state.value is UpdateFlowState.Downloading) {
+            if (updateWantsInstall) showNote(getString(R.string.update_note_background))
+            return
+        }
+        updateAwaitingPermission = null
+        if (app.updates.state.value is UpdateFlowState.Failed) app.updates.reset()
+        if (app.updates.state.value !is UpdateFlowState.Ready) updateWantsInstall = false
     }
 
     // ------------------------------------------------------------------------------------------
@@ -4026,6 +4430,8 @@ class MainActivity : AppCompatActivity() {
         sheetPanel.animate().cancel()
         sheetScrim.animate().cancel()
         sheetClosing = false
+        // v4.9.6: new content replaces the update pop-up
+        if (updateSheet != null) onUpdateSheetClosed()
         if (alreadyOpen && animationsOn()) {
             android.transition.TransitionManager.beginDelayedTransition(
                 sheetRoot, android.transition.AutoTransition().setDuration(200L)
@@ -4070,6 +4476,8 @@ class MainActivity : AppCompatActivity() {
             sheetClosing = false
             sheetPanel.translationY = 0f
             sheetContent.removeAllViews()
+            // v4.9.6: the update pop-up went away (Later, Hide, a swipe or the installer opening)
+            if (updateSheet != null) onUpdateSheetClosed()
             then?.invoke()
             // A held recap popup may be waiting for the sheet to go
             checkRecapPopup()
@@ -4469,6 +4877,7 @@ class MainActivity : AppCompatActivity() {
         private const val MAX_RECAP_LOOKBACK = 30
         /** v4.9.1: the popup waits this long (and re-checks) so it never lands mid-animation. */
         private const val RECAP_POPUP_DELAY_MS = 700L
+        private const val UPDATE_POPUP_DELAY_MS = 900L
         private const val ARTIST_SHELF = "artist:"
         private const val GREETING_INTERVAL_MS = 10_000L
         private const val GREETING_MESSAGE_MS = 5_000L

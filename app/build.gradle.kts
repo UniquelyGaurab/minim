@@ -21,8 +21,8 @@ android {
         applicationId = "com.minim.music"
         minSdk = 28
         targetSdk = 34
-        versionCode = 21
-        versionName = "4.9.5"
+        versionCode = 22
+        versionName = "4.9.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

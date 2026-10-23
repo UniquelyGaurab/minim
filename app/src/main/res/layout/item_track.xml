@@ -1,29 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Outlined song card (search "Other results", Liked Songs, playlists) -->
+<!-- v4.9.6 song row (search "Other results", Liked Songs, playlists, albums): the same filled row
+     as the Stats "today's songs" list (item_sheet_song): soft fill, 10dp padding, 44dp cover,
+     15sp / 13sp text, 8dp gaps. The playing song is drawn fully filled (see styleSongRow). -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:paddingStart="36dp"
     android:paddingEnd="36dp"
-    android:paddingBottom="10dp">
+    android:paddingBottom="8dp">
 
     <LinearLayout
         android:id="@+id/track_card"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@drawable/shape_card_outline"
+        android:background="@drawable/shape_card"
         android:clickable="true"
         android:focusable="true"
         android:foreground="?attr/selectableItemBackground"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:padding="12dp"
-        android:tag="fill:fg">
+        android:padding="10dp"
+        android:tag="fill:soft">
 
         <ImageView
             android:id="@+id/track_art"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:background="@drawable/shape_art_small"
             android:importantForAccessibility="no"
             android:scaleType="centerCrop"
@@ -33,18 +35,19 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
+            android:layout_marginEnd="6dp"
             android:layout_weight="1"
             android:orientation="vertical">
 
             <TextView
                 android:id="@+id/track_title"
-                style="@style/MinimText.Bold"
+                style="@style/MinimText.Semi"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
                 android:singleLine="true"
                 android:tag="text:fg"
-                android:textSize="12sp" />
+                android:textSize="15sp" />
 
             <TextView
                 android:id="@+id/track_artist"
@@ -52,10 +55,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
+                android:alpha="0.7"
                 android:ellipsize="end"
                 android:singleLine="true"
                 android:tag="text:fg"
-                android:textSize="10sp" />
+                android:textSize="13sp" />
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>

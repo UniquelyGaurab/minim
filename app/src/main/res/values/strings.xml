@@ -229,4 +229,35 @@
     <string name="recap_share_failed">Couldn\'t share the card</string>
     <string name="recap_popup_title">Your recap is ready</string>
     <string name="recap_popup_line">%1$s listened · %2$s</string>
+
+    <!-- v4.9.6: in-app updates (GitHub Releases) -->
+    <string name="update_check">Check for updates</string>
+    <string name="update_checking">Checking…</string>
+    <string name="update_settings_version">You\'re on %1$s</string>
+    <string name="update_latest">You\'re on the latest</string>
+    <string name="update_check_offline">You\'re offline. Check your connection and try again.</string>
+    <string name="update_check_failed">Couldn\'t reach GitHub. Try again in a bit.</string>
+    <string name="update_title">Minim %1$s is here</string>
+    <string name="update_sub">You\'re on %1$s</string>
+    <string name="update_no_notes">A new version of Minim is ready.</string>
+    <string name="update_download_now">Download now</string>
+    <string name="update_install_now">Install now</string>
+    <string name="update_later">Later</string>
+    <string name="update_cancel">Cancel</string>
+    <string name="update_hide">Hide</string>
+    <string name="update_try_again">Try again</string>
+    <string name="update_open_settings">Open settings</string>
+    <string name="update_downloading">Downloading… %1$d%%  ·  %2$s of %3$s</string>
+    <string name="update_downloading_plain">Downloading… %1$s</string>
+    <string name="update_starting">Starting the download…</string>
+    <string name="update_permission">To install updates, Android needs your OK once. Turn on \"Allow from this source\" for Minim, then come back.</string>
+    <string name="update_err_offline">The download stopped. Check your connection and try again.</string>
+    <string name="update_err_server">GitHub didn\'t send the file. Try again in a bit.</string>
+    <string name="update_err_storage">Couldn\'t save the update. Free up a little space and try again.</string>
+    <string name="update_err_broken">The download didn\'t come through properly. Try again.</string>
+    <string name="update_err_other_app">This download isn\'t a match for the Minim on your phone, so it can\'t install over it.</string>
+    <string name="update_err_older">This download is older than the Minim you have.</string>
+    <string name="update_err_installer">Couldn\'t open Android\'s installer.</string>
+    <string name="update_err_settings">Couldn\'t open that setting. Find Minim under Settings, Apps, Special app access, Install unknown apps.</string>
+    <string name="update_note_background">Still downloading. Minim opens the installer when it\'s done.</string>
 </resources>

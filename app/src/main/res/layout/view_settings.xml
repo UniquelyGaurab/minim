@@ -500,6 +500,32 @@
             android:tag="text:fg"
             android:text="@string/settings_about" />
 
+        <!-- v4.9.6: the only place to check for updates by hand (the check on every open is quiet) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/set_check_updates"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/update_check" />
+
+            <TextView
+                android:id="@+id/set_check_updates_version"
+                style="@style/MinimText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:alpha="0.6"
+                android:tag="text:fg"
+                android:textSize="12sp" />
+        </LinearLayout>
+
         <TextView
             android:id="@+id/set_about"
             style="@style/MinimText"

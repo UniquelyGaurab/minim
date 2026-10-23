@@ -2,4 +2,6 @@
 <!-- v4.9.1: the recap card is shared from the app's cache. -->
 <paths>
     <cache-path name="recap" path="recap/" />
+    <!-- v4.9.6: downloaded update APKs, opened by Android's package installer -->
+    <cache-path name="updates" path="updates/" />
 </paths>

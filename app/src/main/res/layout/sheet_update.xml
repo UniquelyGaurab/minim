@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v4.9.6 update pop-up body (under the sheet heading "Minim 4.9.7 is here" / "You're on 4.9.5"):
+     short release notes, a status line + progress while downloading, and two pills -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <TextView
+        android:id="@+id/update_notes"
+        style="@style/MinimText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:alpha="0.85"
+        android:lineSpacingExtra="3dp"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        android:tag="text:fg"
+        android:textSize="14sp" />
+
+    <TextView
+        android:id="@+id/update_status"
+        style="@style/MinimText.Semi"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:lineSpacingExtra="2dp"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        android:tag="text:fg"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
+    <com.minim.music.ui.ProgressLine
+        android:id="@+id/update_progress"
+        android:layout_width="match_parent"
+        android:layout_height="16dp"
+        android:layout_marginTop="6dp"
+        android:enabled="false"
+        android:importantForAccessibility="no"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/update_secondary"
+            style="@style/MinimText.Semi"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/shape_pill_outline"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:tag="fill:fg text:fg"
+            android:text="@string/update_later"
+            android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/update_primary"
+            style="@style/MinimText.Semi"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/shape_pill"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:tag="fill:fg text:bg"
+            android:text="@string/update_download_now"
+            android:textSize="15sp" />
+    </LinearLayout>
+</LinearLayout>

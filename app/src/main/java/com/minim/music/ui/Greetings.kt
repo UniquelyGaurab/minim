@@ -1,5 +1,8 @@
 package com.minim.music.ui
 
+import com.minim.music.data.greetings.RemoteGreeting
+import com.minim.music.data.greetings.RemoteGreetingFile
+import com.minim.music.data.greetings.RemoteGreetingsParser
 import java.util.Calendar
 import java.util.Locale
 import kotlin.random.Random
@@ -53,6 +56,10 @@ data class GreetingFacts(
  * saved) and 4 for users who skipped it (ids in [NO_NAME_IDS], only when no name is saved). They
  * share the regular greetings' bag: [personalLines] returns null when one doesn't fit.
  *
+ * Remote (v4.9.6): lines from greetings/greetings.json in the public repo, kept in [remote] by
+ * RemoteGreetingsSync. "Anytime" ones (ids from [ANYTIME_BASE]) join the regular bag; occasion ones
+ * (ids from [OCCASION_BASE]) only fit inside their dates and get their own slots in [Rotation].
+ *
  * [Rotation] mixes them: every second greeting is a fun one when one fits, else a regular one.
  * Nothing repeats twice in a row.
  */
@@ -82,7 +89,43 @@ object Greetings {
 
     fun isData(index: Int): Boolean = index in 100..199
 
-    fun isPersonal(index: Int): Boolean = index >= 200
+    fun isPersonal(index: Int): Boolean = index in 200..299
+
+    // ---- Remote greetings (v4.9.6) --------------------------------------------------------------
+
+    const val ANYTIME_BASE = 1000
+    const val OCCASION_BASE = 5000
+
+    /** The greetings file from GitHub currently in use (empty until one is loaded). */
+    @Volatile
+    var remote: RemoteGreetingFile = RemoteGreetingFile.EMPTY
+
+    fun isAnytime(index: Int): Boolean = index in ANYTIME_BASE until ANYTIME_BASE + RemoteGreetingsParser.MAX_ENTRIES
+
+    fun isOccasion(index: Int): Boolean = index in OCCASION_BASE until OCCASION_BASE + RemoteGreetingsParser.MAX_ENTRIES
+
+    fun isRemote(index: Int): Boolean = isAnytime(index) || isOccasion(index)
+
+    fun remoteGreeting(id: Int, file: RemoteGreetingFile = remote): RemoteGreeting? = when {
+        isAnytime(id) -> file.anytime.getOrNull(id - ANYTIME_BASE)
+        isOccasion(id) -> file.occasions.getOrNull(id - OCCASION_BASE)
+        else -> null
+    }
+
+    /**
+     * Line 1 and line 2 of remote greeting [id], or null when it can't show now: it's gone from the
+     * file, an occasion one is outside its dates, or it uses {name} and no name is saved.
+     */
+    fun remoteLines(
+        id: Int,
+        name: String,
+        now: Calendar = Calendar.getInstance(),
+        file: RemoteGreetingFile = remote
+    ): Pair<String, String>? {
+        val g = remoteGreeting(id, file) ?: return null
+        if (g.range != null && !g.range.matches(now)) return null
+        return g.linesFor(name)
+    }
 
     /**
      * Line 1 and line 2 of personal greeting [id], or null when it doesn't fit: name greetings
@@ -117,6 +160,7 @@ object Greetings {
     fun fits(id: Int, facts: GreetingFacts, name: String, now: Calendar = Calendar.getInstance()): Boolean = when {
         isData(id) -> dataLines(id, facts, now) != null
         isPersonal(id) -> personalLines(id, name, now) != null
+        isRemote(id) -> remoteLines(id, name, now) != null
         else -> true
     }
 
@@ -314,25 +358,65 @@ object Greetings {
     /**
      * Every second greeting is a fun one when one fits, else a regular one. Fun ones come from
      * their own shuffle bag and are skipped when their data isn't there; regular ones use the
-     * 15-greeting bag as before. Never the same greeting twice in a row.
+     * regular bag, which also holds the remote "anytime" lines (v4.9.6). Never the same greeting
+     * twice in a row.
+     *
+     * Occasion lines (v4.9.6) take their own slots while their dates are on: every 6th greeting
+     * inside the range, and on the day itself every 3rd one, starting with the first greeting after
+     * the time-based one. [remoteSource] gives the remote file in use; when it changes the regular bag
+     * is rebuilt.
      */
-    class Rotation(private val random: Random = Random.Default) {
-        private val regular = ShuffleBag(REGULAR_IDS.size, random)
+    class Rotation(
+        private val random: Random = Random.Default,
+        private val remoteSource: () -> RemoteGreetingFile = { remote }
+    ) {
+        private var file: RemoteGreetingFile? = null
+        private var regularIds: List<Int> = REGULAR_IDS
+        private var regular = ShuffleBag(REGULAR_IDS.size, random)
         private val fun_ = ShuffleBag(DATA_IDS.size, random)
+        private val recentOccasions = ArrayList<Int>()
         private var slot = 0
         var last: Int = TIME_BASED
             private set
 
+        /** Rebuilds the regular bag when the remote file changed. */
+        private fun sync(): RemoteGreetingFile {
+            val f = remoteSource()
+            if (f !== file) {
+                file = f
+                regularIds = REGULAR_IDS + f.anytime.indices.map { ANYTIME_BASE + it }
+                regular = ShuffleBag(regularIds.size, random)
+                recentOccasions.clear()
+            }
+            return f
+        }
+
         /** The time-based greeting was shown on open: the next pick is a fun one (if any fits). */
         fun markShown(index: Int) {
-            if (!isData(index)) REGULAR_IDS.indexOf(index).takeIf { it >= 0 }?.let { regular.markShown(it) }
+            sync()
+            if (!isData(index)) regularIds.indexOf(index).takeIf { it >= 0 }?.let { regular.markShown(it) }
             last = index
             slot = 0
         }
 
-        /** The next greeting index; [fits] says whether a fun greeting's data is there right now. */
-        fun next(fits: (Int) -> Boolean): Int {
+        /**
+         * The next greeting index; [fits] says whether a fun, personal or remote greeting can show
+         * right now (for occasion ones that includes their dates). [now] decides the day itself.
+         */
+        fun next(now: Calendar = Calendar.getInstance(), fits: (Int) -> Boolean): Int {
+            val f = sync()
             slot++
+            if (f.occasions.isNotEmpty()) {
+                val active = f.occasions.indices.map { OCCASION_BASE + it }.filter { fits(it) }
+                if (active.isNotEmpty()) {
+                    val mainDay = active.filter { f.occasions[it - OCCASION_BASE].range?.isMainDay(now) == true }
+                    val due = if (mainDay.isNotEmpty()) slot % 3 == 1 else slot % 6 == 3
+                    if (due) pickOccasion(active, mainDay)?.let { id ->
+                        last = id
+                        return id
+                    }
+                }
+            }
             if (slot % 2 == 1) {
                 repeat(DATA_IDS.size * 2) {
                     val id = DATA_IDS[fun_.next()]
@@ -345,14 +429,29 @@ object Greetings {
             return nextRegular(fits)
         }
 
+        /** An occasion line, preferring the day-itself ones and avoiding the most recent picks. */
+        private fun pickOccasion(active: List<Int>, mainDay: List<Int>): Int? {
+            val pool = if (mainDay.isNotEmpty() && random.nextInt(4) != 0) mainDay else active
+            val fresh = pool.filter { it != last && it !in recentOccasions }
+            val candidates = fresh.ifEmpty { pool.filter { it != last } }
+            if (candidates.isEmpty()) return null
+            val id = candidates[random.nextInt(candidates.size)]
+            recentOccasions.add(id)
+            while (recentOccasions.size > maxOf(1, minOf(8, active.size - 1))) recentOccasions.removeAt(0)
+            return id
+        }
+
         /**
          * A regular greeting (also used when a fun one stops fitting before it is drawn). The 15
-         * regular ones always fit; a personal one (v4.7) only when [fits] says so.
+         * regular ones always fit; a personal one (v4.7) or a remote anytime one (v4.9.6) only when
+         * [fits] says so.
          */
         fun nextRegular(fits: (Int) -> Boolean = { false }): Int {
-            repeat(REGULAR_IDS.size * 2) {
-                val id = REGULAR_IDS[regular.next()]
-                if (id != last && (!isPersonal(id) || fits(id))) {
+            sync()
+            val ids = regularIds
+            repeat(ids.size * 2) {
+                val id = ids[regular.next()]
+                if (id != last && ((!isPersonal(id) && !isRemote(id)) || fits(id))) {
                     last = id
                     return id
                 }

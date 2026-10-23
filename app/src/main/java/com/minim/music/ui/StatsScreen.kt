@@ -69,9 +69,9 @@ class StatsScreen(root: View, private val artwork: ArtworkPipeline) {
         private set
 
     init {
-        topArtistPhoto.clipToOutline = true
+        RoundPhoto.apply(topArtistPhoto)
         topSongArt.clipToOutline = true
-        todayArtistPhoto.clipToOutline = true
+        RoundPhoto.apply(todayArtistPhoto)
     }
 
     fun renderToday(s: DayStats) {

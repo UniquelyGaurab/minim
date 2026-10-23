@@ -2,6 +2,8 @@ package com.minim.music
 
 import android.app.Application
 import android.content.ComponentCallbacks2
+import com.minim.music.data.greetings.OkHttpGreetingsFetcher
+import com.minim.music.data.greetings.RemoteGreetingsSync
 import com.minim.music.data.local.AppPreferences
 import com.minim.music.data.local.LibraryDatabase
 import com.minim.music.data.source.LyricsProvider
@@ -9,6 +11,7 @@ import com.minim.music.data.source.MusicSourceAdapter
 import com.minim.music.data.source.LrcLibLyricsAdapter
 import com.minim.music.playback.PlaybackController
 import com.minim.music.playback.SleepTimerManager
+import com.minim.music.ui.Greetings
 import com.minim.music.util.ArtworkPipeline
 import okhttp3.Cache
 import okhttp3.OkHttpClient
@@ -42,6 +45,16 @@ class MinimApp : Application() {
     lateinit var sleepTimerManager: SleepTimerManager
         private set
 
+    /** v4.9.6: update checker / downloader for GitHub Releases. */
+    lateinit var updates: com.minim.music.data.update.AppUpdates
+        private set
+
+    /** v4.9.6: when the update pop-up may show; per process, so a rotation doesn't ask again. */
+    val updateGate = com.minim.music.ui.UpdatePromptGate()
+
+    /** v4.9.6: false until the first activity start of this process (the first app open). */
+    var updateOpenSeen = false
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -66,6 +79,32 @@ class MinimApp : Application() {
         playbackController = PlaybackController(this, database, preferences, artworkPipeline)
         discoverEngine = com.minim.music.data.discover.DiscoverEngine(this, database, sourceAdapter)
         sleepTimerManager = SleepTimerManager(playbackController)
+        syncRemoteGreetings()
+        updates = com.minim.music.data.update.AppUpdates(this, okHttpClient)
+        updates.cleanUp()
+    }
+
+    private val greetingsExecutor by lazy {
+        java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "minim-greetings").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }
+        }
+    }
+
+    /**
+     * v4.9.6: loads the greetings file from GitHub (offline copy first, a fresh download about once
+     * a day). Safe to call on every app start: it returns at once and does nothing when not due.
+     */
+    fun syncRemoteGreetings() {
+        try {
+            greetingsExecutor.execute {
+                RemoteGreetingsSync.run(
+                    dir = File(filesDir, "greetings"),
+                    fetcher = OkHttpGreetingsFetcher(okHttpClient)
+                ) { file -> Greetings.remote = file }
+            }
+        } catch (e: Exception) {
+            // Greetings are optional
+        }
     }
 
     override fun onTrimMemory(level: Int) {

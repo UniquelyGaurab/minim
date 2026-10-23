@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "greetings": [
+    { "text": "Fresh from GitHub.\nStill warm." },
+    { "text": "Volume up.\nWorries down." },
+    { "text": "One more song.\nIt's never just one." },
+    { "text": "Headphones on,\nworld off." },
+    { "text": "Skip less.\nVibe more." },
+    { "text": "Plot twist:\nthe playlist is the main character." },
+    { "text": "{name} on the decks.\nCrowd goes wild." },
+
+    { "name": "Magh Bihu (Uruka)", "text": "Uruka night.\nFeast loud, sleep late.", "from": "01-14" },
+    { "name": "Magh Bihu", "text": "Happy Magh Bihu!\nPitha first, playlist after.", "from": "01-14", "to": "01-15", "day": "01-15" },
+    { "name": "Magh Bihu", "text": "Meji's burning bright.\nSo is this queue.", "from": "01-15" },
+    { "name": "Magh Bihu", "text": "Bhogali Bihu mood:\nfull plate, full volume.", "from": "01-14", "to": "01-15", "day": "01-15" },
+
+    { "name": "Rongali Bihu", "text": "Bohag Bihur xubhessa!\nNew year, new queue.", "from": "04-14", "to": "04-20", "day": "04-15" },
+    { "name": "Rongali Bihu", "text": "Happy Rongali Bihu!\nDhol on, volume up.", "from": "04-14", "to": "04-20", "day": "04-15" },
+    { "name": "Rongali Bihu", "text": "Bohag is here.\nLet the pepa play.", "from": "04-14", "to": "04-20", "day": "04-15" },
+    { "name": "Rongali Bihu", "text": "Husori season.\nSing along, loudly.", "from": "04-14", "to": "04-20", "day": "04-15" },
+    { "name": "Rongali Bihu", "text": "Gamosa on, {name}.\nBihu mode: activated.", "from": "04-14", "to": "04-20", "day": "04-15" },
+
+    { "name": "Kati Bihu", "text": "Happy Kati Bihu!\nA saki lit, a song on.", "from": "10-17", "to": "10-18", "day": "10-18" },
+    { "name": "Kati Bihu", "text": "Kongali Bihu.\nQuiet lamps, soft tunes.", "from": "10-17", "to": "10-18", "day": "10-18" },
+
+    { "name": "Republic Day", "text": "Happy Republic Day!\nParade-level bangers.", "from": "01-26" },
+    { "name": "Republic Day", "text": "Jai Hind, {name}!\nPlay something proud.", "from": "01-26" },
+
+    { "name": "Independence Day", "text": "Happy Independence Day!\nFree to play anything.", "from": "08-15" },
+    { "name": "Independence Day", "text": "Jai Hind!\nTiranga high, volume higher.", "from": "08-15" },
+
+    { "name": "Christmas Eve", "text": "Christmas Eve.\nCosy songs only.", "from": "12-24" },
+    { "name": "Christmas", "text": "Merry Christmas!\nSleigh the playlist.", "from": "12-24", "to": "12-26", "day": "12-25" },
+    { "name": "Christmas", "text": "Jingle Bells again?\nWe can do better.", "from": "12-24", "to": "12-26", "day": "12-25" },
+    { "name": "Christmas", "text": "Merry Christmas, {name}!\nUnwrap a new song.", "from": "12-24", "to": "12-26", "day": "12-25" },
+
+    { "name": "New Year's Eve", "text": "Last day of the year.\nMake the last song count.", "from": "12-31" },
+    { "name": "New Year's Eve", "text": "Countdown loading...\nQueue the bangers.", "from": "12-31" },
+    { "name": "New Year's Eve and Day", "text": "New year, who's this?\nStill you. Still vibing.", "from": "12-31", "to": "01-01", "day": "01-01" },
+    { "name": "New Year's Day", "text": "Happy New Year!\nSame you, new playlist.", "from": "01-01" },
+    { "name": "New Year's Day", "text": "Happy New Year, {name}!\nFirst song sets the tone.", "from": "01-01" },
+
+    { "name": "Holi 2026", "text": "Happy Holi!\nTurn the colours up.", "from": "03-03", "to": "03-04", "day": "03-04", "year": 2026 },
+    { "name": "Holi 2026", "text": "Bura na mano,\nHoli hai. Play it loud.", "from": "03-03", "to": "03-04", "day": "03-04", "year": 2026 },
+    { "name": "Holi 2026", "text": "Gulaal on your face,\nbangers in your ears.", "from": "03-03", "to": "03-04", "day": "03-04", "year": 2026 },
+    { "name": "Holi 2026", "text": "Happy Holi, {name}!\nStay colourful.", "from": "03-03", "to": "03-04", "day": "03-04", "year": 2026 },
+    { "name": "Holi 2027", "text": "Happy Holi!\nTurn the colours up.", "from": "03-21", "to": "03-22", "day": "03-22", "year": 2027 },
+    { "name": "Holi 2027", "text": "Bura na mano,\nHoli hai. Play it loud.", "from": "03-21", "to": "03-22", "day": "03-22", "year": 2027 },
+    { "name": "Holi 2027", "text": "Gulaal on your face,\nbangers in your ears.", "from": "03-21", "to": "03-22", "day": "03-22", "year": 2027 },
+    { "name": "Holi 2027", "text": "Happy Holi, {name}!\nStay colourful.", "from": "03-21", "to": "03-22", "day": "03-22", "year": 2027 },
+
+    { "name": "Eid al-Fitr 2026", "text": "Eid Mubarak!\nSevaiyan and good songs.", "from": "03-20", "to": "03-22", "day": "03-21", "year": 2026 },
+    { "name": "Eid al-Fitr 2026", "text": "Sheer khurma's ready.\nSo is the queue.", "from": "03-20", "to": "03-22", "day": "03-21", "year": 2026 },
+    { "name": "Eid al-Fitr 2026", "text": "Eid Mubarak, {name}!\nYour eidi: a fresh playlist.", "from": "03-20", "to": "03-22", "day": "03-21", "year": 2026 },
+    { "name": "Eid al-Fitr 2027", "text": "Eid Mubarak!\nSevaiyan and good songs.", "from": "03-09", "to": "03-11", "day": "03-10", "year": 2027 },
+    { "name": "Eid al-Fitr 2027", "text": "Sheer khurma's ready.\nSo is the queue.", "from": "03-09", "to": "03-11", "day": "03-10", "year": 2027 },
+    { "name": "Eid al-Fitr 2027", "text": "Eid Mubarak, {name}!\nYour eidi: a fresh playlist.", "from": "03-09", "to": "03-11", "day": "03-10", "year": 2027 },
+
+    { "name": "Eid al-Adha 2026", "text": "Eid al-Adha Mubarak!\nGood food, better songs.", "from": "05-27", "to": "05-29", "day": "05-28", "year": 2026 },
+    { "name": "Eid al-Adha 2026", "text": "Bakrid Mubarak!\nFamily, feasts and music.", "from": "05-27", "to": "05-29", "day": "05-28", "year": 2026 },
+    { "name": "Eid al-Adha 2026", "text": "Eid Mubarak, {name}!\nShare the joy, share a song.", "from": "05-27", "to": "05-29", "day": "05-28", "year": 2026 },
+    { "name": "Eid al-Adha 2027", "text": "Eid al-Adha Mubarak!\nGood food, better songs.", "from": "05-16", "to": "05-18", "day": "05-17", "year": 2027 },
+    { "name": "Eid al-Adha 2027", "text": "Bakrid Mubarak!\nFamily, feasts and music.", "from": "05-16", "to": "05-18", "day": "05-17", "year": 2027 },
+    { "name": "Eid al-Adha 2027", "text": "Eid Mubarak, {name}!\nShare the joy, share a song.", "from": "05-16", "to": "05-18", "day": "05-17", "year": 2027 },
+
+    { "name": "Durga Puja 2026", "text": "Shubho Pujo!\nDhak beats loading...", "from": "10-16", "to": "10-21", "day": "10-19", "year": 2026 },
+    { "name": "Durga Puja 2026", "text": "Pandal hopping?\nPack the playlist.", "from": "10-16", "to": "10-21", "day": "10-19", "year": 2026 },
+    { "name": "Durga Puja 2026 (Ashtami)", "text": "Shubho Ashtami!\nAnjali first, music after.", "from": "10-19", "year": 2026 },
+    { "name": "Durga Puja 2026 (Dashami)", "text": "Shubho Bijoya!\nAsche bochor abar hobe.", "from": "10-21", "year": 2026 },
+    { "name": "Durga Puja 2027", "text": "Shubho Pujo!\nDhak beats loading...", "from": "10-05", "to": "10-10", "day": "10-07", "year": 2027 },
+    { "name": "Durga Puja 2027", "text": "Pandal hopping?\nPack the playlist.", "from": "10-05", "to": "10-10", "day": "10-07", "year": 2027 },
+    { "name": "Durga Puja 2027 (Ashtami)", "text": "Shubho Ashtami!\nAnjali first, music after.", "from": "10-07", "year": 2027 },
+    { "name": "Durga Puja 2027 (Dashami)", "text": "Shubho Bijoya!\nAsche bochor abar hobe.", "from": "10-09", "to": "10-10", "year": 2027 },
+
+    { "name": "Diwali 2026", "text": "Happy Diwali!\nLights up. Volume up.", "from": "11-06", "to": "11-10", "day": "11-08", "year": 2026 },
+    { "name": "Diwali 2026", "text": "Diya on, bass on.\nFestival mode.", "from": "11-06", "to": "11-10", "day": "11-08", "year": 2026 },
+    { "name": "Diwali 2026", "text": "Sweets in one hand,\nplay button in the other.", "from": "11-06", "to": "11-10", "day": "11-08", "year": 2026 },
+    { "name": "Diwali 2026", "text": "Happy Diwali, {name}!\nMake it sparkle.", "from": "11-06", "to": "11-10", "day": "11-08", "year": 2026 },
+    { "name": "Diwali 2027", "text": "Happy Diwali!\nLights up. Volume up.", "from": "10-27", "to": "10-31", "day": "10-29", "year": 2027 },
+    { "name": "Diwali 2027", "text": "Diya on, bass on.\nFestival mode.", "from": "10-27", "to": "10-31", "day": "10-29", "year": 2027 },
+    { "name": "Diwali 2027", "text": "Sweets in one hand,\nplay button in the other.", "from": "10-27", "to": "10-31", "day": "10-29", "year": 2027 },
+    { "name": "Diwali 2027", "text": "Happy Diwali, {name}!\nMake it sparkle.", "from": "10-27", "to": "10-31", "day": "10-29", "year": 2027 }
+  ]
+}

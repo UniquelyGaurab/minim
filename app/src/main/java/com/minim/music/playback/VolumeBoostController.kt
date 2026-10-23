@@ -2,8 +2,10 @@ package com.minim.music.playback
 
 import android.media.audiofx.LoudnessEnhancer
 import android.util.Log
+import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 
 /**
@@ -12,6 +14,7 @@ import androidx.media3.exoplayer.ExoPlayer
  * playback starts, and fully releases the effect when the boost is Off (audio path untouched).
  * Any failure to create the effect (some phones don't offer it) just means no boost, never a crash.
  */
+@OptIn(UnstableApi::class)
 class VolumeBoostController(
     private val player: ExoPlayer,
     private val settingProvider: () -> Int
