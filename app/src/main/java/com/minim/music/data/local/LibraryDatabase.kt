@@ -1,0 +1,716 @@
+package com.minim.music.data.local
+
+import android.content.ContentValues
+import android.content.Context
+import android.database.Cursor
+import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteOpenHelper
+import com.minim.music.data.model.Playlist
+import com.minim.music.data.model.Track
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
+
+class LibraryDatabase(context: Context) :
+    SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
+
+    private val _likedIds = MutableStateFlow<Set<String>>(emptySet())
+    val likedIds: StateFlow<Set<String>> = _likedIds.asStateFlow()
+
+    override fun onCreate(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE tracks (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                artist TEXT NOT NULL,
+                duration_sec INTEGER NOT NULL,
+                thumbnail_url TEXT NOT NULL,
+                source_url TEXT NOT NULL,
+                is_liked INTEGER NOT NULL DEFAULT 0,
+                liked_at INTEGER NOT NULL DEFAULT 0,
+                last_played_at INTEGER NOT NULL DEFAULT 0,
+                play_count INTEGER NOT NULL DEFAULT 0
+            )
+            """.trimIndent()
+        )
+
+        db.execSQL(
+            """
+            CREATE TABLE playlists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                created_at INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+
+        db.execSQL(
+            """
+            CREATE TABLE playlist_tracks (
+                playlist_id INTEGER NOT NULL,
+                track_id TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                PRIMARY KEY (playlist_id, track_id)
+            )
+            """.trimIndent()
+        )
+        createV2Tables(db)
+        createV3Tables(db)
+    }
+
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        // v4.3: real step-by-step migrations. Never drop tables: liked songs, playlists and
+        // recents must survive every update.
+        if (oldVersion < 2) createV2Tables(db)
+        if (oldVersion < 3) createV3Tables(db)
+    }
+
+    override fun onDowngrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        // An older build opening a newer database: keep everything, the extra tables are ignored.
+    }
+
+    /** v2 (Minim 4.3.0): counted plays (30+ s heard) and the "not interested" list. */
+    private fun createV2Tables(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS plays (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                track_id TEXT NOT NULL,
+                played_at INTEGER NOT NULL,
+                listened_ms INTEGER NOT NULL DEFAULT 0
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_plays_track ON plays(track_id)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_plays_time ON plays(played_at)")
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS not_interested (
+                track_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL DEFAULT '',
+                artist TEXT NOT NULL DEFAULT '',
+                added_at INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+    }
+
+    /**
+     * v3 (Minim 4.9.0): real listening time. listen_time holds the seconds actually heard per
+     * song, per hour, per day (yyyymmdd, local time), so listening that crosses midnight is split
+     * by day. Title/artist/cover are kept with it so songs skipped before they count don't have to
+     * go into the tracks table (Discover reads that one). plays.tracked = 1 for plays recorded
+     * from 4.9.0 on (their time is in listen_time); older plays (tracked = 0) get the estimate.
+     * Only adds things: every existing table and row stays as it is.
+     */
+    private fun createV3Tables(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS listen_time (
+                day INTEGER NOT NULL,
+                hour INTEGER NOT NULL,
+                track_id TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                artist TEXT NOT NULL DEFAULT '',
+                thumbnail_url TEXT NOT NULL DEFAULT '',
+                ms INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (day, hour, track_id)
+            )
+            """.trimIndent()
+        )
+        var hasTracked = false
+        db.rawQuery("PRAGMA table_info(plays)", null).use { c ->
+            val nameCol = c.getColumnIndex("name")
+            while (c.moveToNext()) if (c.getString(nameCol) == "tracked") hasTracked = true
+        }
+        if (!hasTracked) db.execSQL("ALTER TABLE plays ADD COLUMN tracked INTEGER NOT NULL DEFAULT 0")
+    }
+
+    suspend fun refreshLikedCache() = withContext(Dispatchers.IO) {
+        val ids = HashSet<String>()
+        readableDatabase.rawQuery("SELECT id FROM tracks WHERE is_liked = 1", null).use { cursor ->
+            while (cursor.moveToNext()) {
+                ids.add(cursor.getString(0))
+            }
+        }
+        _likedIds.value = ids
+    }
+
+    /**
+     * The user started this song on purpose (tapped it): it goes to the top of Recents right away.
+     * Songs the queue moves on to only reach Recents once they count as a play (see [recordCountedPlay]).
+     */
+    suspend fun recordPlayback(track: Track) = withContext(Dispatchers.IO) {
+        val db = writableDatabase
+        upsertTrackInternal(db, track)
+        db.execSQL(
+            "UPDATE tracks SET last_played_at = ? WHERE id = ?",
+            arrayOf<Any>(System.currentTimeMillis(), track.id)
+        )
+    }
+
+    /** v4.3: a play that counts (30+ seconds heard). Stored with its time; bumps count + Recents. */
+    suspend fun recordCountedPlay(track: Track, listenedMs: Long): Long = withContext(Dispatchers.IO) {
+        val db = writableDatabase
+        val now = System.currentTimeMillis()
+        var rowId = -1L
+        db.beginTransaction()
+        try {
+            upsertTrackInternal(db, track)
+            db.execSQL(
+                "UPDATE tracks SET last_played_at = ?, play_count = play_count + 1 WHERE id = ?",
+                arrayOf<Any>(now, track.id)
+            )
+            val cv = ContentValues().apply {
+                put("track_id", track.id)
+                put("played_at", now)
+                put("listened_ms", listenedMs)
+                put("tracked", 1)
+            }
+            rowId = db.insert("plays", null, cv)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        rowId
+    }
+
+    // ---- v4.9: real listening time and day stats ------------------------------------------------
+
+    /** One piece of listening to add: [ms] heard of [track] in [slice]'s day and hour. */
+    data class ListenAdd(val slice: com.minim.music.data.stats.ListenSlice, val track: Track)
+
+    /**
+     * Adds heard time (the player saves it every few seconds while playing, and on pause/skip).
+     * [playRowId]/[playListenedMs]: the counted play of the song that's playing gets its real
+     * listening time so far (plays.listened_ms), so it survives the app being closed.
+     */
+    suspend fun addListenTime(adds: List<ListenAdd>, playRowId: Long, playListenedMs: Long) =
+        withContext(Dispatchers.IO) {
+            val db = writableDatabase
+            db.beginTransaction()
+            try {
+                for (a in adds) {
+                    if (a.slice.ms <= 0L) continue
+                    // Android 9 ships SQLite 3.22 (no upsert): insert the row if it's new, then add
+                    db.execSQL(
+                        "INSERT OR IGNORE INTO listen_time (day, hour, track_id, ms) VALUES (?, ?, ?, 0)",
+                        arrayOf<Any>(a.slice.day, a.slice.hour, a.track.id)
+                    )
+                    db.execSQL(
+                        """
+                        UPDATE listen_time SET ms = ms + ?, title = ?, artist = ?, thumbnail_url = ?
+                        WHERE day = ? AND hour = ? AND track_id = ?
+                        """.trimIndent(),
+                        arrayOf<Any>(
+                            a.slice.ms, a.track.title, a.track.artist, a.track.thumbnailUrl,
+                            a.slice.day, a.slice.hour, a.track.id
+                        )
+                    )
+                }
+                if (playRowId > 0L && playListenedMs > 0L) {
+                    db.execSQL(
+                        "UPDATE plays SET listened_ms = MAX(listened_ms, ?) WHERE id = ?",
+                        arrayOf<Any>(playListenedMs, playRowId)
+                    )
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+        }
+
+    /** Counted plays of one day (12:00 AM to 11:59 PM local), oldest first. */
+    suspend fun getDayPlays(day: Int): List<com.minim.music.data.stats.PlayRow> = withContext(Dispatchers.IO) {
+        val start = com.minim.music.data.stats.Days.startMs(day)
+        val end = com.minim.music.data.stats.Days.endMs(day)
+        val list = ArrayList<com.minim.music.data.stats.PlayRow>()
+        val sql = """
+            SELECT t.id, t.title, t.artist, t.thumbnail_url, t.duration_sec,
+                   p.played_at, p.listened_ms, p.tracked
+            FROM plays p INNER JOIN tracks t ON t.id = p.track_id
+            WHERE p.played_at >= ? AND p.played_at < ?
+            ORDER BY p.played_at ASC
+        """.trimIndent()
+        readableDatabase.rawQuery(sql, arrayOf(start.toString(), end.toString())).use { c ->
+            while (c.moveToNext()) {
+                list.add(
+                    com.minim.music.data.stats.PlayRow(
+                        trackId = c.getString(0), title = c.getString(1), artist = c.getString(2),
+                        thumbnailUrl = c.getString(3), durationSec = c.getLong(4), playedAt = c.getLong(5),
+                        listenedMs = c.getLong(6), tracked = c.getInt(7) == 1
+                    )
+                )
+            }
+        }
+        list
+    }
+
+    /** Real listening time of one day, per song and hour. */
+    suspend fun getDayListens(day: Int): List<com.minim.music.data.stats.ListenRow> = withContext(Dispatchers.IO) {
+        val list = ArrayList<com.minim.music.data.stats.ListenRow>()
+        readableDatabase.rawQuery(
+            "SELECT track_id, title, artist, thumbnail_url, hour, ms FROM listen_time WHERE day = ?",
+            arrayOf(day.toString())
+        ).use { c ->
+            while (c.moveToNext()) {
+                list.add(
+                    com.minim.music.data.stats.ListenRow(
+                        trackId = c.getString(0), title = c.getString(1), artist = c.getString(2),
+                        thumbnailUrl = c.getString(3), hour = c.getInt(4), ms = c.getLong(5)
+                    )
+                )
+            }
+        }
+        list
+    }
+
+    /**
+     * v4.9.2: listening time per day from [fromDay] to [toDay] (both included), for the day streak:
+     * real listening time (4.9.0+) plus the old-data estimate for plays from before 4.9.0.
+     */
+    suspend fun getDayTotals(fromDay: Int, toDay: Int): Map<Int, Long> = withContext(Dispatchers.IO) {
+        val out = HashMap<Int, Long>()
+        readableDatabase.rawQuery(
+            "SELECT day, SUM(ms) FROM listen_time WHERE day >= ? AND day <= ? GROUP BY day",
+            arrayOf(fromDay.toString(), toDay.toString())
+        ).use { c ->
+            while (c.moveToNext()) out[c.getInt(0)] = (out[c.getInt(0)] ?: 0L) + c.getLong(1)
+        }
+        val start = com.minim.music.data.stats.Days.startMs(fromDay)
+        val end = com.minim.music.data.stats.Days.endMs(toDay)
+        readableDatabase.rawQuery(
+            """
+            SELECT p.played_at, p.listened_ms, t.duration_sec FROM plays p
+            INNER JOIN tracks t ON t.id = p.track_id
+            WHERE p.tracked = 0 AND p.played_at >= ? AND p.played_at < ?
+            """.trimIndent(),
+            arrayOf(start.toString(), end.toString())
+        ).use { c ->
+            while (c.moveToNext()) {
+                val day = com.minim.music.data.stats.Days.keyOf(c.getLong(0))
+                val ms = if (c.getLong(2) > 0) c.getLong(2) * 1000L else c.getLong(1).coerceAtLeast(0L)
+                out[day] = (out[day] ?: 0L) + ms
+            }
+        }
+        out
+    }
+
+    /** v4.9.2: saved songs by id, in the order of [ids] (missing ones are left out). */
+    suspend fun getTracksByIds(ids: List<String>): List<Track> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext emptyList()
+        val found = HashMap<String, Track>()
+        ids.distinct().chunked(400).forEach { part ->
+            val marks = part.joinToString(",") { "?" }
+            readableDatabase.rawQuery("SELECT * FROM tracks WHERE id IN ($marks)", part.toTypedArray()).use { c ->
+                while (c.moveToNext()) cursorToTrack(c).let { found[it.id] = it }
+            }
+        }
+        ids.mapNotNull { found[it] }
+    }
+
+    suspend fun getDayStats(day: Int): com.minim.music.data.stats.DayStats =
+        com.minim.music.data.stats.StatsEngine.compute(day, getDayPlays(day), getDayListens(day))
+
+    /**
+     * The most recent day before [today] with listening history (a counted play, or at least a
+     * minute heard), or null. This is the recap day: only a newer day with history replaces it.
+     */
+    suspend fun latestPastHistoryDay(today: Int): Int? = withContext(Dispatchers.IO) {
+        val todayStart = com.minim.music.data.stats.Days.startMs(today)
+        var fromPlays: Int? = null
+        readableDatabase.rawQuery(
+            "SELECT MAX(played_at) FROM plays WHERE played_at < ?",
+            arrayOf(todayStart.toString())
+        ).use { c ->
+            if (c.moveToFirst() && !c.isNull(0)) fromPlays = com.minim.music.data.stats.Days.keyOf(c.getLong(0))
+        }
+        var fromListens: Int? = null
+        readableDatabase.rawQuery(
+            // (the minute is written into the SQL: rawQuery binds text, and SUM() has no number affinity)
+            "SELECT day FROM listen_time WHERE day < ? GROUP BY day HAVING SUM(ms) >= " +
+                com.minim.music.data.stats.StatsEngine.HISTORY_MS + " ORDER BY day DESC LIMIT 1",
+            arrayOf(today.toString())
+        ).use { c ->
+            if (c.moveToFirst()) fromListens = c.getInt(0)
+        }
+        listOfNotNull(fromPlays, fromListens).let { com.minim.music.data.stats.RecapRules.recapDay(today, it) }
+    }
+
+    /**
+     * Past days (before [today]) with listening history in the last [lookbackDays], newest first.
+     * The Stats tab walks these until it finds a non-quiet day for the recap.
+     */
+    suspend fun pastHistoryDays(today: Int, lookbackDays: Int = 120): List<Int> = withContext(Dispatchers.IO) {
+        val todayStart = com.minim.music.data.stats.Days.startMs(today)
+        val from = com.minim.music.data.stats.Days.startMs(
+            com.minim.music.data.stats.Days.key(com.minim.music.data.stats.Days.date(today).minusDays(lookbackDays.toLong()))
+        )
+        val days = HashSet<Int>()
+        readableDatabase.rawQuery(
+            "SELECT played_at FROM plays WHERE played_at >= ? AND played_at < ?",
+            arrayOf(from.toString(), todayStart.toString())
+        ).use { c ->
+            while (c.moveToNext()) days.add(com.minim.music.data.stats.Days.keyOf(c.getLong(0)))
+        }
+        val fromKey = com.minim.music.data.stats.Days.keyOf(from)
+        readableDatabase.rawQuery(
+            "SELECT day FROM listen_time WHERE day >= ? AND day < ? GROUP BY day HAVING SUM(ms) >= " +
+                com.minim.music.data.stats.StatsEngine.HISTORY_MS,
+            arrayOf(fromKey.toString(), today.toString())
+        ).use { c ->
+            while (c.moveToNext()) days.add(c.getInt(0))
+        }
+        days.filter { it < today }.sortedDescending()
+    }
+
+    /** One counted play with its song (for Discover). */
+    data class PlayEvent(val track: Track, val playedAt: Long)
+
+    /** Counted plays since [sinceMs], newest first, with each song's details. */
+    suspend fun getPlayEvents(sinceMs: Long = 0L, limit: Int = 3000): List<PlayEvent> = withContext(Dispatchers.IO) {
+        val list = ArrayList<PlayEvent>()
+        val sql = """
+            SELECT t.*, p.played_at AS p_played_at FROM plays p
+            INNER JOIN tracks t ON t.id = p.track_id
+            WHERE p.played_at >= ?
+            ORDER BY p.played_at DESC LIMIT ?
+        """.trimIndent()
+        readableDatabase.rawQuery(sql, arrayOf(sinceMs.toString(), limit.toString())).use { c ->
+            val col = c.getColumnIndexOrThrow("p_played_at")
+            while (c.moveToNext()) list.add(PlayEvent(cursorToTrack(c), c.getLong(col)))
+        }
+        list
+    }
+
+    /** Song stats: how often (counted plays, plus older counts from before v4.3) and when last played. */
+    data class TrackStats(val track: Track, val playCount: Int, val lastPlayedAt: Long, val isLiked: Boolean, val likedAt: Long)
+
+    suspend fun getAllTrackStats(): List<TrackStats> = withContext(Dispatchers.IO) {
+        val list = ArrayList<TrackStats>()
+        readableDatabase.rawQuery("SELECT * FROM tracks", null).use { c ->
+            val cCount = c.getColumnIndexOrThrow("play_count")
+            val cLast = c.getColumnIndexOrThrow("last_played_at")
+            val cLiked = c.getColumnIndexOrThrow("is_liked")
+            val cLikedAt = c.getColumnIndexOrThrow("liked_at")
+            while (c.moveToNext()) {
+                list.add(TrackStats(cursorToTrack(c), c.getInt(cCount), c.getLong(cLast), c.getInt(cLiked) == 1, c.getLong(cLikedAt)))
+            }
+        }
+        list
+    }
+
+    /** Last counted play per song (0 = never counted since v4.3). */
+    suspend fun getLastCountedPlays(): Map<String, Long> = withContext(Dispatchers.IO) {
+        val map = HashMap<String, Long>()
+        readableDatabase.rawQuery("SELECT track_id, MAX(played_at) FROM plays GROUP BY track_id", null).use { c ->
+            while (c.moveToNext()) map[c.getString(0)] = c.getLong(1)
+        }
+        map
+    }
+
+    /**
+     * v4.5: what the fun Home greetings talk about, in one quick read (a handful of small COUNT /
+     * GROUP BY queries on indexed columns, off the main thread). The "now playing" part is left
+     * empty: the screen fills it from the player. Plays "today" start at [dayStartMs], "this week"
+     * is the last 7 days.
+     */
+    suspend fun getGreetingFacts(dayStartMs: Long): com.minim.music.ui.GreetingFacts = withContext(Dispatchers.IO) {
+        val db = readableDatabase
+        val now = System.currentTimeMillis()
+        val weekStart = (now - 7L * 24 * 60 * 60 * 1000).toString()
+        val likedSince = (now - 14L * 24 * 60 * 60 * 1000).toString()
+
+        fun count(sql: String, args: Array<String>): Int =
+            db.rawQuery(sql, args).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
+
+        var lastId: String? = null
+        var lastTitle: String? = null
+        var lastArtist: String? = null
+        db.rawQuery(
+            "SELECT id, title, artist FROM tracks WHERE last_played_at > 0 ORDER BY last_played_at DESC LIMIT 1", null
+        ).use { c ->
+            if (c.moveToFirst()) {
+                lastId = c.getString(0); lastTitle = c.getString(1); lastArtist = c.getString(2)
+            }
+        }
+
+        val playsToday = count("SELECT COUNT(*) FROM plays WHERE played_at >= ?", arrayOf(dayStartMs.toString()))
+
+        var topTrack: String? = null
+        var topTrackPlays = 0
+        db.rawQuery(
+            """
+            SELECT t.title, COUNT(*) AS c FROM plays p INNER JOIN tracks t ON t.id = p.track_id
+            WHERE p.played_at >= ? GROUP BY p.track_id ORDER BY c DESC, MAX(p.played_at) DESC LIMIT 1
+            """.trimIndent(), arrayOf(weekStart)
+        ).use { c -> if (c.moveToFirst()) { topTrack = c.getString(0); topTrackPlays = c.getInt(1) } }
+
+        var topArtist: String? = null
+        var topArtistPlays = 0
+        db.rawQuery(
+            """
+            SELECT t.artist, COUNT(*) AS c FROM plays p INNER JOIN tracks t ON t.id = p.track_id
+            WHERE p.played_at >= ? GROUP BY t.artist ORDER BY c DESC, MAX(p.played_at) DESC LIMIT 1
+            """.trimIndent(), arrayOf(weekStart)
+        ).use { c -> if (c.moveToFirst()) { topArtist = c.getString(0); topArtistPlays = c.getInt(1) } }
+
+        val artistsWeek = count(
+            "SELECT COUNT(DISTINCT t.artist) FROM plays p INNER JOIN tracks t ON t.id = p.track_id WHERE p.played_at >= ?",
+            arrayOf(weekStart)
+        )
+
+        val likedCount = count("SELECT COUNT(*) FROM tracks WHERE is_liked = 1", emptyArray())
+        var recentLiked: String? = null
+        db.rawQuery(
+            "SELECT title FROM tracks WHERE is_liked = 1 AND liked_at >= ? ORDER BY liked_at DESC LIMIT 1",
+            arrayOf(likedSince)
+        ).use { c -> if (c.moveToFirst()) recentLiked = c.getString(0) }
+
+        var likedArtist: String? = null
+        var likedArtistCount = 0
+        db.rawQuery(
+            "SELECT artist, COUNT(*) AS c FROM tracks WHERE is_liked = 1 GROUP BY artist ORDER BY c DESC LIMIT 1", null
+        ).use { c -> if (c.moveToFirst()) { likedArtist = c.getString(0); likedArtistCount = c.getInt(1) } }
+
+        var playlistCount = 0
+        var newest: String? = null
+        var biggest: String? = null
+        var biggestSongs = 0
+        db.rawQuery(
+            """
+            SELECT p.name, COUNT(pt.track_id) AS cnt FROM playlists p
+            LEFT JOIN playlist_tracks pt ON p.id = pt.playlist_id
+            GROUP BY p.id ORDER BY p.created_at DESC
+            """.trimIndent(), null
+        ).use { c ->
+            while (c.moveToNext()) {
+                val name = c.getString(0)
+                val cnt = c.getInt(1)
+                if (playlistCount == 0) newest = name
+                if (cnt > biggestSongs) { biggest = name; biggestSongs = cnt }
+                playlistCount++
+            }
+        }
+
+        com.minim.music.ui.GreetingFacts(
+            lastId = lastId,
+            lastTitle = lastTitle,
+            lastArtist = lastArtist,
+            playsToday = playsToday,
+            topTrackWeekTitle = topTrack,
+            topTrackWeekPlays = topTrackPlays,
+            topArtistWeek = topArtist,
+            topArtistWeekPlays = topArtistPlays,
+            artistsWeek = artistsWeek,
+            likedCount = likedCount,
+            recentLikedTitle = recentLiked,
+            topLikedArtist = likedArtist,
+            topLikedArtistCount = likedArtistCount,
+            playlistCount = playlistCount,
+            newestPlaylist = newest,
+            biggestPlaylist = biggest,
+            biggestPlaylistSongs = biggestSongs
+        )
+    }
+
+    // ---- "Not interested" ----------------------------------------------------------------------
+
+    private val _notInterestedIds = MutableStateFlow<Set<String>>(emptySet())
+    val notInterestedIds: StateFlow<Set<String>> = _notInterestedIds.asStateFlow()
+
+    suspend fun refreshNotInterestedCache() = withContext(Dispatchers.IO) {
+        val ids = HashSet<String>()
+        readableDatabase.rawQuery("SELECT track_id FROM not_interested", null).use { c ->
+            while (c.moveToNext()) ids.add(c.getString(0))
+        }
+        _notInterestedIds.value = ids
+    }
+
+    suspend fun markNotInterested(track: Track) = withContext(Dispatchers.IO) {
+        val cv = ContentValues().apply {
+            put("track_id", track.id)
+            put("title", track.title)
+            put("artist", track.artist)
+            put("added_at", System.currentTimeMillis())
+        }
+        writableDatabase.insertWithOnConflict("not_interested", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+        _notInterestedIds.value = _notInterestedIds.value + track.id
+    }
+
+    suspend fun toggleLike(track: Track): Boolean = withContext(Dispatchers.IO) {
+        val db = writableDatabase
+        upsertTrackInternal(db, track)
+        var currentlyLiked = false
+        db.rawQuery("SELECT is_liked FROM tracks WHERE id = ?", arrayOf(track.id)).use { c ->
+            if (c.moveToFirst()) {
+                currentlyLiked = c.getInt(0) == 1
+            }
+        }
+        val newLiked = if (currentlyLiked) 0 else 1
+        val now = if (newLiked == 1) System.currentTimeMillis() else 0L
+        val cv = ContentValues().apply {
+            put("is_liked", newLiked)
+            put("liked_at", now)
+        }
+        db.update("tracks", cv, "id = ?", arrayOf(track.id))
+        refreshLikedCache()
+        newLiked == 1
+    }
+
+    suspend fun getRecentTracks(limit: Int = 25): List<Track> = withContext(Dispatchers.IO) {
+        queryTracks(
+            "SELECT * FROM tracks WHERE last_played_at > 0 ORDER BY last_played_at DESC LIMIT ?",
+            arrayOf(limit.toString())
+        )
+    }
+
+    suspend fun getLikedTracks(): List<Track> = withContext(Dispatchers.IO) {
+        queryTracks(
+            "SELECT * FROM tracks WHERE is_liked = 1 ORDER BY liked_at DESC",
+            emptyArray()
+        )
+    }
+
+    suspend fun createPlaylist(name: String): Long = withContext(Dispatchers.IO) {
+        val clean = name.trim()
+        if (clean.isEmpty()) return@withContext -1L
+        val cv = ContentValues().apply {
+            put("name", clean)
+            put("created_at", System.currentTimeMillis())
+        }
+        writableDatabase.insertWithOnConflict("playlists", null, cv, SQLiteDatabase.CONFLICT_IGNORE)
+    }
+
+    suspend fun deletePlaylist(playlistId: Long) = withContext(Dispatchers.IO) {
+        val db = writableDatabase
+        db.delete("playlist_tracks", "playlist_id = ?", arrayOf(playlistId.toString()))
+        db.delete("playlists", "id = ?", arrayOf(playlistId.toString()))
+    }
+
+    suspend fun getPlaylists(): List<Playlist> = withContext(Dispatchers.IO) {
+        val result = ArrayList<Playlist>()
+        val sql = """
+            SELECT p.id, p.name, COUNT(pt.track_id) AS cnt
+            FROM playlists p
+            LEFT JOIN playlist_tracks pt ON p.id = pt.playlist_id
+            GROUP BY p.id
+            ORDER BY p.created_at DESC
+        """.trimIndent()
+        readableDatabase.rawQuery(sql, null).use { c ->
+            while (c.moveToNext()) {
+                result.add(
+                    Playlist(
+                        id = c.getLong(0),
+                        name = c.getString(1),
+                        trackCount = c.getInt(2)
+                    )
+                )
+            }
+        }
+        result
+    }
+
+    suspend fun addTrackToPlaylist(playlistId: Long, track: Track) = withContext(Dispatchers.IO) {
+        val db = writableDatabase
+        upsertTrackInternal(db, track)
+        val cv = ContentValues().apply {
+            put("playlist_id", playlistId)
+            put("track_id", track.id)
+            put("position", System.currentTimeMillis())
+        }
+        db.insertWithOnConflict("playlist_tracks", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    /** v4.8: which playlists already have this song (ticked in the Add to playlist sheet). */
+    suspend fun getPlaylistIdsContaining(trackId: String): Set<Long> = withContext(Dispatchers.IO) {
+        val ids = HashSet<Long>()
+        readableDatabase.rawQuery(
+            "SELECT playlist_id FROM playlist_tracks WHERE track_id = ?",
+            arrayOf(trackId)
+        ).use { c ->
+            while (c.moveToNext()) ids.add(c.getLong(0))
+        }
+        ids
+    }
+
+    suspend fun removeTrackFromPlaylist(playlistId: Long, trackId: String) = withContext(Dispatchers.IO) {
+        writableDatabase.delete(
+            "playlist_tracks",
+            "playlist_id = ? AND track_id = ?",
+            arrayOf(playlistId.toString(), trackId)
+        )
+    }
+
+    suspend fun getPlaylistTracks(playlistId: Long): List<Track> = withContext(Dispatchers.IO) {
+        val sql = """
+            SELECT t.* FROM tracks t
+            INNER JOIN playlist_tracks pt ON t.id = pt.track_id
+            WHERE pt.playlist_id = ?
+            ORDER BY pt.position ASC
+        """.trimIndent()
+        queryTracks(sql, arrayOf(playlistId.toString()))
+    }
+
+    suspend fun clearHistory() = withContext(Dispatchers.IO) {
+        val cv = ContentValues().apply {
+            put("last_played_at", 0L)
+            put("play_count", 0)
+        }
+        writableDatabase.update("tracks", cv, null, null)
+        writableDatabase.delete("plays", null, null)
+        writableDatabase.delete("listen_time", null, null)
+        writableDatabase.delete("tracks", "is_liked = 0 AND id NOT IN (SELECT track_id FROM playlist_tracks)", null)
+    }
+
+    private fun upsertTrackInternal(db: SQLiteDatabase, track: Track) {
+        val cv = ContentValues().apply {
+            put("id", track.id)
+            put("title", track.title)
+            put("artist", track.artist)
+            put("duration_sec", track.durationSec)
+            put("thumbnail_url", track.thumbnailUrl)
+            put("source_url", track.sourceUrl)
+        }
+        val inserted = db.insertWithOnConflict("tracks", null, cv, SQLiteDatabase.CONFLICT_IGNORE)
+        if (inserted == -1L) {
+            val updateCv = ContentValues().apply {
+                put("title", track.title)
+                put("artist", track.artist)
+                put("duration_sec", track.durationSec)
+                put("thumbnail_url", track.thumbnailUrl)
+                put("source_url", track.sourceUrl)
+            }
+            db.update("tracks", updateCv, "id = ?", arrayOf(track.id))
+        }
+    }
+
+    private fun queryTracks(sql: String, args: Array<String>): List<Track> {
+        val list = ArrayList<Track>()
+        readableDatabase.rawQuery(sql, args).use { c ->
+            while (c.moveToNext()) {
+                list.add(cursorToTrack(c))
+            }
+        }
+        return list
+    }
+
+    private fun cursorToTrack(c: Cursor): Track {
+        return Track(
+            id = c.getString(c.getColumnIndexOrThrow("id")),
+            title = c.getString(c.getColumnIndexOrThrow("title")),
+            artist = c.getString(c.getColumnIndexOrThrow("artist")),
+            durationSec = c.getLong(c.getColumnIndexOrThrow("duration_sec")),
+            thumbnailUrl = c.getString(c.getColumnIndexOrThrow("thumbnail_url")),
+            sourceUrl = c.getString(c.getColumnIndexOrThrow("source_url"))
+        )
+    }
+
+    companion object {
+        private const val DB_NAME = "minim_library.db"
+        private const val DB_VERSION = 3
+    }
+}

@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One activity, screens stacked: tabs at the bottom of the stack, overlays on top. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:tag="bg">
+
+    <!--
+      v4.9.3: top artist takeover. Sits under Home (whose background goes see-through for those
+      10 seconds) and reaches up behind the status bar and down behind the navigation bar.
+    -->
+    <FrameLayout
+        android:id="@+id/home_takeover"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0"
+        android:clipChildren="true"
+        android:importantForAccessibility="noHideDescendants"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/home_takeover_photo"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="centerCrop" />
+
+        <View
+            android:id="@+id/home_takeover_wash"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no" />
+    </FrameLayout>
+
+    <include layout="@layout/view_home" />
+
+    <include layout="@layout/view_stats" />
+
+    <include layout="@layout/view_library" />
+
+    <include layout="@layout/view_discover" />
+
+    <!-- v4.6: Artist page sits under the shelf grid and the song list (its albums open there) -->
+    <include layout="@layout/view_artist" />
+
+    <include layout="@layout/view_shelf" />
+
+    <include layout="@layout/view_list" />
+
+    <include layout="@layout/view_search" />
+
+    <include
+        android:id="@+id/mini_player"
+        layout="@layout/view_mini_player"
+        android:layout_width="wrap_content"
+        android:layout_height="54dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="26dp"
+        android:visibility="gone" />
+
+    <include layout="@layout/view_now_playing" />
+
+    <include layout="@layout/view_lyrics" />
+
+    <include layout="@layout/view_queue" />
+
+    <include layout="@layout/view_settings" />
+
+    <!--
+      v4.6.1: the window draws behind the status bar so the Artist page photo can reach the top.
+      Everything else stays below it (root top padding); this strip covers the status bar in
+      the app's colour whenever another screen sits on top of the Artist page.
+    -->
+    <View
+        android:id="@+id/status_cover"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_gravity="top"
+        android:importantForAccessibility="no"
+        android:tag="bg"
+        android:visibility="gone" />
+
+    <!-- v4.8: Minim bottom sheet (song menu, playlists), over every screen -->
+    <include layout="@layout/view_sheet" />
+
+    <!-- v4.8: small confirmation pill ("Added to Gym"), above the mini player -->
+    <TextView
+        android:id="@+id/minim_note"
+        style="@style/MinimText.Semi"
+        android:layout_width="wrap_content"
+        android:layout_height="40dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginStart="36dp"
+        android:layout_marginEnd="36dp"
+        android:layout_marginBottom="100dp"
+        android:background="@drawable/shape_pill"
+        android:elevation="18dp"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:outlineProvider="none"
+        android:paddingStart="22dp"
+        android:paddingEnd="22dp"
+        android:singleLine="true"
+        android:tag="fill:fg text:bg"
+        android:textSize="14sp"
+        android:visibility="gone" />
+
+    <!-- v4.7: welcome screens on first launch, on top of everything (white, behind the bars too) -->
+    <include layout="@layout/view_welcome" />
+</FrameLayout>

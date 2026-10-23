@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/screen_home"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clickable="true"
+    android:tag="bg">
+
+    <include
+        android:id="@+id/home_top"
+        layout="@layout/view_top_tabs"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/home_gl_pill"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.247" />
+
+    <TextView
+        android:id="@+id/home_listening"
+        style="@style/MinimText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="9dp"
+        android:tag="text:fg"
+        android:text="@string/youre_listening"
+        android:textSize="11sp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@id/home_gl_pill"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <include
+        android:id="@+id/home_mini"
+        layout="@layout/view_mini_player"
+        android:layout_width="wrap_content"
+        android:layout_height="44dp"
+        android:visibility="gone"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@id/home_gl_pill" />
+
+    <TextView
+        android:id="@+id/home_greeting"
+        style="@style/MinimText.Bold"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="32dp"
+        android:layout_marginEnd="32dp"
+        android:gravity="center"
+        android:lineHeight="28sp"
+        android:tag="text:fg"
+        android:textSize="24sp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <LinearLayout
+        android:id="@+id/home_search"
+        android:layout_width="wrap_content"
+        android:layout_height="34dp"
+        android:layout_marginTop="28dp"
+        android:background="@drawable/shape_pill"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="20dp"
+        android:tag="fill:fg"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/home_greeting">
+
+        <ImageView
+            android:layout_width="15dp"
+            android:layout_height="15dp"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_search"
+            android:tag="tint:bg" />
+
+        <TextView
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:tag="text:bg"
+            android:text="@string/search"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/home_gl_hint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.844" />
+
+    <TextView
+        android:id="@+id/home_hint"
+        style="@style/MinimText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:padding="6dp"
+        android:tag="text:fg"
+        android:text="@string/home_swipe_hint"
+        android:textSize="11sp"
+        app:layout_constraintBottom_toBottomOf="@id/home_gl_hint"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+</androidx.constraintlayout.widget.ConstraintLayout>

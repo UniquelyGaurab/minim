@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Songs in Liked Songs or a playlist -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/screen_list"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clickable="true"
+    android:orientation="vertical"
+    android:tag="bg"
+    android:visibility="gone">
+
+    <TextView
+        android:id="@+id/list_title"
+        style="@style/MinimText.Bold"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="36dp"
+        android:layout_marginTop="30dp"
+        android:layout_marginEnd="36dp"
+        android:ellipsize="end"
+        android:singleLine="true"
+        android:tag="text:fg"
+        android:textSize="22sp" />
+
+    <TextView
+        android:id="@+id/list_subtitle"
+        style="@style/MinimText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="36dp"
+        android:layout_marginTop="4dp"
+        android:tag="text:fg"
+        android:textSize="11sp" />
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/list_tracks"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:overScrollMode="never"
+            android:paddingTop="22dp"
+            android:paddingBottom="120dp" />
+
+        <TextView
+            android:id="@+id/list_empty"
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:gravity="center"
+            android:paddingStart="40dp"
+            android:paddingEnd="40dp"
+            android:tag="text:muted"
+            android:textSize="12sp"
+            android:visibility="gone" />
+    </FrameLayout>
+</LinearLayout>

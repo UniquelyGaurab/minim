@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v4.9.1 recap popup body (under the sheet heading): a small numbers line and the "dive in" pill -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <TextView
+        android:id="@+id/recap_popup_line"
+        style="@style/MinimText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:alpha="0.85"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        android:tag="text:fg"
+        android:textSize="15sp"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/recap_popup_dive_in"
+        style="@style/MinimText.Semi"
+        android:layout_width="wrap_content"
+        android:layout_height="44dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="20dp"
+        android:background="@drawable/shape_pill"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center"
+        android:paddingStart="36dp"
+        android:paddingEnd="36dp"
+        android:tag="fill:fg text:bg"
+        android:text="@string/recap_dive_in"
+        android:textSize="15sp" />
+</LinearLayout>

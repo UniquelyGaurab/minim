@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v4.8 one big rounded pill row in a sheet: icon, label, optional trailing text/icon.
+     Background is a soft tint of the palette colour (fill:soft); outlined rows swap it in code. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/action_row"
+    android:layout_width="match_parent"
+    android:layout_height="54dp"
+    android:layout_marginTop="8dp"
+    android:background="@drawable/shape_pill"
+    android:clickable="true"
+    android:focusable="true"
+    android:foreground="?attr/selectableItemBackground"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="20dp"
+    android:paddingEnd="20dp"
+    android:tag="fill:soft">
+
+    <ImageView
+        android:id="@+id/action_icon"
+        android:layout_width="22dp"
+        android:layout_height="22dp"
+        android:importantForAccessibility="no"
+        android:tag="tint:fg" />
+
+    <TextView
+        android:id="@+id/action_label"
+        style="@style/MinimText.Semi"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:singleLine="true"
+        android:tag="text:fg"
+        android:textSize="15sp" />
+
+    <TextView
+        android:id="@+id/action_trailing"
+        style="@style/MinimText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:alpha="0.65"
+        android:singleLine="true"
+        android:tag="text:fg"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
+    <ImageView
+        android:id="@+id/action_trailing_icon"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_marginStart="8dp"
+        android:importantForAccessibility="no"
+        android:tag="tint:fg"
+        android:visibility="gone" />
+</LinearLayout>

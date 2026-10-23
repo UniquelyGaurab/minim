@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v4.8 Minim bottom sheet: song menu, add to playlist, new playlist, delete playlist.
+     Sits over every screen and reaches behind the status and navigation bars (margins set in code).
+     Colours come from the palette like the rest of the app.
+     Elevated (no shadow) so it also covers the mini player, which has its own elevation. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/sheet_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:elevation="16dp"
+    android:outlineProvider="none"
+    android:visibility="gone">
+
+    <View
+        android:id="@+id/sheet_scrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0"
+        android:background="#73000000"
+        android:clickable="true"
+        android:contentDescription="@string/sheet_close"
+        android:focusable="false" />
+
+    <com.minim.music.ui.SheetPanel
+        android:id="@+id/sheet_panel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="@drawable/shape_sheet"
+        android:clickable="true"
+        android:focusable="false"
+        android:orientation="vertical"
+        android:paddingStart="22dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="22dp"
+        android:paddingBottom="18dp"
+        android:tag="fill:bg">
+
+        <View
+            android:id="@+id/sheet_handle"
+            android:layout_width="36dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="16dp"
+            android:alpha="0.35"
+            android:background="@drawable/shape_pill"
+            android:tag="fill:fg" />
+
+        <ScrollView
+            android:id="@+id/sheet_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fadingEdgeLength="24dp"
+            android:overScrollMode="never"
+            android:requiresFadingEdge="vertical"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/sheet_content"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </ScrollView>
+    </com.minim.music.ui.SheetPanel>
+</FrameLayout>

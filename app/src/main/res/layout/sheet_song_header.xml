@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v4.8 top of the song menu: cover, title, artist -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="14dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="4dp"
+    android:paddingEnd="4dp">
+
+    <ImageView
+        android:id="@+id/sheet_art"
+        android:layout_width="58dp"
+        android:layout_height="58dp"
+        android:background="@drawable/shape_art_small"
+        android:importantForAccessibility="no"
+        android:scaleType="centerCrop"
+        android:tag="fill:fg" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="14dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/sheet_title"
+            style="@style/MinimText.Bold"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:tag="text:fg"
+            android:textSize="17sp" />
+
+        <TextView
+            android:id="@+id/sheet_subtitle"
+            style="@style/MinimText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:alpha="0.7"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:tag="text:fg"
+            android:textSize="14sp" />
+    </LinearLayout>
+</LinearLayout>

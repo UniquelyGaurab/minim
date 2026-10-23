@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v4.9.1: the recap card is shared from the app's cache. -->
+<paths>
+    <cache-path name="recap" path="recap/" />
+</paths>

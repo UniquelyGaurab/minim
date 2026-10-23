@@ -1,0 +1,525 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/screen_settings"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clickable="true"
+    android:fillViewport="true"
+    android:overScrollMode="never"
+    android:scrollbars="none"
+    android:tag="bg"
+    android:visibility="gone">
+
+    <LinearLayout
+        android:id="@+id/settings_content"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="34dp"
+        android:paddingEnd="30dp"
+        android:paddingBottom="40dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                style="@style/MinimText.Bold"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:tag="text:fg"
+                android:text="@string/settings"
+                android:textSize="22sp" />
+
+            <ImageView
+                android:id="@+id/settings_close"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/close"
+                android:padding="9dp"
+                android:src="@drawable/ic_close"
+                android:tag="tint:fg" />
+        </LinearLayout>
+
+        <!-- Your name -->
+        <TextView
+            style="@style/MinimText.Section"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="26dp"
+            android:tag="text:fg"
+            android:text="@string/settings_name" />
+
+        <EditText
+            android:id="@+id/settings_name"
+            style="@style/MinimText"
+            android:layout_width="match_parent"
+            android:layout_height="38dp"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/shape_pill_outline"
+            android:hint="@string/settings_name_hint"
+            android:imeOptions="actionDone"
+            android:importantForAutofill="no"
+            android:inputType="textPersonName|textCapWords"
+            android:maxLength="20"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:singleLine="true"
+            android:tag="fill:fg text:fg"
+            android:textCursorDrawable="@null"
+            android:textSize="13sp" />
+
+        <!-- Theme -->
+        <TextView
+            style="@style/MinimText.Section"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="26dp"
+            android:tag="text:fg"
+            android:text="@string/settings_theme" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/set_theme_light"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/theme_light" />
+
+            <TextView
+                android:id="@+id/set_theme_dark"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/theme_dark" />
+        </LinearLayout>
+
+        <!-- v4.9.4: Colours (Dynamic from the song cover, or Default black and white) -->
+        <TextView
+            style="@style/MinimText.Section"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:tag="text:fg"
+            android:text="@string/settings_colours" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/set_colours_dynamic"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/colours_dynamic" />
+
+            <TextView
+                android:id="@+id/set_colours_default"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/colours_default" />
+        </LinearLayout>
+
+        <!-- Album art gestures -->
+        <TextView
+            style="@style/MinimText.Section"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:tag="text:fg"
+            android:text="@string/settings_gestures" />
+
+        <TextView
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:tag="text:fg"
+            android:text="@string/gesture_swipe"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/set_swipe_skip"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/opt_skip" />
+
+            <TextView
+                android:id="@+id/set_swipe_off"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/opt_off" />
+        </LinearLayout>
+
+        <TextView
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:tag="text:fg"
+            android:text="@string/gesture_double_tap"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/set_dtap_play"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/opt_play_pause" />
+
+            <TextView
+                android:id="@+id/set_dtap_like"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/like" />
+
+            <TextView
+                android:id="@+id/set_dtap_off"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/opt_off" />
+        </LinearLayout>
+
+        <TextView
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:tag="text:fg"
+            android:text="@string/gesture_long_press"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/set_lpress_queue"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/opt_queue" />
+
+            <TextView
+                android:id="@+id/set_lpress_lyrics"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/opt_lyrics" />
+
+            <TextView
+                android:id="@+id/set_lpress_off"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/opt_off" />
+        </LinearLayout>
+
+        <!-- Volume boost (v4.4) -->
+        <TextView
+            style="@style/MinimText.Section"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:tag="text:fg"
+            android:text="@string/settings_boost" />
+
+        <TextView
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:tag="text:muted"
+            android:text="@string/boost_hint"
+            android:textSize="11sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/set_boost_off"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/opt_off" />
+
+            <TextView
+                android:id="@+id/set_boost_normal"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/opt_boost_normal" />
+
+            <TextView
+                android:id="@+id/set_boost_loud"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/opt_boost_loud" />
+        </LinearLayout>
+
+        <!-- Track fade -->
+        <TextView
+            style="@style/MinimText.Section"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:tag="text:fg"
+            android:text="@string/settings_fade" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/set_fade_off"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/opt_off" />
+
+            <TextView
+                android:id="@+id/set_fade_2"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/opt_fade_2" />
+
+            <TextView
+                android:id="@+id/set_fade_4"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/opt_fade_4" />
+        </LinearLayout>
+
+        <!-- Haptic feedback (v4.2) -->
+        <TextView
+            style="@style/MinimText.Section"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:tag="text:fg"
+            android:text="@string/settings_haptics" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/set_haptics_on"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/opt_on" />
+
+            <TextView
+                android:id="@+id/set_haptics_off"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/opt_off" />
+        </LinearLayout>
+
+        <!-- Lyrics timing (v4.2.5) -->
+        <TextView
+            style="@style/MinimText.Section"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:tag="text:fg"
+            android:text="@string/settings_lyrics_timing" />
+
+        <TextView
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:tag="text:muted"
+            android:text="@string/lyrics_timing_hint"
+            android:textSize="11sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/set_lyrics_minus"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:contentDescription="@string/lyrics_timing_later"
+                android:minWidth="44dp"
+                android:text="@string/lyrics_timing_minus"
+                android:textSize="16sp" />
+
+            <TextView
+                android:id="@+id/set_lyrics_value"
+                style="@style/MinimText.Semi"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:layout_marginBottom="8dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:minWidth="84dp"
+                android:minHeight="34dp"
+                android:tag="text:fg"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/set_lyrics_plus"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:contentDescription="@string/lyrics_timing_earlier"
+                android:minWidth="44dp"
+                android:text="@string/lyrics_timing_plus"
+                android:textSize="16sp" />
+        </LinearLayout>
+
+        <!-- Sleep timer -->
+        <TextView
+            style="@style/MinimText.Section"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:tag="text:fg"
+            android:text="@string/settings_sleep" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/set_sleep_off"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/opt_off" />
+
+            <TextView
+                android:id="@+id/set_sleep_15"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/opt_15" />
+
+            <TextView
+                android:id="@+id/set_sleep_30"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/opt_30" />
+
+            <TextView
+                android:id="@+id/set_sleep_60"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/opt_60" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/set_sleep_status"
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:tag="text:muted"
+            android:textSize="11sp"
+            android:visibility="gone" />
+
+        <!-- Storage -->
+        <TextView
+            style="@style/MinimText.Section"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:tag="text:fg"
+            android:text="@string/settings_storage" />
+
+        <TextView
+            android:id="@+id/set_clear_cache"
+            style="@style/MinimText.Option"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="@string/clear_cache" />
+
+        <!-- About -->
+        <TextView
+            style="@style/MinimText.Section"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:tag="text:fg"
+            android:text="@string/settings_about" />
+
+        <TextView
+            android:id="@+id/set_about"
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:lineSpacingExtra="3dp"
+            android:tag="text:fg"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/set_credits"
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="24dp"
+            android:lineSpacingExtra="3dp"
+            android:tag="text:fg"
+            android:text="@string/about_credits"
+            android:textSize="11sp" />
+    </LinearLayout>
+</ScrollView>

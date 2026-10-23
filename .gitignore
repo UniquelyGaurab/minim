@@ -1,0 +1,32 @@
+# Signing keys and their passwords: never commit these
+*.jks
+*.keystore
+*.p12
+*.pem
+keystore.properties
+signing.properties
+
+# Build output
+build/
+.gradle/
+.kotlin/
+/captures
+.externalNativeBuild
+.cxx
+*.apk
+*.aab
+*.zip
+
+# Local machine settings
+local.properties
+
+# IDE files
+*.iml
+.idea/
+.vscode/
+.DS_Store
+
+# Temporary files
+tmp/
+*.tmp
+*.log

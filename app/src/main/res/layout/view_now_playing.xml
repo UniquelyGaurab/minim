@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  v4.2 Now Playing, top to bottom: back pill, "You're vibing to", cover art, the current lyric
+  line, title, artist, progress + controls, "swipe up for lyrics".
+  The weighted Space views share the spare height so a tall 20:9 screen has no empty band;
+  each also has a small fixed height so a short screen still breathes. MainActivity keeps the
+  art at 73% of the width and shrinks it only when the screen is too short for everything.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/screen_now_playing"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clickable="true"
+    android:focusable="true"
+    android:gravity="center_horizontal"
+    android:orientation="vertical"
+    android:tag="bg"
+    android:visibility="gone">
+
+    <ImageView
+        android:id="@+id/np_back"
+        android:layout_width="48dp"
+        android:layout_height="28dp"
+        android:layout_marginTop="16dp"
+        android:background="@drawable/shape_pill"
+        android:contentDescription="@string/minimise_player"
+        android:foreground="?attr/selectableItemBackgroundBorderless"
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp"
+        android:src="@drawable/ic_chevron_down"
+        android:tag="fill:fg tint:bg" />
+
+    <Space
+        android:id="@+id/np_gap_top"
+        android:layout_width="1dp"
+        android:layout_height="18dp"
+        android:layout_weight="0.5" />
+
+    <TextView
+        android:id="@+id/np_vibing"
+        style="@style/MinimText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:tag="text:fg"
+        android:text="@string/youre_vibing_to"
+        android:textSize="15sp" />
+
+    <Space
+        android:id="@+id/np_gap_label"
+        android:layout_width="1dp"
+        android:layout_height="14dp"
+        android:layout_weight="0.3" />
+
+    <ImageView
+        android:id="@+id/np_art"
+        android:layout_width="300dp"
+        android:layout_height="300dp"
+        android:background="@drawable/shape_card"
+        android:contentDescription="@string/album_art"
+        android:scaleType="centerCrop"
+        android:tag="fill:fg" />
+
+    <Space
+        android:id="@+id/np_gap_art"
+        android:layout_width="1dp"
+        android:layout_height="16dp"
+        android:layout_weight="1.2" />
+
+    <!-- The current synced lyric line. Fixed height: nothing moves when it wraps or is empty. -->
+    <TextView
+        android:id="@+id/np_lyric"
+        style="@style/MinimText.Semi"
+        android:layout_width="match_parent"
+        android:layout_height="68dp"
+        android:layout_marginStart="30dp"
+        android:layout_marginEnd="30dp"
+        android:autoSizeMaxTextSize="22sp"
+        android:autoSizeMinTextSize="18sp"
+        android:autoSizeStepGranularity="1sp"
+        android:autoSizeTextType="uniform"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:importantForAccessibility="no"
+        android:maxLines="2"
+        android:tag="text:fg"
+        android:textSize="22sp" />
+
+    <Space
+        android:id="@+id/np_gap_lyric"
+        android:layout_width="1dp"
+        android:layout_height="14dp"
+        android:layout_weight="1.0" />
+
+    <TextView
+        android:id="@+id/np_title"
+        style="@style/MinimText.Bold"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="40dp"
+        android:layout_marginEnd="40dp"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:singleLine="true"
+        android:tag="text:fg"
+        android:textSize="20sp" />
+
+    <TextView
+        android:id="@+id/np_artist"
+        style="@style/MinimText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="40dp"
+        android:layout_marginTop="4dp"
+        android:layout_marginEnd="40dp"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:singleLine="true"
+        android:tag="text:fg"
+        android:textSize="16sp" />
+
+    <Space
+        android:id="@+id/np_gap_meta"
+        android:layout_width="1dp"
+        android:layout_height="18dp"
+        android:layout_weight="0.8" />
+
+    <include
+        android:id="@+id/np_controls"
+        layout="@layout/view_player_controls"
+        android:layout_width="300dp"
+        android:layout_height="wrap_content" />
+
+    <Space
+        android:id="@+id/np_gap_controls"
+        android:layout_width="1dp"
+        android:layout_height="16dp"
+        android:layout_weight="0.7" />
+
+    <TextView
+        android:id="@+id/np_hint"
+        style="@style/MinimText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="18dp"
+        android:padding="6dp"
+        android:tag="text:fg"
+        android:text="@string/np_swipe_hint"
+        android:textSize="11sp" />
+</LinearLayout>

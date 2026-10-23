@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  v4.6 Artist page (Gaurab's design): a square (1:1) header filled with the artist's photo,
+  rounded bottom corners, "minim" top-left and a search pill top-right (their light/dark look
+  follows the photo), the name big and bold at the bottom-left with the monthly listeners (or
+  subscriber count) under it and a small Shuffle pill. Below: "Songs" and "Albums" shelves like Discover.
+  No back button: the phone's back gesture closes it. Header colours are set in code.
+  v4.6.1: the page reaches up behind the transparent status bar (top margin, header height and
+  the "minim" / search pill margins get the status bar height added in code). The scrim fills in
+  behind the status bar once the header has scrolled away.
+  v4.8: "minim" and the search pill moved out of the header so they stay pinned at the top.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/screen_artist"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clickable="true"
+    android:tag="bg"
+    android:visibility="gone">
+
+    <ScrollView
+        android:id="@+id/artist_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:overScrollMode="never"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <com.minim.music.ui.SquareFrameLayout
+                android:id="@+id/artist_header"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/shape_header_block">
+
+                <ImageView
+                    android:id="@+id/artist_photo"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:importantForAccessibility="no"
+                    android:scaleType="centerCrop" />
+
+                <View
+                    android:id="@+id/artist_fade"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:layout_gravity="bottom"
+                    android:background="@drawable/shape_header_fade"
+                    android:visibility="gone" />
+
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="bottom"
+                    android:gravity="bottom"
+                    android:orientation="horizontal"
+                    android:paddingStart="30dp"
+                    android:paddingEnd="24dp"
+                    android:paddingBottom="26dp">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/artist_name"
+                            style="@style/MinimText.Bold"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:includeFontPadding="false"
+                            android:lineSpacingMultiplier="0.92"
+                            android:maxLines="2"
+                            android:textSize="34sp" />
+
+                        <TextView
+                            android:id="@+id/artist_subs"
+                            style="@style/MinimText"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:ellipsize="end"
+                            android:singleLine="true"
+                            android:textSize="13sp" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/artist_shuffle"
+                        style="@style/MinimText.Semi"
+                        android:layout_width="wrap_content"
+                        android:layout_height="30dp"
+                        android:layout_marginStart="12dp"
+                        android:layout_marginBottom="2dp"
+                        android:background="@drawable/shape_pill"
+                        android:contentDescription="@string/artist_shuffle_desc"
+                        android:gravity="center"
+                        android:paddingStart="14dp"
+                        android:paddingEnd="14dp"
+                        android:text="@string/artist_shuffle"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+                </LinearLayout>
+            </com.minim.music.ui.SquareFrameLayout>
+
+            <TextView
+                android:id="@+id/artist_message"
+                style="@style/MinimText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:paddingStart="36dp"
+                android:paddingTop="40dp"
+                android:paddingEnd="36dp"
+                android:paddingBottom="20dp"
+                android:tag="text:fg"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
+            <Space
+                android:layout_width="match_parent"
+                android:layout_height="26dp" />
+
+            <include
+                android:id="@+id/artist_songs_shelf"
+                layout="@layout/item_shelf"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone" />
+
+            <include
+                android:id="@+id/artist_albums_shelf"
+                layout="@layout/item_shelf"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone" />
+
+            <!-- room for the floating mini player -->
+            <Space
+                android:layout_width="match_parent"
+                android:layout_height="110dp" />
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- v4.8: "minim" and the search pill are pinned: they stay put while the page scrolls under
+         them (no bar behind them; their light/dark look follows the part of the photo behind them) -->
+    <TextView
+        android:id="@+id/artist_logo"
+        style="@style/MinimText.Logo"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="30dp"
+        android:layout_marginTop="20dp"
+        android:text="@string/app_logo" />
+
+    <LinearLayout
+        android:id="@+id/artist_search"
+        android:layout_width="wrap_content"
+        android:layout_height="30dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="18dp"
+        android:layout_marginEnd="26dp"
+        android:background="@drawable/shape_pill"
+        android:clickable="true"
+        android:contentDescription="@string/search"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="10dp"
+        android:paddingEnd="12dp">
+
+        <ImageView
+            android:id="@+id/artist_search_icon"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_search" />
+
+        <TextView
+            android:id="@+id/artist_search_text"
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:importantForAccessibility="no"
+            android:text="@string/search"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <View
+        android:id="@+id/artist_status_scrim"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_gravity="top"
+        android:alpha="0"
+        android:importantForAccessibility="no"
+        android:tag="bg" />
+</FrameLayout>

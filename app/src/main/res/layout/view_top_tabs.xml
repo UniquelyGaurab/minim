@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Top row shared by Home, Discover, Stats and Library: logo (Home) or search pill (Stats/Library),
+     then the three tabs and the settings gear. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="14dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal">
+
+    <FrameLayout
+        android:layout_width="104dp"
+        android:layout_height="wrap_content">
+
+        <TextView
+            android:id="@+id/top_logo"
+            style="@style/MinimText.Logo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical"
+            android:layout_marginStart="34dp"
+            android:tag="text:fg"
+            android:text="@string/app_logo" />
+
+        <LinearLayout
+            android:id="@+id/top_search"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:layout_gravity="center_vertical"
+            android:layout_marginStart="22dp"
+            android:background="@drawable/shape_pill"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="10dp"
+            android:paddingEnd="12dp"
+            android:tag="fill:fg"
+            android:visibility="gone">
+
+            <ImageView
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_search"
+                android:tag="tint:bg" />
+
+            <TextView
+                style="@style/MinimText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:tag="text:bg"
+                android:text="@string/search"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <LinearLayout
+        android:id="@+id/top_tab_home"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingTop="6dp"
+        android:paddingBottom="2dp">
+
+        <TextView
+            style="@style/MinimText.Tab"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:tag="text:fg"
+            android:text="@string/tab_home" />
+
+        <View
+            android:id="@+id/top_line_home"
+            android:layout_width="18dp"
+            android:layout_height="2dp"
+            android:layout_marginTop="3dp"
+            android:background="@drawable/shape_underline"
+            android:tag="fill:fg"
+            android:visibility="invisible" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/top_tab_discover"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingTop="6dp"
+        android:paddingBottom="2dp">
+
+        <TextView
+            style="@style/MinimText.Tab"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:tag="text:fg"
+            android:text="@string/tab_discover" />
+
+        <View
+            android:id="@+id/top_line_discover"
+            android:layout_width="18dp"
+            android:layout_height="2dp"
+            android:layout_marginTop="3dp"
+            android:background="@drawable/shape_underline"
+            android:tag="fill:fg"
+            android:visibility="invisible" />
+    </LinearLayout>
+
+    <!-- v4.9: Stats (was Recents). A small "new" tag until the tab is opened once, then a dot
+         while a recap hasn't been looked at. -->
+    <LinearLayout
+        android:id="@+id/top_tab_stats"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingTop="6dp"
+        android:paddingBottom="2dp">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <TextView
+                style="@style/MinimText.Tab"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:tag="text:fg"
+                android:text="@string/tab_stats" />
+
+            <TextView
+                android:id="@+id/top_stats_new"
+                style="@style/MinimText.Bold"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top"
+                android:layout_marginStart="3dp"
+                android:background="@drawable/shape_pill"
+                android:includeFontPadding="false"
+                android:paddingStart="4dp"
+                android:paddingTop="1dp"
+                android:paddingEnd="4dp"
+                android:paddingBottom="1dp"
+                android:tag="fill:fg text:bg"
+                android:text="@string/stats_new_tag"
+                android:textSize="8sp"
+                android:visibility="gone" />
+
+            <View
+                android:id="@+id/top_stats_dot"
+                android:layout_width="5dp"
+                android:layout_height="5dp"
+                android:layout_gravity="top"
+                android:layout_marginStart="2dp"
+                android:layout_marginTop="3dp"
+                android:background="@drawable/shape_pill"
+                android:tag="fill:fg"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <View
+            android:id="@+id/top_line_stats"
+            android:layout_width="18dp"
+            android:layout_height="2dp"
+            android:layout_marginTop="3dp"
+            android:background="@drawable/shape_underline"
+            android:tag="fill:fg"
+            android:visibility="invisible" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/top_tab_library"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingTop="6dp"
+        android:paddingBottom="2dp">
+
+        <TextView
+            style="@style/MinimText.Tab"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:tag="text:fg"
+            android:text="@string/tab_library" />
+
+        <View
+            android:id="@+id/top_line_library"
+            android:layout_width="18dp"
+            android:layout_height="2dp"
+            android:layout_marginTop="3dp"
+            android:background="@drawable/shape_underline"
+            android:tag="fill:fg"
+            android:visibility="invisible" />
+    </LinearLayout>
+
+    <ImageView
+        android:id="@+id/top_gear"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:layout_marginStart="4dp"
+        android:layout_marginTop="1dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/settings"
+        android:padding="8dp"
+        android:src="@drawable/ic_settings"
+        android:tag="tint:fg" />
+</LinearLayout>

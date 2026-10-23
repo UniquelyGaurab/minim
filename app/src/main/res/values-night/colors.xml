@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg_base">@color/minim_dark</color>
+    <color name="fg_base">@color/minim_light</color>
+</resources>

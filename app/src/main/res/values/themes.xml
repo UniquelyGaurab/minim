@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Base.Theme.Minim" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/fg_base</item>
+        <item name="colorPrimaryVariant">@color/fg_base</item>
+        <item name="colorOnPrimary">@color/bg_base</item>
+        <item name="colorSecondary">@color/fg_base</item>
+        <item name="colorOnSecondary">@color/bg_base</item>
+        <item name="colorAccent">@color/fg_base</item>
+        <item name="colorSurface">@color/bg_base</item>
+        <item name="colorOnSurface">@color/fg_base</item>
+        <item name="android:colorBackground">@color/bg_base</item>
+        <item name="android:textColorPrimary">@color/fg_base</item>
+        <item name="android:textColorSecondary">@color/minim_muted</item>
+        <item name="android:windowBackground">@color/bg_base</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:fontFamily">@font/poppins</item>
+        <item name="fontFamily">@font/poppins</item>
+    </style>
+
+    <style name="Theme.Minim" parent="Base.Theme.Minim">
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+
+    <!-- Text styles: Poppins everywhere, bold for headings, regular for small text -->
+    <style name="MinimText">
+        <item name="android:fontFamily">@font/poppins_regular</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+    <style name="MinimText.Small">
+        <item name="android:textSize">10sp</item>
+    </style>
+    <style name="MinimText.Bold">
+        <item name="android:fontFamily">@font/poppins_bold</item>
+    </style>
+    <style name="MinimText.Semi">
+        <item name="android:fontFamily">@font/poppins_semibold</item>
+    </style>
+    <style name="MinimText.Tab">
+        <item name="android:textSize">15sp</item>
+    </style>
+    <style name="MinimText.Logo">
+        <item name="android:fontFamily">@font/poppins_bold</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+    <style name="MinimText.Section">
+        <item name="android:fontFamily">@font/poppins_semibold</item>
+        <item name="android:textSize">12sp</item>
+    </style>
+    <style name="MinimText.Option">
+        <item name="android:textSize">12sp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingStart">14dp</item>
+        <item name="android:paddingEnd">14dp</item>
+        <item name="android:minHeight">34dp</item>
+        <item name="android:layout_marginEnd">8dp</item>
+        <item name="android:layout_marginBottom">8dp</item>
+        <item name="android:background">@drawable/shape_pill_outline</item>
+        <item name="android:tag">opt</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+</resources>

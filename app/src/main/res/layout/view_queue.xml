@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Queue (long-press the album art) -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/screen_queue"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clickable="true"
+    android:orientation="vertical"
+    android:tag="bg"
+    android:visibility="gone">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="34dp"
+        android:paddingEnd="26dp">
+
+        <TextView
+            style="@style/MinimText.Bold"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:tag="text:fg"
+            android:text="@string/up_next"
+            android:textSize="22sp" />
+
+        <ImageView
+            android:id="@+id/queue_close"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/close"
+            android:padding="9dp"
+            android:src="@drawable/ic_close"
+            android:tag="tint:fg" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/queue_add_to_playlist"
+        style="@style/MinimText.Option"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="34dp"
+        android:layout_marginTop="12dp"
+        android:text="@string/add_current_to_playlist" />
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/queue_list"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:overScrollMode="never"
+            android:paddingTop="8dp"
+            android:paddingBottom="40dp" />
+
+        <TextView
+            android:id="@+id/queue_empty"
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:tag="text:muted"
+            android:text="@string/queue_empty"
+            android:textSize="12sp"
+            android:visibility="gone" />
+    </FrameLayout>
+</LinearLayout>
