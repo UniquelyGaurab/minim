@@ -6,6 +6,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.minim.music.R
 import com.minim.music.data.model.ArtistCountKind
@@ -137,6 +138,9 @@ class SearchResultsAdapter(
     /** v4.7: the artist pills on screen now (live search keeps the ones that still match). */
     val shownArtists: List<ArtistRef> get() = artists
 
+    /** v4.9.9: the songs showing, to tell a new set of results from the same one again. */
+    val shownTrackIds: List<String> get() = tracks.map { it.id }
+
     /**
      * v4.6: artist pills. [first] puts them above the TOP RESULT card (the search looks like an
      * artist's name); otherwise they sit right under it.
@@ -183,7 +187,10 @@ class SearchResultsAdapter(
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder = when (viewType) {
         TYPE_TOP -> TopHolder(inflate(parent, R.layout.item_top_result))
         TYPE_LABEL -> LabelHolder(inflate(parent, R.layout.item_section_label))
-        TYPE_ARTIST -> ArtistHolder(inflate(parent, R.layout.item_artist_result))
+        TYPE_ARTIST -> ArtistHolder(inflate(parent, R.layout.item_artist_result)).also {
+            // v4.9.9: the artist pill shrinks a little when pressed, like every other pill
+            com.minim.music.ui.PressScale.apply(it.pill)
+        }
         else -> TrackAdapter.Holder(inflate(parent, R.layout.item_track))
     }
 
@@ -422,18 +429,64 @@ class QueueAdapter(
     private var queue: List<Track> = emptyList()
     private var activeIndex: Int = -1
     private var pal: Pal = DEFAULT_PAL
+    private var list: RecyclerView? = null
+    private var paletteRefreshPending = false
 
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        list = recyclerView
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        if (list === recyclerView) list = null
+    }
+
+    /**
+     * v4.9.9: small changes (a song moved up or down, removed, a few added, the next song
+     * starting) go through DiffUtil, so moved rows glide, removed rows fade out and the rest close
+     * the gap. A basically new queue, or one that isn't on screen, just redraws.
+     */
     fun submitQueue(queue: List<Track>, activeIndex: Int) {
         if (queue == this.queue && activeIndex == this.activeIndex) return
-        this.queue = queue.toList()
+        val old = this.queue
+        val oldActive = this.activeIndex
+        val new = queue.toList()
+        this.queue = new
         this.activeIndex = activeIndex
-        notifyDataSetChanged()
+        val shown = list?.isShown == true
+        if (!shown || com.minim.music.ui.QueueDiffRules.isWholesale(old.map { it.id }, new.map { it.id })) {
+            redrawAll()
+            return
+        }
+        DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+            override fun getOldListSize() = old.size
+            override fun getNewListSize() = new.size
+            override fun areItemsTheSame(o: Int, n: Int) = old[o].id == new[n].id
+            override fun areContentsTheSame(o: Int, n: Int) = old[o] == new[n] &&
+                com.minim.music.ui.QueueDiffRules.sameContents(
+                    old[o].id, o, oldActive, old.size,
+                    new[n].id, n, activeIndex, new.size
+                )
+        }, true).dispatchUpdatesTo(this)
     }
 
     fun setPalette(p: Pal) {
         pal = p
-        notifyDataSetChanged()
+        // v4.9.9: a full redraw ends a move or removal mid glide, so it waits for them to finish.
+        // (The rows on screen already have the new colours from the palette fade.)
+        val animator = list?.itemAnimator
+        if (animator == null || !animator.isRunning) {
+            redrawAll()
+            return
+        }
+        if (paletteRefreshPending) return
+        paletteRefreshPending = true
+        animator.isRunning {
+            paletteRefreshPending = false
+            list?.post { redrawAll() }
+        }
     }
+
+    private fun redrawAll() = notifyDataSetChanged()
 
     override fun getItemCount(): Int = queue.size
 

@@ -56,6 +56,7 @@ class ArtworkPipeline(
         imageView.setTag(R.id.tag_artwork_url, cleanUrl)
 
         if (cleanUrl.isEmpty()) {
+            ArtworkFade.cancel(imageView)
             imageView.setImageDrawable(null)
             if (extractAccent) {
                 onAccentReady?.invoke(getDefaultAccent())
@@ -66,7 +67,12 @@ class ArtworkPipeline(
         val cacheKey = "$cleanUrl@$targetPx"
         bitmapCache.get(cacheKey)?.let { cachedBmp ->
             if (!cachedBmp.isRecycled) {
-                imageView.setImageBitmap(cachedBmp)
+                // v4.9.9: from memory it shows at once, no fade, so scrolling never flickers. The
+                // same image already showing (maybe still fading in) is left as it is.
+                if (!ArtworkFade.isShowing(imageView, cachedBmp)) {
+                    ArtworkFade.cancel(imageView)
+                    imageView.setImageBitmap(cachedBmp)
+                }
                 if (extractAccent) {
                     deliverAccent(cleanUrl, cachedBmp, imageView, onAccentReady)
                 }
@@ -74,6 +80,7 @@ class ArtworkPipeline(
             }
         }
 
+        ArtworkFade.cancel(imageView)
         imageView.setImageDrawable(null)
 
         val job = scope.launch {
@@ -89,8 +96,10 @@ class ArtworkPipeline(
                 if (currentTagUrl == cleanUrl) {
                     if (bitmap != null && !bitmap.isRecycled) {
                         bitmapCache.put(cacheKey, bitmap)
-                        imageView.setImageBitmap(bitmap)
+                        // v4.9.9: a cover that had to be fetched or decoded fades in
+                        ArtworkFade.show(imageView, bitmap)
                     } else {
+                        ArtworkFade.cancel(imageView)
                         imageView.setImageDrawable(null)
                     }
                     if (extractAccent) {
@@ -100,6 +109,13 @@ class ArtworkPipeline(
             }
         }
         imageView.setTag(R.id.tag_artwork_job, job)
+    }
+
+    /** v4.9.9: the image if it's already in memory (so it can show at once, without a fade). */
+    fun cachedBitmap(url: String?, targetPx: Int): Bitmap? {
+        val cleanUrl = url?.trim().orEmpty()
+        if (cleanUrl.isEmpty()) return null
+        return bitmapCache.get("$cleanUrl@$targetPx")?.takeIf { !it.isRecycled }
     }
 
     /** v4.6: the decoded image itself (Artist page header, which also reads its brightness). */

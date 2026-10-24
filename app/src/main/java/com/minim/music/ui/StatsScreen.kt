@@ -42,6 +42,26 @@ class StatsScreen(root: View, private val artwork: ArtworkPipeline) {
     private val recapSongsLabel: TextView = root.findViewById(R.id.stats_recap_songs_label)
     private val recapArtists: TextView = root.findViewById(R.id.stats_recap_artists)
     private val recapArtistsLabel: TextView = root.findViewById(R.id.stats_recap_artists_label)
+
+    // v4.9.9 part 3: the big numbers count up from zero when the tab opens
+    private val todaySongsCount = CountingText(todaySongs, CountUpMath::countText)
+    private val todayTimeCount = CountingText(todayTime, CountUpMath::durationText)
+    private val todayArtistsCount = CountingText(todayArtists, CountUpMath::countText)
+    private val todayStreakCount = CountingText(todayStreak, CountUpMath::countText)
+    private val recapTimeCount = CountingText(recapTime, CountUpMath::durationText)
+    private val recapSongsCount = CountingText(recapSongs, CountUpMath::countText)
+    private val recapArtistsCount = CountingText(recapArtists, CountUpMath::countText)
+    private val counters = listOf(
+        todaySongsCount, todayTimeCount, todayArtistsCount, todayStreakCount,
+        recapTimeCount, recapSongsCount, recapArtistsCount
+    )
+
+    /**
+     * v4.9.9: the Stats tab just opened. Every big number counts up from zero to what it shows
+     * (or to its first value, when the stats haven't loaded yet), once. The refresh that follows
+     * and live updates after it change the numbers directly, or glide from a count still running.
+     */
+    fun countUp() = counters.forEach { it.countUp() }
     private val topSongCard: View = root.findViewById(R.id.stats_top_song)
     private val topSongArt: ImageView = root.findViewById(R.id.stats_top_song_art)
     private val topSongTitle: TextView = root.findViewById(R.id.stats_top_song_title)
@@ -76,10 +96,10 @@ class StatsScreen(root: View, private val artwork: ArtworkPipeline) {
 
     fun renderToday(s: DayStats) {
         todayDate.text = Days.label(s.day)
-        todaySongs.text = s.songs.toString()
+        todaySongsCount.set(s.songs.toLong())
         todaySongsLabel.setText(if (s.songs == 1) R.string.stats_song_one else R.string.stats_songs)
-        todayTime.text = StatsFormat.duration(s.timeMs)
-        todayArtists.text = s.artists.toString()
+        todayTimeCount.set(s.timeMs)
+        todayArtistsCount.set(s.artists.toLong())
         todayArtistsLabel.setText(if (s.artists == 1) R.string.stats_artist_one else R.string.stats_artists)
         // v4.9.2: top artist moved to its own full-width card (photo, name on one line)
         val artist = s.topArtist
@@ -128,11 +148,11 @@ class StatsScreen(root: View, private val artwork: ArtworkPipeline) {
         recapDate.text = Days.label(s.day)
         recapEmpty.visibility = View.GONE
         recapBox.visibility = View.VISIBLE
-        recapTime.text = StatsFormat.duration(s.timeMs)
+        recapTimeCount.set(s.timeMs)
         recapQuiet.visibility = if (s.isQuiet) View.VISIBLE else View.GONE
-        recapSongs.text = s.songs.toString()
+        recapSongsCount.set(s.songs.toLong())
         recapSongsLabel.setText(if (s.songs == 1) R.string.stats_song_one else R.string.stats_songs)
-        recapArtists.text = s.artists.toString()
+        recapArtistsCount.set(s.artists.toLong())
         recapArtistsLabel.setText(if (s.artists == 1) R.string.stats_artist_one else R.string.stats_artists)
 
         val song = s.topSong
@@ -168,7 +188,7 @@ class StatsScreen(root: View, private val artwork: ArtworkPipeline) {
 
     /** v4.9.2: days in a row with 10+ minutes ("0", "1", "4" over "day streak"). */
     fun renderStreak(days: Int) {
-        todayStreak.text = days.coerceAtLeast(0).toString()
+        todayStreakCount.set(days.coerceAtLeast(0).toLong())
     }
 
     /** Today's top artist photo, once it's found. */

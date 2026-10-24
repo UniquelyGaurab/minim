@@ -10,6 +10,7 @@ It runs on Android 9 (API 28) and newer, and the app is about 7 MB.
 - **Light and dark:** both themes, in Dynamic and Default.
 - **Rotating greetings:** Home greets you with lines that change every few seconds, including ones based on what you're playing, your recent songs and your liked songs.
 - **Synced lyrics:** time-synced lyrics from LRCLib, with a timing adjustment in Settings. Tap the lyric line on Now Playing for full screen lyrics over a blurred cover, lit up word by word (Flow) or line by line (Lyrics style in Settings).
+- **Smooth motion:** colours fade between songs, tabs slide, lists slide in, Up next glides, covers fade in, pills respond to presses and Stats numbers count up. Turn it all off with Remove animations in Settings.
 - **Discover:** shelves of songs picked from what you listen to, plus a radio queue that keeps playing similar songs.
 - **Artist pages:** a full-bleed artist photo, monthly listeners, top songs, albums and a shuffle button. Open one from search or by tapping the artist on Now Playing.
 - **Stats and daily recap:** today's listening time, songs, artists and your streak, plus a daily recap story with a card you can share or save.

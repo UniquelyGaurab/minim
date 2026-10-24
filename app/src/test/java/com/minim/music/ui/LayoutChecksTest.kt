@@ -195,6 +195,10 @@ class LayoutChecksTest {
     fun lyricLineKeepsItsFixedHeight_andSettingsHasNoQueueLongPress() {
         val lyric = parse("view_now_playing.xml").elements().first { it.attr("id") == "@+id/np_lyric" }
         assertEquals("68dp", lyric.attr("layout_height"))
+        // v4.9.9: its own view (two line views taking turns); the side margins are set in code
+        assertEquals("com.minim.music.ui.NowPlayingLyricView", lyric.tagName)
+        assertEquals("match_parent", lyric.attr("layout_width"))
+        assertEquals(null, lyric.attr("layout_marginStart"))
         val settings = ids("view_settings.xml")
         assertFalse(settings.contains("set_lpress_queue"))
         assertTrue(settings.containsAll(listOf("set_lpress_lyrics", "set_lpress_off")))

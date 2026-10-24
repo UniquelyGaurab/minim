@@ -26,4 +26,50 @@ object NowPlayingLyricSlot {
     }
 
     fun isTappable(mode: Mode): Boolean = mode == Mode.LINES
+
+    // ------------------------------------------------------------------------------------------
+    // v4.9.9 part 1: narrower lines, Flow and the line change animation
+    // ------------------------------------------------------------------------------------------
+
+    /** Lines never come closer to the screen edge than this... */
+    const val SIDE_MIN_DP = 48f
+    /** ...and never get wider than this (the full screen mode: 36 dp / 560 dp at 27 sp). */
+    const val LINE_MAX_DP = 400f
+
+    /** How far a line slides up when it changes. */
+    const val SLIDE_DP = 10f
+    /** The new line slides up into place and fades in over this long (ease-out)... */
+    const val SLIDE_IN_MS = 250L
+    /** ...while the old one slides up and fades out a little quicker, so they barely overlap. */
+    const val SLIDE_OUT_MS = 200L
+    /** A seek or a song change: the old line fades out and the new one in, in place. */
+    const val SWAP_MS = 180L
+    /** Flow keeps drawing this long after a line change while paused, while its row fades in. */
+    const val SETTLE_MS = SLIDE_IN_MS + 80L
+
+    /** Side padding for a slot [widthPx] wide: centred lines, at most [maxLinePx] wide. */
+    fun sidePadding(widthPx: Int, minSidePx: Int, maxLinePx: Int): Int =
+        maxOf(minSidePx, (widthPx - maxLinePx) / 2)
+
+    /** How the slot moves from one line to the next. */
+    enum class Change { INSTANT, SLIDE, SWAP }
+
+    /**
+     * The change for a new line: a seek (the Flow clock saw a jump) or a song change swaps in place,
+     * the song moving on to its next line slides, and nothing animates when animations are off
+     * (Remove animations), the caller asked for none or nobody can see the slot.
+     */
+    fun change(jump: Boolean, animate: Boolean, canAnimate: Boolean): Change = when {
+        !animate || !canAnimate -> Change.INSTANT
+        jump -> Change.SWAP
+        else -> Change.SLIDE
+    }
+
+    /**
+     * While Flow runs and plays, it moves to the next line itself, a little before the player's
+     * ~4 per second tick says so. That tick's (older) line is not a step back: ignore it. Real
+     * seeks back come in as clock jumps instead.
+     */
+    fun ignoreTick(index: Int, active: Int, flowRunning: Boolean, playing: Boolean): Boolean =
+        index < active && flowRunning && playing
 }

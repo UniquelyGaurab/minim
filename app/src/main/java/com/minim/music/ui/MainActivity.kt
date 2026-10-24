@@ -197,7 +197,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var searchStatus: TextView
 
     private lateinit var npArt: ImageView
-    private lateinit var npLyric: TextView
+    private lateinit var npLyric: NowPlayingLyricView
     private lateinit var npControlsRoot: View
     private lateinit var npTitle: TextView
     private lateinit var npArtist: TextView
@@ -216,12 +216,22 @@ class MainActivity : AppCompatActivity() {
     private lateinit var searchAdapter: SearchResultsAdapter
     private lateinit var queueAdapter: QueueAdapter
 
+    // v4.9.9 part 3: rows rising into place when a list gets a new set of rows
+    private lateinit var searchEntrance: RowEntrance
+    private lateinit var listEntrance: RowEntrance
+    private lateinit var discoverEntrance: RowEntrance
+    private lateinit var shelfGridEntrance: RowEntrance
+    private lateinit var artistSongsEntrance: RowEntrance
+    private lateinit var artistAlbumsEntrance: RowEntrance
+
     // ---- state -------------------------------------------------------------------------------
 
     private var tab = Tab.HOME
     private var pal: Pal = Pal.build(0, false)
     private var paletteSeed = 0
     private var paletteAnimator: ValueAnimator? = null
+    /** v4.9.9: title and artist fade on a song change. */
+    private val textFade = TextCrossfade { animationsOn() }
 
     private var renderedTrackId: String? = null
     private var lastErrorShown: String? = null
@@ -262,10 +272,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var homeHint: TextView
 
     // v4.2: Now Playing lyric line, greeting tap, rotating tips
-    private var npLyricTarget = ""
     // v4.9.8: what the lyric slot shows (loading / "Lyrics not available" / lines) and if it taps
     private var npLyricMode = NowPlayingLyricSlot.Mode.LOADING
-    private var npLyricFaint = false
     private var greetingOverride: Pair<String, String>? = null
     private var greetingOverrideJob: Job? = null
     private var greetingPlayTrackId: String? = null
@@ -305,6 +313,9 @@ class MainActivity : AppCompatActivity() {
         setupBack()
         setupWelcome()
         setupStats()
+        // v4.9.9: every tappable pill and circle shrinks a little when pressed (after the setups,
+        // so views made clickable by their click listeners are included)
+        PressScale.applyTree(findViewById(android.R.id.content))
 
         pal = appPal()
         applyPalette(pal, includeLists = true)
@@ -325,6 +336,8 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         if (::fsLyrics.isInitialized) fsLyrics.setHostVisible(true)
+        // v4.9.9: the Now Playing lyric line's Flow frames too
+        if (::npLyric.isInitialized) npLyric.setHostVisible(true)
         // v4.9.8: an app open (cold start, or the app back from the background, even into a new
         // MainActivity) may run a quiet update check; see onAppOpenedForUpdates
         app.foreground.takeOpen()?.let { onAppOpenedForUpdates(it) }
@@ -358,6 +371,7 @@ class MainActivity : AppCompatActivity() {
         wasStopped = true
         // v4.9.8 part 4: no Flow frames in the background
         if (::fsLyrics.isInitialized) fsLyrics.setHostVisible(false)
+        if (::npLyric.isInitialized) npLyric.setHostVisible(false)
         // v4.9: save what's been heard so far right away (the app may be closed from here)
         app.playbackController.flushListening()
         super.onStop()
@@ -504,6 +518,36 @@ class MainActivity : AppCompatActivity() {
             }
             if (needed + dp(12f) <= avail) break
         }
+        fitTabLines()
+    }
+
+    /** The label of a tab (Stats keeps its text in a row with the "new" tag and the dot). */
+    private fun tabLabel(t: View): TextView? {
+        val first = (t as? ViewGroup)?.getChildAt(0)
+        return (first as? TextView) ?: ((first as? ViewGroup)?.getChildAt(0) as? TextView)
+    }
+
+    /**
+     * v4.9.9: each underline is as wide as its tab's word (was a fixed 18dp dash), so it resizes as
+     * it glides between tabs. Measured from the text, so it is right before a screen is ever shown.
+     * Lines sit at the start of their tab, under the word (Stats' tag and dot stay out of it).
+     */
+    private fun fitTabLines() {
+        for ((_, row) in topRows) {
+            for (t in Tab.values()) {
+                val label = tabLabel(tabViewOf(row, t)) ?: continue
+                val w = kotlin.math.ceil(
+                    android.text.Layout.getDesiredWidth(label.text ?: "", label.paint)
+                ).toInt() + label.paddingLeft + label.paddingRight
+                val line = lineOf(row, t)
+                val lp = line.layoutParams as android.widget.LinearLayout.LayoutParams
+                if (w > 0 && (lp.width != w || lp.gravity != android.view.Gravity.START)) {
+                    lp.width = w
+                    lp.gravity = android.view.Gravity.START
+                    line.layoutParams = lp
+                }
+            }
+        }
     }
 
     /** A tab tap (or swipe-up): a light tick when the tab really changes. */
@@ -516,14 +560,18 @@ class MainActivity : AppCompatActivity() {
         if (target == Tab.STATS) onStatsShown()
         val from = tab
         tab = target
-        screenHome.visibility = if (target == Tab.HOME) View.VISIBLE else View.GONE
-        screenDiscover.visibility = if (target == Tab.DISCOVER) View.VISIBLE else View.GONE
-        screenStats.visibility = if (target == Tab.STATS) View.VISIBLE else View.GONE
-        screenLibrary.visibility = if (target == Tab.LIBRARY) View.VISIBLE else View.GONE
+        // v4.9.9: the old screen stays up while it slides out (see animateTabChange)
+        val slide = animate && from != target && animationsOn() && root.isShown
+        val leaving = if (slide) screenOf(from) else null
+        for (t in Tab.values()) {
+            val s = screenOf(t)
+            val v = if (t == target || s === leaving) View.VISIBLE else View.GONE
+            if (s.visibility != v) s.visibility = v
+        }
         if (target == Tab.HOME) renderGreeting(animate = false)
         if (target != Tab.HOME) lifecycleScope.launch { refreshData() }
         if (target == Tab.DISCOVER) loadDiscover(force = false)
-        if (animate && from != target && animationsOn()) animateTabChange(from, target)
+        if (slide) animateTabChange(from, target) else stopTabTransition()
         updateChrome()
     }
 
@@ -550,36 +598,200 @@ class MainActivity : AppCompatActivity() {
         Tab.LIBRARY -> screenLibrary
     }
 
-    /** The underline glides from the old tab to the new one; the content slides in from that side. */
-    private fun animateTabChange(from: Tab, to: Tab) {
-        // Every screen has the same top row, so the old row tells where both tabs sit
-        val fromRow = rowOf(from)
-        val oldTab = tabViewOf(fromRow, from)
-        val newTab = tabViewOf(fromRow, to)
-        if (oldTab.width > 0 && newTab.width > 0) {
-            val dx = (oldTab.left + oldTab.width / 2f) - (newTab.left + newTab.width / 2f)
-            val line = lineOf(rowOf(to), to)
-            line.translationX = dx
-            line.animate().translationX(0f).setStartDelay(0L).setDuration(260L)
-                .setInterpolator(DecelerateInterpolator(1.5f)).start()
-        }
+    // ------------------------------------------------------------------------------------------
+    // v4.9.9: tab switch motion. The new screen's content slides in a little from the side you're
+    // moving towards and fades in; the old screen's content slides the other way and fades out;
+    // the underline glides to the new tab and takes its width. One animator drives both screens,
+    // so a quick second tap turns everything around from where it is instead of running twice.
+    //
+    // While it runs the old screen sits below everything (negative Z, so it gets no touches) and
+    // the new screen's background is see-through; the root behind both has the same colour.
+    // ------------------------------------------------------------------------------------------
 
-        val screen = screenOf(to) as? ViewGroup ?: return
-        val topRowRoot = when (to) {
-            Tab.HOME -> R.id.home_top
-            Tab.DISCOVER -> R.id.discover_top
-            Tab.STATS -> R.id.stats_top
-            Tab.LIBRARY -> R.id.library_top
-        }
-        val shift = dp(36f) * (if (to.ordinal > from.ordinal) 1f else -1f)
+    private class TabSlide(
+        val view: View,
+        val a0: Float, val a1: Float,
+        val x0: Float, val x1: Float,
+        val ms: Long
+    )
+
+    private var tabAnim: ValueAnimator? = null
+    private var tabOut: ViewGroup? = null
+    private var tabIn: ViewGroup? = null
+    private var tabSlides: List<TabSlide> = emptyList()
+    private val tabEase = DecelerateInterpolator()
+
+    private fun topRowIdOf(t: Tab): Int = when (t) {
+        Tab.HOME -> R.id.home_top
+        Tab.DISCOVER -> R.id.discover_top
+        Tab.STATS -> R.id.stats_top
+        Tab.LIBRARY -> R.id.library_top
+    }
+
+    /** The children of a tab screen that move: everything but its top row and views popping out. */
+    private fun slidingChildren(screen: ViewGroup, t: Tab): List<View> {
+        val top = topRowIdOf(t)
+        val out = ArrayList<View>(screen.childCount)
         for (i in 0 until screen.childCount) {
-            val child = screen.getChildAt(i)
-            if (child.id == topRowRoot || child.visibility != View.VISIBLE || child in hidingViews) continue
-            child.translationX = shift
-            child.alpha = 0f
-            child.animate().translationX(0f).alpha(1f).setStartDelay(0L).setDuration(240L)
-                .setInterpolator(DecelerateInterpolator()).start()
+            val c = screen.getChildAt(i)
+            if (c.id == top || c.visibility != View.VISIBLE || c in hidingViews) continue
+            out.add(c)
         }
+        return out
+    }
+
+    private fun animateTabChange(from: Tab, to: Tab) {
+        glideTabLine(from, to)
+
+        val outScreen = screenOf(from) as? ViewGroup
+        val inScreen = screenOf(to) as? ViewGroup
+        if (outScreen == null || inScreen == null) {
+            stopTabTransition()
+            outScreen?.visibility = View.GONE
+            return
+        }
+        val reversing = tabOut === inScreen
+        // Stop the running switch where it is (the views keep their in-between alpha and offset)
+        tabAnim?.let { a -> tabAnim = null; a.cancel() }
+        tabSlides = emptyList()
+        // A screen that was still sliding out and isn't coming back goes away now
+        tabOut?.let { if (it !== inScreen && it !== outScreen) endTabOut(it) }
+        tabIn?.let { if (it !== inScreen) restoreTabBackground(it) }
+        if (reversing) liftTabOut(inScreen)
+        tabOut = null
+        tabIn = null
+
+        val shift = dp(TabMotion.SHIFT_DP)
+        val fromI = from.ordinal
+        val toI = to.ordinal
+        val slides = ArrayList<TabSlide>()
+        // The top artist takeover's photo sits under Home: there the old screen just goes (as before)
+        val keepOld = takeoverRoot.visibility != View.VISIBLE
+        if (keepOld) {
+            for (c in slidingChildren(outScreen, from)) {
+                val end = TabMotion.outgoingEnd(fromI, toI, shift)
+                slides.add(TabSlide(c, c.alpha, 0f, c.translationX, end, TabMotion.remainingMs(TabMotion.OUT_MS, c.alpha, 0f)))
+            }
+            sinkTabOut(outScreen)
+            tabOut = outScreen
+            inScreen.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            tabIn = inScreen
+        } else {
+            endTabOut(outScreen)
+        }
+        for (c in slidingChildren(inScreen, to)) {
+            c.animate().cancel()
+            if (!reversing) {
+                c.translationX = TabMotion.incomingStart(fromI, toI, shift)
+                c.alpha = 0f
+            }
+            slides.add(TabSlide(c, c.alpha, 1f, c.translationX, 0f, TabMotion.remainingMs(TabMotion.IN_MS, c.alpha, 1f)))
+        }
+        if (slides.isEmpty()) {
+            stopTabTransition()
+            return
+        }
+        tabSlides = slides
+        val total = slides.maxOf { it.ms }.coerceAtLeast(1L)
+        val anim = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = total
+            interpolator = android.view.animation.LinearInterpolator()
+            addUpdateListener {
+                if (tabAnim !== it) return@addUpdateListener
+                val elapsed = it.animatedFraction * total
+                for (sl in tabSlides) {
+                    val k = tabEase.getInterpolation(if (sl.ms <= 0L) 1f else (elapsed / sl.ms).coerceIn(0f, 1f))
+                    sl.view.alpha = sl.a0 + (sl.a1 - sl.a0) * k
+                    sl.view.translationX = sl.x0 + (sl.x1 - sl.x0) * k
+                }
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                private var cancelled = false
+                override fun onAnimationCancel(animation: android.animation.Animator) { cancelled = true }
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (!cancelled && tabAnim === animation) stopTabTransition()
+                }
+            })
+        }
+        tabAnim = anim
+        anim.start()
+    }
+
+    /** Ends any tab switch at once: the old screen gone, the new one settled with its background. */
+    private fun stopTabTransition() {
+        tabAnim?.let { a -> tabAnim = null; a.cancel() }
+        val current = screenOf(tab)
+        for (sl in tabSlides) {
+            if (sl.view.parent === current) {
+                sl.view.alpha = 1f
+                sl.view.translationX = 0f
+            }
+        }
+        tabSlides = emptyList()
+        tabOut?.let { if (it !== current) endTabOut(it) else liftTabOut(it) }
+        tabOut = null
+        tabIn?.let { restoreTabBackground(it) }
+        tabIn = null
+    }
+
+    /** The old screen goes below everything while it slides out (no shadow, no touches). */
+    private fun sinkTabOut(screen: ViewGroup) {
+        screen.outlineProvider = null
+        screen.translationZ = -1f
+        // Its top row (and the old underline) would show under the new one's
+        topRowIn(screen)?.visibility = View.INVISIBLE
+    }
+
+    private fun liftTabOut(screen: ViewGroup) {
+        screen.translationZ = 0f
+        screen.outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+        topRowIn(screen)?.visibility = View.VISIBLE
+    }
+
+    private fun topRowIn(screen: ViewGroup): View? = topRows.firstOrNull { it.second.root.parent === screen }?.second?.root
+
+    /** A screen that finished sliding out: hidden, its content put back for next time. */
+    private fun endTabOut(screen: ViewGroup) {
+        liftTabOut(screen)
+        if (screen !== screenOf(tab)) screen.visibility = View.GONE
+        for (i in 0 until screen.childCount) {
+            val c = screen.getChildAt(i)
+            if (c in hidingViews) continue
+            c.alpha = 1f
+            c.translationX = 0f
+        }
+    }
+
+    private fun restoreTabBackground(screen: ViewGroup) {
+        if (screen === screenHome && isTakeoverActive) applyTakeoverColors()
+        else screen.setBackgroundColor(pal.bg)
+    }
+
+    /**
+     * The new tab's underline starts where the old one is drawn right now (mid-glide after a quick
+     * tap) and glides to its own place, stretching or shrinking to the new tab's width.
+     */
+    private fun glideTabLine(from: Tab, to: Tab) {
+        // Every screen has the same top row, so the old row tells where both lines sit
+        val fromRow = rowOf(from)
+        val oldLine = lineOf(fromRow, from)
+        val target = lineOf(fromRow, to)
+        val line = lineOf(rowOf(to), to)
+        if (oldLine.width <= 0 || target.width <= 0) return
+        fun centre(l: View): Float = (l.parent as View).left + l.left + l.width / 2f
+        val (dx, scale) = TabMotion.lineStart(
+            centre(oldLine) + oldLine.translationX, oldLine.width * oldLine.scaleX,
+            centre(target), target.width.toFloat()
+        )
+        // The old line stays put on its own screen for the next switch
+        oldLine.animate().cancel()
+        oldLine.translationX = 0f
+        oldLine.scaleX = 1f
+        line.animate().cancel()
+        line.translationX = dx
+        line.scaleX = scale
+        line.animate().translationX(0f).scaleX(1f).setStartDelay(0L).setDuration(TabMotion.LINE_MS)
+            .setInterpolator(DecelerateInterpolator(1.5f)).start()
     }
 
     /** Shows the floating mini player only where it belongs (Search, Library, Recents, lists). */
@@ -1263,9 +1475,10 @@ class MainActivity : AppCompatActivity() {
         val d = metrics.density
         // v4.9.7: the pill is only cover + text now (the buttons are circles below it)
         val fixed = m.root.paddingStart + m.root.paddingEnd + (38 + 10) * d
+        // v4.9.9: measure the text that is coming in, so the pill resizes while the old text fades
         val textW = maxOf(
-            m.title.paint.measureText(m.title.text?.toString().orEmpty()),
-            m.artist.paint.measureText(m.artist.text?.toString().orEmpty())
+            m.title.paint.measureText(textFade.target(m.title).toString()),
+            m.artist.paint.measureText(textFade.target(m.artist).toString())
         )
         val maxW = metrics.widthPixels * 0.85f
         val minW = minOf(PILL_MIN_DP * d, maxW)
@@ -1315,6 +1528,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<RecyclerView>(R.id.search_results).apply {
             layoutManager = LinearLayoutManager(this@MainActivity)
             adapter = searchAdapter
+            searchEntrance = RowEntrance(this)
         }
         searchInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_DONE) {
@@ -1413,7 +1627,10 @@ class MainActivity : AppCompatActivity() {
             var failed = false
             when (result) {
                 is SourceResult.Success -> {
+                    // v4.9.9: a new set of results rises in; the same songs again don't move
+                    val newSet = result.data.map { it.id } != searchAdapter.shownTrackIds
                     searchAdapter.submit(result.data)
+                    if (newSet && result.data.isNotEmpty()) searchEntrance.play()
                     tracksFound = result.data.size
                     if (result.data.isEmpty()) {
                         searchStatus.text = getString(R.string.no_results)
@@ -1501,6 +1718,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<RecyclerView>(R.id.list_tracks).apply {
             layoutManager = LinearLayoutManager(this@MainActivity)
             adapter = listAdapter
+            listEntrance = RowEntrance(this)
         }
     }
 
@@ -1526,6 +1744,7 @@ class MainActivity : AppCompatActivity() {
             layoutManager = LinearLayoutManager(this@MainActivity)
             adapter = shelfAdapter
             itemAnimator = null
+            discoverEntrance = RowEntrance(this)
         }
         discoverRefresh.setOnRefreshListener { loadDiscover(force = true) }
         discoverMessage.setOnClickListener {
@@ -1552,6 +1771,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<RecyclerView>(R.id.shelf_grid).apply {
             layoutManager = GridLayoutManager(this@MainActivity, GRID_COLUMNS)
             adapter = shelfGridAdapter
+            shelfGridEntrance = RowEntrance(this)
         }
         findViewById<View>(R.id.shelf_back).setOnClickListener {
             haptic(it)
@@ -1600,9 +1820,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showDiscover(s: com.minim.music.data.discover.DiscoverSnapshot, afterBuild: Boolean) {
+        // v4.9.9: a new set of shelves rises in; the same shelves with a song less ("not
+        // interested") or fresher songs just update in place
+        val newSet = s.shelves.map { it.key } != discoverShelves.map { it.key }
         discoverShelves = s.shelves
         shelfAdapter.submit(s.shelves)
         shelfAdapter.setActiveTrack(app.playbackController.uiState.value.currentTrack?.id)
+        if (newSet && s.shelves.isNotEmpty()) discoverEntrance.play()
         when {
             s.shelves.isNotEmpty() -> {
                 discoverHasError = false
@@ -1642,6 +1866,7 @@ class MainActivity : AppCompatActivity() {
     private fun openShelfPage(shelf: com.minim.music.data.discover.Shelf) {
         fillShelfPage(shelf)
         findViewById<RecyclerView>(R.id.shelf_grid).scrollToPosition(0)
+        shelfGridEntrance.play()
         screenShelf.visibility = View.VISIBLE
         if (animationsOn()) {
             screenShelf.alpha = 0f
@@ -1771,6 +1996,8 @@ class MainActivity : AppCompatActivity() {
                 itemAnimator = null
             }
         }
+        artistSongsEntrance = RowEntrance(artistSongsShelf.findViewById(R.id.shelf_row))
+        artistAlbumsEntrance = RowEntrance(artistAlbumsShelf.findViewById(R.id.shelf_row))
         artistSongsShelf.findViewById<TextView>(R.id.shelf_title).setText(R.string.artist_songs)
         artistAlbumsShelf.findViewById<TextView>(R.id.shelf_title).setText(R.string.artist_albums)
         artistSongsShelf.findViewById<View>(R.id.shelf_header).setOnClickListener {
@@ -1916,6 +2143,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showArtistPage(page: ArtistPage) {
+        // v4.9.9: the shelves' songs and albums rise in when the page loads, not on a redraw
+        val previous = artistPage
+        val newSongs = previous == null || previous.songs != page.songs
+        val newAlbums = previous == null || previous.albums != page.albums
         artistPage = page
         showArtistHeader(page.name, formatArtistCount(resources, page.count, page.countKind), page.photoUrl)
         val active = app.playbackController.uiState.value.currentTrack?.id
@@ -1927,6 +2158,7 @@ class MainActivity : AppCompatActivity() {
                 { anchor, track -> showTrackOptions(anchor, track) }
             )
             artistSongsShelf.findViewById<RecyclerView>(R.id.shelf_row).scrollToPosition(0)
+            if (newSongs) artistSongsEntrance.play()
         }
         if (page.albums.isNotEmpty()) {
             artistAlbums.bind(
@@ -1934,6 +2166,7 @@ class MainActivity : AppCompatActivity() {
                 active, pal, { _, _ -> }, { _, _ -> }
             )
             artistAlbumsShelf.findViewById<RecyclerView>(R.id.shelf_row).scrollToPosition(0)
+            if (newAlbums) artistAlbumsEntrance.play()
         }
         // Hide a shelf that has nothing in it
         artistSongsShelf.visibility = if (page.songs.isNotEmpty()) View.VISIBLE else View.GONE
@@ -1977,6 +2210,11 @@ class MainActivity : AppCompatActivity() {
         }
         artistPhotoUrl = url
         val sizePx = resources.displayMetrics.widthPixels.coerceIn(320, 1080)
+        // v4.9.9: a photo already in memory shows at once; only a fetched one fades in
+        app.artworkPipeline.cachedBitmap(url, sizePx)?.let {
+            setArtistPhoto(it, fade = false)
+            return
+        }
         lifecycleScope.launch {
             val bmp = app.artworkPipeline.loadBitmap(url, sizePx)
             if (artistPhotoUrl != url) return@launch
@@ -1984,7 +2222,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun setArtistPhoto(bmp: android.graphics.Bitmap?) {
+    private fun setArtistPhoto(bmp: android.graphics.Bitmap?, fade: Boolean = true) {
         artistBitmap = if (bmp == null || bmp.isRecycled) null else bmp
         artistToneScroll = 0
         logoOverPage = false
@@ -1998,9 +2236,13 @@ class MainActivity : AppCompatActivity() {
             readPhotoTones(bmp)
             artistPhoto.setImageBitmap(bmp)
             artistPhoto.visibility = View.VISIBLE
-            if (animationsOn()) {
+            artistPhoto.animate().cancel()
+            if (fade && animationsOn()) {
                 artistPhoto.alpha = 0f
-                artistPhoto.animate().alpha(1f).setDuration(220L).start()
+                artistPhoto.animate().alpha(1f).setDuration(com.minim.music.util.ArtworkFade.FADE_MS)
+                    .setInterpolator(DecelerateInterpolator(1.5f)).start()
+            } else {
+                artistPhoto.alpha = 1f
             }
         }
         paintArtistHeader(pal)
@@ -2349,6 +2591,7 @@ class MainActivity : AppCompatActivity() {
         listSubtitle.text = album.subtitle
         listAdapter.submitList(emptyList())
         findViewById<RecyclerView>(R.id.list_tracks).scrollToPosition(0)
+        listEntrance.expect()
         screenList.visibility = View.VISIBLE
         updateChrome()
         loadAlbum(album)
@@ -2366,6 +2609,7 @@ class MainActivity : AppCompatActivity() {
                 is SourceResult.Success -> {
                     listAdapter.submitList(result.data)
                     listAdapter.setActiveTrack(app.playbackController.uiState.value.currentTrack?.id)
+                    listEntrance.loaded(result.data.size)
                     listSubtitle.text = listOf(album.subtitle, songCount(result.data.size))
                         .filter { it.isNotBlank() }.joinToString(" · ")
                     if (result.data.isEmpty()) {
@@ -2401,6 +2645,7 @@ class MainActivity : AppCompatActivity() {
         listSubtitle.text = ""
         listAdapter.submitList(emptyList())
         listEmpty.visibility = View.GONE
+        listEntrance.expect()
         screenList.visibility = View.VISIBLE
         updateChrome()
         lifecycleScope.launch { refreshOpenList() }
@@ -2423,6 +2668,8 @@ class MainActivity : AppCompatActivity() {
         }
         if (openListId != id) return
         listAdapter.submitList(tracks)
+        // v4.9.9: rises in on opening; later refreshes (a like, a play) just update
+        listEntrance.loaded(tracks.size)
         listSubtitle.text = songCount(tracks.size)
         listEmpty.text = getString(
             when (id) {
@@ -2619,6 +2866,8 @@ class MainActivity : AppCompatActivity() {
             override fun onChromeChanged() = applyFsLyricsChrome()
         })
         fsLyrics.flowStyle = app.preferences.isFlowLyrics
+        npLyric.flowStyle = app.preferences.isFlowLyrics
+        npLyric.animationsOn = { animationsOn() }
     }
 
     /**
@@ -2628,6 +2877,8 @@ class MainActivity : AppCompatActivity() {
      */
     private fun applyFsLyricsChrome() {
         if (!::fsLyrics.isInitialized) return
+        // v4.9.9: once Now Playing has faded out under the full screen lyrics, its lyric line stops drawing
+        npLyric.setCovered(fsLyrics.isShowing && FullscreenLyricsLook.nowPlayingAlpha(fsLyrics.mix) <= 0f)
         val k = fsLyrics.backdropMix
         val p = pal
         window.navigationBarColor = (p.bg and 0x00FFFFFF) or (((1f - k) * 255f + 0.5f).toInt().coerceIn(0, 255) shl 24)
@@ -2729,6 +2980,8 @@ class MainActivity : AppCompatActivity() {
         findViewById<RecyclerView>(R.id.queue_list).apply {
             layoutManager = LinearLayoutManager(this@MainActivity)
             adapter = queueAdapter
+            // v4.9.9: moved rows glide, removed rows fade and the gap closes
+            itemAnimator = QueueItemAnimator()
         }
         findViewById<View>(R.id.queue_close).setOnClickListener { closeQueue() }
     }
@@ -2788,10 +3041,12 @@ class MainActivity : AppCompatActivity() {
         option(R.id.set_lyrics_flow) {
             p.lyricsStyle = AppPreferences.LYRICS_STYLE_FLOW
             fsLyrics.flowStyle = true
+            npLyric.flowStyle = true
         }
         option(R.id.set_lyrics_line) {
             p.lyricsStyle = AppPreferences.LYRICS_STYLE_LINE
             fsLyrics.flowStyle = false
+            npLyric.flowStyle = false
         }
         option(R.id.set_boost_off) { p.volumeBoost = AppPreferences.BOOST_OFF }
         option(R.id.set_boost_normal) { p.volumeBoost = AppPreferences.BOOST_NORMAL }
@@ -3060,14 +3315,16 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        // v4.9.9: a new song's title and artist fade in over the old ones (not on the first song)
+        val fadeText = renderedTrackId != null && renderedTrackId != track.id
         for (mini in listOf(homeMini, floatMini)) {
-            mini.title.text = track.title
-            mini.artist.text = track.artist
+            textFade.set(mini.title, track.title, fadeText) { restartMarquee(mini) }
+            textFade.set(mini.artist, track.artist, fadeText) { restartMarquee(mini) }
             mini.play.setImageResource(if (state.isPlaying) R.drawable.ic_pause else R.drawable.ic_play)
             mini.play.contentDescription = getString(if (state.isPlaying) R.string.pause else R.string.play)
         }
-        npTitle.text = track.title
-        npArtist.text = track.artist
+        textFade.set(npTitle, track.title, fadeText)
+        textFade.set(npArtist, track.artist, fadeText)
         fsLyrics.onTrack(track.thumbnailUrl)
         // v4.9.8 part 4: a new song while Now Playing is open: get its full screen lyrics cover
         // ready now, so opening shows it at once (a no-op once loaded, or while that mode is open)
@@ -3153,10 +3410,8 @@ class MainActivity : AppCompatActivity() {
         // v4.9.8: a faint "Lyrics not available" when the song has none
         npLyricMode = NowPlayingLyricSlot.mode(data)
         applyNpLyricMode()
-        setNpLyric(
-            if (npLyricMode == NowPlayingLyricSlot.Mode.NONE) getString(R.string.np_lyrics_unavailable) else "",
-            animate = true
-        )
+        // v4.9.9: the line view fades out the old song's line in place (instant when it can't be seen)
+        npLyric.setLyrics(data, getString(R.string.np_lyrics_unavailable), animate = true)
         // v4.9.8: the full screen lyrics get the same lyrics (untimed ones show without highlighting)
         fsLyrics.setLyrics(data)
         if (data != null && data.isSynced && data.lines.isNotEmpty()) {
@@ -3180,54 +3435,12 @@ class MainActivity : AppCompatActivity() {
         if (index != activeLyric) {
             activeLyric = index
             fsLyrics.setActive(index, animate)
-            setNpLyric(if (index >= 0) data.lines[index].text.trim() else "", animate)
         }
+        val playing = app.playbackController.uiState.value.isPlaying
+        // v4.9.9: the Now Playing line (Flow word by word, slides to the next line, swaps on a seek)
+        npLyric.onPosition(index, shifted, playing, animate)
         // v4.9.8 part 4: feeds Flow's per frame clock (and the active line's per word hook)
-        fsLyrics.onLinePosition(shifted, app.playbackController.uiState.value.isPlaying)
-    }
-
-    /** The current line on Now Playing: fades out, changes, fades back in (~250 ms in all). */
-    private fun setNpLyric(text: String, animate: Boolean) {
-        if (text == npLyricTarget) return
-        npLyricTarget = text
-        npLyric.animate().cancel()
-        if (!animate || !animationsOn() || !isNowPlayingOpen || isLyricsOpen) {
-            showNpLyricText(text)
-            npLyric.alpha = npLyricAlpha(text)
-            return
-        }
-        npLyric.animate().alpha(0f).setStartDelay(0L).setDuration(110L)
-            .setInterpolator(AccelerateInterpolator())
-            .withEndAction {
-                val target = npLyricTarget
-                showNpLyricText(target)
-                npLyric.animate().alpha(npLyricAlpha(target)).setStartDelay(0L).setDuration(140L)
-                    .setInterpolator(DecelerateInterpolator()).start()
-            }
-            .start()
-    }
-
-    /** v4.9.8: the "Lyrics not available" text is faint; real lines are fully opaque. */
-    private fun isNpUnavailableText(text: String): Boolean =
-        npLyricMode == NowPlayingLyricSlot.Mode.NONE && text.isNotEmpty() && text == getString(R.string.np_lyrics_unavailable)
-
-    private fun npLyricAlpha(text: String): Float =
-        if (isNpUnavailableText(text)) NowPlayingLyricSlot.UNAVAILABLE_ALPHA else 1f
-
-    /** Sets the slot's text; "Lyrics not available" is smaller and regular weight. */
-    private fun showNpLyricText(text: String) {
-        val faint = isNpUnavailableText(text)
-        if (faint != npLyricFaint) {
-            npLyricFaint = faint
-            if (faint) {
-                npLyric.setAutoSizeTextTypeUniformWithConfiguration(
-                    NowPlayingLyricSlot.UNAVAILABLE_TEXT_SP, NowPlayingLyricSlot.UNAVAILABLE_TEXT_SP, 1, TypedValue.COMPLEX_UNIT_SP
-                )
-            } else {
-                npLyric.setAutoSizeTextTypeUniformWithConfiguration(18, 22, 1, TypedValue.COMPLEX_UNIT_SP)
-            }
-        }
-        npLyric.text = text
+        fsLyrics.onLinePosition(shifted, playing)
     }
 
     /** v4.9.8: only a song with lyrics makes the slot tappable (and visible to TalkBack as a button). */
@@ -3235,7 +3448,12 @@ class MainActivity : AppCompatActivity() {
         val tappable = NowPlayingLyricSlot.isTappable(npLyricMode)
         npLyric.isClickable = tappable
         npLyric.isFocusable = tappable
-        npLyric.contentDescription = if (tappable) getString(R.string.np_open_lyrics) else null
+        npLyric.contentDescription = when {
+            tappable -> getString(R.string.np_open_lyrics)
+            // v4.9.9: the slot is a layout now, so TalkBack reads the message from here
+            npLyricMode == NowPlayingLyricSlot.Mode.NONE -> getString(R.string.np_lyrics_unavailable)
+            else -> null
+        }
         npLyric.importantForAccessibility =
             if (tappable || npLyricMode == NowPlayingLyricSlot.Mode.NONE) View.IMPORTANT_FOR_ACCESSIBILITY_YES
             else View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -3328,6 +3546,9 @@ class MainActivity : AppCompatActivity() {
         if (!prefs.statsTabSeen) prefs.statsTabSeen = true
         recapStats?.let { markRecapViewed(it) }
         updateStatsBadges()
+        // v4.9.9: the big numbers count up from zero when the tab opens (not on tapping it again);
+        // the refresh just below glides any that changed. Called before the tab changes over.
+        if (tab != Tab.STATS) statsScreen.countUp()
         refreshStats()
     }
 
@@ -3691,6 +3912,7 @@ class MainActivity : AppCompatActivity() {
             val tracks = app.database.getTracksByIds(songs.map { it.trackId })
             val byId = tracks.associateBy { it.id }
             val total = songs.sumOf { it.plays }
+            val rows = ArrayList<View>()
             openSheet { box ->
                 sheetHeading(
                     box, getString(R.string.stats_today_songs_sheet),
@@ -3713,8 +3935,11 @@ class MainActivity : AppCompatActivity() {
                         closeSheet { app.playbackController.playRadio(track, tracks) }
                     }
                     box.addView(row)
+                    rows += row
                 }
             }
+            // v4.9.9: the rows rise in a little apart as the sheet comes up
+            RowEntrance.playViews(rows)
         }
     }
 
@@ -3733,6 +3958,7 @@ class MainActivity : AppCompatActivity() {
             }
             if (artists.isEmpty()) return@launch
             val count = artists.size
+            val rows = ArrayList<View>()
             openSheet { box ->
                 sheetHeading(
                     box, getString(R.string.stats_today_artists_sheet),
@@ -3744,8 +3970,10 @@ class MainActivity : AppCompatActivity() {
                     }
                     // v4.9.3: the artist's round photo instead of the person icon (kept as the fallback)
                     showSheetArtistPhoto(row, a.name)
+                    rows += row
                 }
             }
+            RowEntrance.playViews(rows)
         }
     }
 
@@ -3756,6 +3984,8 @@ class MainActivity : AppCompatActivity() {
         val sizePx = dp(30f).toInt()
         lifecycleScope.launch {
             val url = artistPhotoUrl(name) ?: return@launch
+            // v4.9.9: a photo already in memory shows at once, without the fade
+            val fromMemory = app.artworkPipeline.cachedBitmap(url, dp(64f).toInt()) != null
             val bmp = try {
                 app.artworkPipeline.loadBitmap(url, dp(64f).toInt())
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -3784,9 +4014,10 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             icon.setImageBitmap(bmp)
-            if (animationsOn()) {
+            if (!fromMemory && animationsOn()) {
                 icon.alpha = 0f
-                icon.animate().alpha(1f).setDuration(260L).setInterpolator(DecelerateInterpolator()).start()
+                icon.animate().alpha(1f).setDuration(com.minim.music.util.ArtworkFade.FADE_MS)
+                    .setInterpolator(DecelerateInterpolator(1.5f)).start()
             }
         }
     }
@@ -4478,24 +4709,55 @@ class MainActivity : AppCompatActivity() {
         app.preferences.isDarkTheme
     )
 
+    /**
+     * The one shared colour fade (v4.9.9: eased, with text that crosses over at the midpoint).
+     * Everything coloured from the palette reads [pal], which this moves from the colours on screen
+     * right now to [target]; a quick skip simply retargets from the in-between colours, so nothing
+     * flashes. Lists are painted every frame through the root (their rows are on screen); their
+     * adapters get the final colours once at the end, for rows that are off screen.
+     * Default black and white never changes, so it never fades.
+     */
     private fun animatePaletteTo(target: Pal) {
-        paletteAnimator?.cancel()
+        val running = paletteAnimator
+        paletteAnimator = null
+        running?.cancel()
         val from = pal
-        if (from == target) return
-        paletteAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 450L
-            addUpdateListener {
-                val t = it.animatedFraction
-                // Lists are repainted once at the end, not on every frame
-                applyPalette(if (t >= 1f) target else from.lerp(target, t), includeLists = t >= 1f)
-            }
-            start()
+        if (from == target) {
+            // A fade was cut short exactly on its target: the adapters still need the final colours
+            if (running != null) applyPalette(target, includeLists = true)
+            return
         }
+        if (!animationsOn() || !root.isShown) {
+            applyPalette(target, includeLists = true)
+            return
+        }
+        val fade = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = PaletteFade.DURATION_MS
+            interpolator = DecelerateInterpolator(1.5f)
+            addUpdateListener {
+                if (paletteAnimator !== it) return@addUpdateListener
+                val t = it.animatedValue as Float
+                if (t < 1f) applyPalette(PaletteFade.at(from, target, t), includeLists = false)
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                private var cancelled = false
+                override fun onAnimationCancel(animation: android.animation.Animator) { cancelled = true }
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (cancelled || paletteAnimator !== animation) return
+                    paletteAnimator = null
+                    applyPalette(target, includeLists = true)
+                }
+            })
+        }
+        paletteAnimator = fade
+        fade.start()
     }
 
     private fun applyPalette(p: Pal, includeLists: Boolean) {
         pal = p
         Painter.paint(root, p)
+        // v4.9.9: a tab sliding in keeps its see-through background until the switch ends
+        tabIn?.setBackgroundColor(android.graphics.Color.TRANSPARENT)
         paintArtistHeader(p)
         // v4.6.1: the status bar is see-through; the root's background (p.bg) shows behind it,
         // so it looks the same as before everywhere except on the Artist page
@@ -4606,6 +4868,8 @@ class MainActivity : AppCompatActivity() {
         sheetContent.removeAllViews()
         sheetScroll.scrollTo(0, 0)
         build(sheetContent)
+        // v4.9.9: the sheet's pills (menu items, buttons) shrink a little when pressed
+        PressScale.applyTree(sheetContent)
         Painter.paint(sheetRoot, pal)
         if (alreadyOpen) {
             sheetPanel.translationY = 0f
@@ -4735,6 +4999,7 @@ class MainActivity : AppCompatActivity() {
             haptic(v)
             onClick(v)
         }
+        PressScale.apply(row) // v4.9.9, also for rows added after the sheet opened
         parent.addView(row)
         return row
     }

@@ -97,23 +97,13 @@
 
     <!-- The current synced lyric line. Fixed height: nothing moves when it wraps or is empty.
          v4.9.8: tappable when the song has lyrics (opens full screen lyrics); a faint
-         "Lyrics not available" otherwise. MainActivity sets clickable / alpha / size. -->
-    <TextView
+         "Lyrics not available" otherwise. MainActivity sets clickable / TalkBack.
+         v4.9.9: its own view: Flow word by word, centred lines with side margins and a max
+         width (set in code), the old line slides up as the next one slides in. -->
+    <com.minim.music.ui.NowPlayingLyricView
         android:id="@+id/np_lyric"
-        style="@style/MinimText.Semi"
         android:layout_width="match_parent"
-        android:layout_height="68dp"
-        android:layout_marginStart="30dp"
-        android:layout_marginEnd="30dp"
-        android:autoSizeMaxTextSize="22sp"
-        android:autoSizeMinTextSize="18sp"
-        android:autoSizeStepGranularity="1sp"
-        android:autoSizeTextType="uniform"
-        android:ellipsize="end"
-        android:gravity="center"
-        android:maxLines="2"
-        android:tag="text:fg"
-        android:textSize="22sp" />
+        android:layout_height="68dp" />
 
     <Space
         android:id="@+id/np_gap_lyric"
