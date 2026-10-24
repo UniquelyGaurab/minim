@@ -61,7 +61,8 @@
 
     <include layout="@layout/view_now_playing" />
 
-    <include layout="@layout/view_lyrics" />
+    <!-- v4.9.8: full screen lyrics, right above Now Playing (replaces view_lyrics) -->
+    <include layout="@layout/view_fullscreen_lyrics" />
 
     <include layout="@layout/view_queue" />
 

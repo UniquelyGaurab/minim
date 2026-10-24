@@ -50,14 +50,30 @@ class MinimApp : Application() {
         private set
 
     /** v4.9.6: when the update pop-up may show; per process, so a rotation doesn't ask again. */
-    val updateGate = com.minim.music.ui.UpdatePromptGate()
+    val updateGate = com.minim.music.ui.UpdatePromptGate(clock = { android.os.SystemClock.elapsedRealtime() })
 
-    /** v4.9.6: false until the first activity start of this process (the first app open). */
-    var updateOpenSeen = false
+    /** v4.9.8: when the quiet update check runs (cold start, then every few hours on coming back). */
+    val updateSchedule = com.minim.music.data.update.UpdateCheckSchedule()
+
+    /**
+     * v4.9.8: app opens for the whole process (replaces 4.9.6's flags on MainActivity, which missed
+     * every open after the activity was closed while playback kept the process alive).
+     */
+    val foreground = com.minim.music.util.AppForegroundTracker(clock = { android.os.SystemClock.elapsedRealtime() })
 
     override fun onCreate() {
         super.onCreate()
         instance = this
+        registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
+            override fun onActivityStarted(activity: android.app.Activity) = foreground.onActivityStarted()
+            override fun onActivityStopped(activity: android.app.Activity) =
+                foreground.onActivityStopped(activity.isChangingConfigurations)
+            override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) = Unit
+            override fun onActivityResumed(activity: android.app.Activity) = Unit
+            override fun onActivityPaused(activity: android.app.Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) = Unit
+            override fun onActivityDestroyed(activity: android.app.Activity) = Unit
+        })
 
         preferences = AppPreferences(this)
         // v4.7: first launch or not is decided before anything saves a setting

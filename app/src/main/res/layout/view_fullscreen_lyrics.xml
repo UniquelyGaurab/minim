@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  v4.9.8 full screen lyrics (replaces the old lyrics screen). It sits right above Now Playing and
+  reaches behind the status and navigation bars (MainActivity gives it negative margins, like the
+  Home takeover). Bottom to top: the blurred cover (two images that crossfade on a song change),
+  a scrim, the lyric lines, a message for loading / no lyrics, the double tap play/pause pulse
+  and the progress bar, which slides here from Now Playing. Colours come from the cover
+  (FullscreenLyrics), so the palette painter leaves all of it alone (tag "unpainted").
+-->
+<com.minim.music.ui.FullscreenLyricsLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/screen_fs_lyrics"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clickable="true"
+    android:focusable="true"
+    android:tag="unpainted"
+    android:visibility="gone">
+
+    <FrameLayout
+        android:id="@+id/fs_backdrop"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0"
+        android:importantForAccessibility="noHideDescendants">
+
+        <FrameLayout
+            android:id="@+id/fs_images"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <ImageView
+                android:id="@+id/fs_bg_a"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:contentDescription="@null"
+                android:scaleType="centerCrop" />
+
+            <ImageView
+                android:id="@+id/fs_bg_b"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:contentDescription="@null"
+                android:scaleType="centerCrop" />
+        </FrameLayout>
+
+        <View
+            android:id="@+id/fs_scrim"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+    </FrameLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/fs_lines"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0"
+        android:clipToPadding="true"
+        android:fadingEdgeLength="88dp"
+        android:overScrollMode="never"
+        android:requiresFadingEdge="vertical"
+        android:scrollbars="none" />
+
+    <TextView
+        android:id="@+id/fs_message"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:alpha="0"
+        android:fontFamily="@font/poppins_medium"
+        android:gravity="center"
+        android:paddingStart="40dp"
+        android:paddingEnd="40dp"
+        android:textSize="16sp"
+        android:visibility="gone" />
+
+    <ImageView
+        android:id="@+id/fs_pulse"
+        android:layout_width="64dp"
+        android:layout_height="64dp"
+        android:layout_gravity="center"
+        android:alpha="0"
+        android:contentDescription="@null"
+        android:importantForAccessibility="no"
+        android:src="@drawable/ic_pause" />
+
+    <com.minim.music.ui.ProgressLine
+        android:id="@+id/fs_bar"
+        android:layout_width="280dp"
+        android:layout_height="20dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="28dp" />
+</com.minim.music.ui.FullscreenLyricsLayout>

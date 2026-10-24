@@ -168,7 +168,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var screenList: View
     private lateinit var screenSearch: View
     private lateinit var screenNowPlaying: View
-    private lateinit var screenLyrics: View
+    private lateinit var screenFsLyrics: FullscreenLyricsLayout
+    private lateinit var fsLyrics: FullscreenLyrics
+    private lateinit var npContent: View
     private lateinit var screenQueue: View
     private lateinit var screenSettings: View
     private lateinit var screenWelcome: View
@@ -201,13 +203,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var npArtist: TextView
     private lateinit var npControls: Controls
 
-    private lateinit var lyTitle: TextView
-    private lateinit var lySynced: LyricsView
-    private lateinit var lyPlainScroll: ScrollView
-    private lateinit var lyPlain: TextView
-    private lateinit var lyMessage: TextView
-    private lateinit var lyCredit: View
-    private lateinit var lyControls: Controls
 
     private lateinit var queueEmpty: View
 
@@ -268,6 +263,9 @@ class MainActivity : AppCompatActivity() {
 
     // v4.2: Now Playing lyric line, greeting tap, rotating tips
     private var npLyricTarget = ""
+    // v4.9.8: what the lyric slot shows (loading / "Lyrics not available" / lines) and if it taps
+    private var npLyricMode = NowPlayingLyricSlot.Mode.LOADING
+    private var npLyricFaint = false
     private var greetingOverride: Pair<String, String>? = null
     private var greetingOverrideJob: Job? = null
     private var greetingPlayTrackId: String? = null
@@ -326,8 +324,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
-        // v4.9.6: every app open (first start, or back from the background) quietly checks for an update
-        if (wasStopped || !app.updateOpenSeen) onAppOpenedForUpdates()
+        if (::fsLyrics.isInitialized) fsLyrics.setHostVisible(true)
+        // v4.9.8: an app open (cold start, or the app back from the background, even into a new
+        // MainActivity) may run a quiet update check; see onAppOpenedForUpdates
+        app.foreground.takeOpen()?.let { onAppOpenedForUpdates(it) }
         // v4.9.6: new greetings from GitHub, about once a day (does nothing when not due)
         app.syncRemoteGreetings()
         // Coming back from the background counts as opening the app: time-based greeting first
@@ -356,6 +356,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         wasStopped = true
+        // v4.9.8 part 4: no Flow frames in the background
+        if (::fsLyrics.isInitialized) fsLyrics.setHostVisible(false)
         // v4.9: save what's been heard so far right away (the app may be closed from here)
         app.playbackController.flushListening()
         super.onStop()
@@ -380,7 +382,8 @@ class MainActivity : AppCompatActivity() {
         screenList = findViewById(R.id.screen_list)
         screenSearch = findViewById(R.id.screen_search)
         screenNowPlaying = findViewById(R.id.screen_now_playing)
-        screenLyrics = findViewById(R.id.screen_lyrics)
+        screenFsLyrics = findViewById(R.id.screen_fs_lyrics)
+        npContent = findViewById(R.id.np_content)
         screenQueue = findViewById(R.id.screen_queue)
         screenSettings = findViewById(R.id.screen_settings)
         screenWelcome = findViewById(R.id.screen_welcome)
@@ -413,14 +416,6 @@ class MainActivity : AppCompatActivity() {
         npArtist = findViewById(R.id.np_artist)
         npControls = Controls(findViewById(R.id.np_controls))
 
-        lyTitle = findViewById(R.id.ly_title)
-        lySynced = findViewById(R.id.ly_synced)
-        lyPlainScroll = findViewById(R.id.ly_plain_scroll)
-        lyPlain = findViewById(R.id.ly_plain)
-        lyMessage = findViewById(R.id.ly_message)
-        lyCredit = findViewById(R.id.ly_credit)
-        lyControls = Controls(findViewById(R.id.ly_controls))
-
         queueEmpty = findViewById(R.id.queue_empty)
 
         settingsName = findViewById(R.id.settings_name)
@@ -446,7 +441,8 @@ class MainActivity : AppCompatActivity() {
     private val isShelfOpen get() = screenShelf.visibility == View.VISIBLE
     private val isArtistOpen get() = screenArtist.visibility == View.VISIBLE
     private val isNowPlayingOpen get() = screenNowPlaying.visibility == View.VISIBLE
-    private val isLyricsOpen get() = screenLyrics.visibility == View.VISIBLE
+    /** v4.9.8: the full screen lyrics (open or opening; a closing one counts as gone). */
+    private val isLyricsOpen get() = ::fsLyrics.isInitialized && fsLyrics.isOpen
     private val isQueueOpen get() = screenQueue.visibility == View.VISIBLE
     private val isSettingsOpen get() = screenSettings.visibility == View.VISIBLE
     private val isWelcomeOpen get() = ::screenWelcome.isInitialized && screenWelcome.visibility == View.VISIBLE
@@ -870,7 +866,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupScreenGestures() {
-        // Swipe up: Home -> Discover (v4.3.1, was Recents), Now Playing -> Lyrics
+        // Swipe up: Home -> Discover (v4.3.1, was Recents). v4.9.8: does nothing on Now Playing
+        // (lyrics open from the lyric line, Up next from its pill).
         screenGestures = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
                 val start = e1 ?: return false
@@ -883,8 +880,7 @@ class MainActivity : AppCompatActivity() {
                 if (recapStory != null || recapStoryOpening) return false
                 if (::sheetRoot.isInitialized && sheetRoot.visibility == View.VISIBLE) return false
                 when {
-                    isSettingsOpen || isQueueOpen || isLyricsOpen -> return false
-                    isNowPlayingOpen -> openLyrics()
+                    isSettingsOpen || isQueueOpen || isLyricsOpen || isNowPlayingOpen -> return false
                     isSearchOpen || isListOpen || isShelfOpen || isArtistOpen -> return false
                     tab == Tab.HOME -> switchTabByHand(homeHint, Tab.DISCOVER)
                     else -> return false
@@ -2167,6 +2163,16 @@ class MainActivity : AppCompatActivity() {
                     takeoverRoot.layoutParams = lp
                 }
             }
+            // v4.9.8: the full screen lyrics fill the whole screen too, behind both bars
+            (screenFsLyrics.layoutParams as ViewGroup.MarginLayoutParams).let { lp ->
+                if (lp.topMargin != -bars.top || lp.bottomMargin != -bars.bottom ||
+                    lp.leftMargin != -bars.left || lp.rightMargin != -bars.right
+                ) {
+                    lp.setMargins(-bars.left, -bars.top, -bars.right, -bars.bottom)
+                    screenFsLyrics.layoutParams = lp
+                }
+            }
+            if (::fsLyrics.isInitialized) fsLyrics.setInsets(bars.top, bars.bottom)
             margins(artistStatusScrim, 0, bars.top)
             margins(artistLogo, artistLogoBaseTop + bars.top)
             applySheetInsets(bars, insets.getInsets(WindowInsetsCompat.Type.ime()).bottom)
@@ -2209,6 +2215,8 @@ class MainActivity : AppCompatActivity() {
             isNowPlayingOpen || isLyricsOpen || isQueueOpen || isSettingsOpen)
         val cover = if (isArtistOpen && !artistOnTop) View.VISIBLE else View.GONE
         if (statusCover.visibility != cover) statusCover.visibility = cover
+        // v4.9.8: the strip fades away under the full screen lyrics (applyFsLyricsChrome)
+        if (::fsLyrics.isInitialized && !fsLyrics.isShowing && statusCover.alpha != 1f) statusCover.alpha = 1f
         val p = pal
         var lightStatus = if (artistOnTop && artistStatusScrim.alpha < 0.5f) {
             if (artistHasPhoto) statusOnLight else Painter.isLight(p.fg)
@@ -2222,6 +2230,12 @@ class MainActivity : AppCompatActivity() {
         ) {
             lightStatus = takeoverLight
             lightNav = takeoverLight
+        }
+        // v4.9.8: over the blurred cover the icons follow the lyric ink, switching halfway in
+        // (and back halfway out, so leaving gives Now Playing's icons back exactly)
+        if (::fsLyrics.isInitialized && fsLyrics.isShowing && FullscreenLyricsLook.chromeSwitched(fsLyrics.mix)) {
+            lightStatus = fsLyrics.inkIsDark
+            lightNav = fsLyrics.inkIsDark
         }
         if (isWelcomeOpen) {
             // White welcome screens: dark clock, battery and navigation icons
@@ -2490,7 +2504,18 @@ class MainActivity : AppCompatActivity() {
             haptic(v)
             showNowPlayingMenu()
         }
-        findViewById<View>(R.id.np_hint).setOnClickListener { openLyrics() }
+        // v4.9.8: "Up Next" pill (was "swipe up for lyrics"; the long-press for Up next is gone)
+        findViewById<View>(R.id.np_up_next).setOnClickListener { v ->
+            haptic(v)
+            openQueue()
+        }
+        // v4.9.8: tap the lyric line for full screen lyrics (only while the song has lyrics)
+        npLyric.setOnClickListener { v ->
+            if (!NowPlayingLyricSlot.isTappable(npLyricMode)) return@setOnClickListener
+            haptic(v)
+            openFullscreenLyrics()
+        }
+        applyNpLyricMode()
         setupControls(npControls)
         // Art at 73% of the width (as before); smaller only if the screen is too short for it all
         root.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or, ob ->
@@ -2503,7 +2528,7 @@ class MainActivity : AppCompatActivity() {
                 if (app.preferences.gestureSwipeAction == AppPreferences.GESTURE_DISABLED || e1 == null) return false
                 val dx = e2.x - e1.x
                 val dy = e2.y - e1.y
-                // Sideways only; swiping up belongs to "swipe up for lyrics"
+                // Sideways only
                 if (abs(dx) > dp(40f) && abs(velocityX) > 200f && abs(dx) > abs(dy)) {
                     haptic(npArt)
                     if (dx < 0) app.playbackController.skipNext() else app.playbackController.skipPrevious()
@@ -2524,8 +2549,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun onLongPress(e: MotionEvent) {
                 when (app.preferences.gestureLongPressAction) {
-                    AppPreferences.GESTURE_LPRESS_QUEUE -> openQueue()
-                    AppPreferences.GESTURE_LPRESS_LYRICS -> openLyrics()
+                    AppPreferences.GESTURE_LPRESS_LYRICS -> openFullscreenLyrics()
                     else -> return
                 }
                 haptic(npArt, HapticFeedbackConstants.LONG_PRESS)
@@ -2542,7 +2566,7 @@ class MainActivity : AppCompatActivity() {
      * the art alone gets smaller so everything still fits; the Space views share what is left.
      */
     private fun fitNowPlaying() {
-        val group = screenNowPlaying as? ViewGroup ?: return
+        val group = npContent as? ViewGroup ?: return
         // The space inside the root's system-bar padding (the window draws behind the bars)
         val w = root.width - root.paddingLeft - root.paddingRight
         val h = root.height - root.paddingTop - root.paddingBottom
@@ -2577,8 +2601,38 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** v4.9.8: the full screen lyrics mode (replaces the old lyrics screen). */
     private fun setupLyrics() {
-        setupControls(lyControls)
+        fsLyrics = FullscreenLyrics(screenFsLyrics, app.artworkPipeline, lifecycleScope, object : FullscreenLyrics.Host {
+            override val nowPlayingContent: View get() = npContent
+            override val nowPlayingBar: ProgressLine get() = npControls.progress
+            override fun palette(): Pal = pal
+            override fun coverLuminance(bitmap: android.graphics.Bitmap, viewW: Int, viewH: Int): Double =
+                areaLuminance(bitmap, viewW, viewH, 0f, 1f, 0f, 1f, withFade = false)
+            override fun animationsOn(): Boolean = this@MainActivity.animationsOn()
+            override fun togglePlayPause(): Boolean {
+                val wasPlaying = app.playbackController.uiState.value.isPlaying
+                app.playbackController.togglePlayPause()
+                return wasPlaying
+            }
+            override fun seek(fraction: Float, finished: Boolean) = seekFromBar(fraction, finished, fsLyrics.bar)
+            override fun onChromeChanged() = applyFsLyricsChrome()
+        })
+        fsLyrics.flowStyle = app.preferences.isFlowLyrics
+    }
+
+    /**
+     * v4.9.8: while the full screen lyrics show, the navigation bar fades to see-through over the
+     * blurred cover (like the takeover), the strip over the Artist page's status bar fades with
+     * it, and the status bar icons follow the lyric ink (updateSystemBars).
+     */
+    private fun applyFsLyricsChrome() {
+        if (!::fsLyrics.isInitialized) return
+        val k = fsLyrics.backdropMix
+        val p = pal
+        window.navigationBarColor = (p.bg and 0x00FFFFFF) or (((1f - k) * 255f + 0.5f).toInt().coerceIn(0, 255) shl 24)
+        if (::statusCover.isInitialized) statusCover.alpha = 1f - k
+        updateSystemBars()
     }
 
     private fun setupControls(c: Controls) {
@@ -2602,25 +2656,26 @@ class MainActivity : AppCompatActivity() {
             haptic(it)
             app.playbackController.toggleRepeat()
         }
-        c.progress.onSeek = { fraction, finished ->
-            val durationMs = app.playbackController.uiState.value.durationMs
-            if (durationMs > 0L) {
-                val target = (fraction * durationMs).toLong()
-                if (finished) {
-                    isSeeking = false
-                    app.playbackController.seekTo(target)
-                } else {
-                    isSeeking = true
-                }
-                // Preview the time on both screens while dragging
-                for (other in listOf(npControls, lyControls)) {
-                    other.elapsed.text = ArtworkPipeline.formatDurationSec(target / 1000L)
-                    other.remaining.text = formatRemaining(durationMs, target)
-                    if (other !== c) other.progress.setFraction(fraction)
-                }
-            } else if (finished) {
+        c.progress.onSeek = { fraction, finished -> seekFromBar(fraction, finished, c.progress) }
+    }
+
+    /** Dragging either progress bar (Now Playing's or the full screen lyrics' one) seeks. */
+    private fun seekFromBar(fraction: Float, finished: Boolean, source: ProgressLine) {
+        val durationMs = app.playbackController.uiState.value.durationMs
+        if (durationMs > 0L) {
+            val target = (fraction * durationMs).toLong()
+            if (finished) {
                 isSeeking = false
+                app.playbackController.seekTo(target)
+            } else {
+                isSeeking = true
             }
+            // Preview the time while dragging, and keep the other bar in step
+            npControls.elapsed.text = ArtworkPipeline.formatDurationSec(target / 1000L)
+            npControls.remaining.text = formatRemaining(durationMs, target)
+            for (bar in listOf(npControls.progress, fsLyrics.bar)) if (bar !== source) bar.setFraction(fraction)
+        } else if (finished) {
+            isSeeking = false
         }
     }
 
@@ -2629,25 +2684,32 @@ class MainActivity : AppCompatActivity() {
         hideKeyboard()
         screenNowPlaying.visibility = View.VISIBLE
         updateChrome()
+        // v4.9.8: blur the cover now, so the full screen lyrics open without a wait
+        fsLyrics.prefetch()
     }
 
     private fun collapseNowPlaying() {
-        screenLyrics.visibility = View.GONE
+        fsLyrics.close(animate = false)
         screenNowPlaying.visibility = View.GONE
         updateChrome()
     }
 
-    private fun openLyrics() {
+    /**
+     * v4.9.8 entry point for the full screen lyrics: the tap on the Now Playing lyric line and
+     * the Lyrics long press. Only songs with lyrics get here (NowPlayingLyricSlot blocks the rest).
+     */
+    private fun openFullscreenLyrics() {
         if (app.playbackController.uiState.value.currentTrack == null) return
-        screenNowPlaying.visibility = View.VISIBLE
-        screenLyrics.visibility = View.VISIBLE
-        updateChrome()
-        // Jump straight to the right line, then glide from there
+        if (!isNowPlayingOpen) return
+        // The right line first, so the list opens already centred on it
         updateLyricLine(app.playbackController.uiState.value.positionMs, animate = false)
+        fsLyrics.open()
+        updateChrome()
     }
 
-    private fun closeLyrics() {
-        screenLyrics.visibility = View.GONE
+    /** Back from the full screen lyrics: the whole animation in reverse. */
+    private fun closeLyrics(animate: Boolean = true) {
+        fsLyrics.close(animate)
         updateChrome()
     }
 
@@ -2720,9 +2782,17 @@ class MainActivity : AppCompatActivity() {
         option(R.id.set_dtap_play) { p.gestureDoubleTapAction = AppPreferences.GESTURE_DTAP_PLAY_PAUSE }
         option(R.id.set_dtap_like) { p.gestureDoubleTapAction = AppPreferences.GESTURE_DTAP_LIKE }
         option(R.id.set_dtap_off) { p.gestureDoubleTapAction = AppPreferences.GESTURE_DISABLED }
-        option(R.id.set_lpress_queue) { p.gestureLongPressAction = AppPreferences.GESTURE_LPRESS_QUEUE }
         option(R.id.set_lpress_lyrics) { p.gestureLongPressAction = AppPreferences.GESTURE_LPRESS_LYRICS }
         option(R.id.set_lpress_off) { p.gestureLongPressAction = AppPreferences.GESTURE_DISABLED }
+        // v4.9.8 part 4: Lyrics style, applied live (also while full screen lyrics is open)
+        option(R.id.set_lyrics_flow) {
+            p.lyricsStyle = AppPreferences.LYRICS_STYLE_FLOW
+            fsLyrics.flowStyle = true
+        }
+        option(R.id.set_lyrics_line) {
+            p.lyricsStyle = AppPreferences.LYRICS_STYLE_LINE
+            fsLyrics.flowStyle = false
+        }
         option(R.id.set_boost_off) { p.volumeBoost = AppPreferences.BOOST_OFF }
         option(R.id.set_boost_normal) { p.volumeBoost = AppPreferences.BOOST_NORMAL }
         option(R.id.set_boost_loud) { p.volumeBoost = AppPreferences.BOOST_LOUD }
@@ -2867,9 +2937,10 @@ class MainActivity : AppCompatActivity() {
         sel(R.id.set_dtap_play, p.gestureDoubleTapAction == AppPreferences.GESTURE_DTAP_PLAY_PAUSE)
         sel(R.id.set_dtap_like, p.gestureDoubleTapAction == AppPreferences.GESTURE_DTAP_LIKE)
         sel(R.id.set_dtap_off, p.gestureDoubleTapAction == AppPreferences.GESTURE_DISABLED)
-        sel(R.id.set_lpress_queue, p.gestureLongPressAction == AppPreferences.GESTURE_LPRESS_QUEUE)
         sel(R.id.set_lpress_lyrics, p.gestureLongPressAction == AppPreferences.GESTURE_LPRESS_LYRICS)
         sel(R.id.set_lpress_off, p.gestureLongPressAction == AppPreferences.GESTURE_DISABLED)
+        sel(R.id.set_lyrics_flow, p.isFlowLyrics)
+        sel(R.id.set_lyrics_line, !p.isFlowLyrics)
         sel(R.id.set_boost_off, p.volumeBoost == AppPreferences.BOOST_OFF)
         sel(R.id.set_boost_normal, p.volumeBoost == AppPreferences.BOOST_NORMAL)
         sel(R.id.set_boost_loud, p.volumeBoost == AppPreferences.BOOST_LOUD)
@@ -2997,7 +3068,10 @@ class MainActivity : AppCompatActivity() {
         }
         npTitle.text = track.title
         npArtist.text = track.artist
-        lyTitle.text = track.title
+        fsLyrics.onTrack(track.thumbnailUrl)
+        // v4.9.8 part 4: a new song while Now Playing is open: get its full screen lyrics cover
+        // ready now, so opening shows it at once (a no-op once loaded, or while that mode is open)
+        if (isNowPlayingOpen) fsLyrics.prefetch()
 
         if (renderedTrackId != track.id) {
             val hadTrack = renderedTrackId != null
@@ -3008,12 +3082,18 @@ class MainActivity : AppCompatActivity() {
             if (hadTrack) onTakeoverTrackChanged()
             val density = resources.displayMetrics.density
             val miniPx = (40 * density).toInt().coerceAtLeast(64)
-            val bigPx = (300 * density).toInt().coerceIn(240, 720)
+            // v4.9.8: Now Playing (and the coming full screen lyrics) get the HD cover, about screen width
+            val bigPx = resources.displayMetrics.widthPixels.coerceIn(720, 1440)
             app.artworkPipeline.loadInto(homeMini.art, track.thumbnailUrl, miniPx)
             app.artworkPipeline.loadInto(floatMini.art, track.thumbnailUrl, miniPx)
             app.artworkPipeline.loadInto(npArt, track.thumbnailUrl, bigPx)
             // The new song is saved to Recents in the background; reload once it's there
             scheduleRefresh(800L)
+        }
+        // v4.9.8 part 4: play / pause reaches the Flow clock at once, not on the next tick
+        if (state.isPlaying != renderedPlaying) {
+            renderedPlaying = state.isPlaying
+            updateLyricLine(state.positionMs, animate = true)
         }
 
         val playLabel = when {
@@ -3027,7 +3107,8 @@ class MainActivity : AppCompatActivity() {
             Player.REPEAT_MODE_ALL -> R.string.repeat_all
             else -> R.string.repeat_off
         }
-        for (c in listOf(npControls, lyControls)) {
+        if (!isSeeking) fsLyrics.setProgress(if (state.durationMs > 0L) state.positionMs.toFloat() / state.durationMs else 0f)
+        for (c in listOf(npControls)) {
             c.play.setText(playLabel)
             c.repeat.setImageResource(repeatIcon)
             c.repeat.contentDescription = getString(repeatDesc)
@@ -3059,7 +3140,7 @@ class MainActivity : AppCompatActivity() {
         val liked = likedIds.contains(id)
         val icon = if (liked) R.drawable.ic_heart_filled else R.drawable.ic_heart_outline
         val desc = getString(if (liked) R.string.unlike else R.string.like)
-        for (v in listOf(homeMini.like, floatMini.like, npControls.like, lyControls.like)) {
+        for (v in listOf(homeMini.like, floatMini.like, npControls.like)) {
             v.setImageResource(icon)
             v.contentDescription = desc
         }
@@ -3068,51 +3149,41 @@ class MainActivity : AppCompatActivity() {
     private fun renderLyrics(data: LyricsData?) {
         lyrics = data
         activeLyric = -1
-        // Now Playing's line slot: empty until a synced line starts (and for no / unsynced lyrics)
-        setNpLyric("", animate = true)
-        lySynced.visibility = View.GONE
-        lyPlainScroll.visibility = View.GONE
-        lyCredit.visibility = View.GONE
-        lyMessage.visibility = View.GONE
-        when {
-            data == null -> {
-                lyMessage.setText(R.string.lyrics_loading)
-                lyMessage.visibility = View.VISIBLE
-            }
-            data.lines.isEmpty() -> {
-                lyMessage.setText(R.string.lyrics_unavailable)
-                lyMessage.visibility = View.VISIBLE
-            }
-            data.isSynced -> {
-                lySynced.setLines(data.lines.map { it.text })
-                lySynced.visibility = View.VISIBLE
-                lyCredit.visibility = View.VISIBLE
-                updateLyricLine(app.playbackController.uiState.value.positionMs, animate = false)
-            }
-            else -> {
-                // No timing: plain text you can scroll, nothing highlights or moves by itself
-                lyPlain.text = data.lines.joinToString("\n") { it.text }
-                lyPlainScroll.scrollTo(0, 0)
-                lyPlainScroll.visibility = View.VISIBLE
-                lyCredit.visibility = View.VISIBLE
-            }
+        // Now Playing's line slot: empty until a synced line starts (and for unsynced lyrics);
+        // v4.9.8: a faint "Lyrics not available" when the song has none
+        npLyricMode = NowPlayingLyricSlot.mode(data)
+        applyNpLyricMode()
+        setNpLyric(
+            if (npLyricMode == NowPlayingLyricSlot.Mode.NONE) getString(R.string.np_lyrics_unavailable) else "",
+            animate = true
+        )
+        // v4.9.8: the full screen lyrics get the same lyrics (untimed ones show without highlighting)
+        fsLyrics.setLyrics(data)
+        if (data != null && data.isSynced && data.lines.isNotEmpty()) {
+            updateLyricLine(app.playbackController.uiState.value.positionMs, animate = false)
         }
     }
+
+    /** The play state the lyrics last heard about (v4.9.8 part 4, for the Flow clock). */
+    private var renderedPlaying = false
 
     private fun updateLyricLine(positionMs: Long, animate: Boolean) {
         val data = lyrics ?: return
         if (!data.isSynced || data.lines.isEmpty()) return
         // Lyrics timing: the file's own [offset:] plus the user's setting (+ = lines show earlier)
-        val shifted = positionMs + data.offsetMs + app.preferences.lyricsOffsetMs
+        val shifted = FlowTiming.shiftedPosition(positionMs, data.offsetMs, app.preferences.lyricsOffsetMs)
         // The current line is the last one that has started (-1 before the first line)
         var index = -1
         for (i in data.lines.indices) {
             if (data.lines[i].startMs <= shifted) index = i else break
         }
-        if (index == activeLyric) return
-        activeLyric = index
-        lySynced.setActive(index, animate && isLyricsOpen)
-        setNpLyric(if (index >= 0) data.lines[index].text.trim() else "", animate)
+        if (index != activeLyric) {
+            activeLyric = index
+            fsLyrics.setActive(index, animate)
+            setNpLyric(if (index >= 0) data.lines[index].text.trim() else "", animate)
+        }
+        // v4.9.8 part 4: feeds Flow's per frame clock (and the active line's per word hook)
+        fsLyrics.onLinePosition(shifted, app.playbackController.uiState.value.isPlaying)
     }
 
     /** The current line on Now Playing: fades out, changes, fades back in (~250 ms in all). */
@@ -3121,18 +3192,53 @@ class MainActivity : AppCompatActivity() {
         npLyricTarget = text
         npLyric.animate().cancel()
         if (!animate || !animationsOn() || !isNowPlayingOpen || isLyricsOpen) {
-            npLyric.text = text
-            npLyric.alpha = 1f
+            showNpLyricText(text)
+            npLyric.alpha = npLyricAlpha(text)
             return
         }
         npLyric.animate().alpha(0f).setStartDelay(0L).setDuration(110L)
             .setInterpolator(AccelerateInterpolator())
             .withEndAction {
-                npLyric.text = npLyricTarget
-                npLyric.animate().alpha(1f).setStartDelay(0L).setDuration(140L)
+                val target = npLyricTarget
+                showNpLyricText(target)
+                npLyric.animate().alpha(npLyricAlpha(target)).setStartDelay(0L).setDuration(140L)
                     .setInterpolator(DecelerateInterpolator()).start()
             }
             .start()
+    }
+
+    /** v4.9.8: the "Lyrics not available" text is faint; real lines are fully opaque. */
+    private fun isNpUnavailableText(text: String): Boolean =
+        npLyricMode == NowPlayingLyricSlot.Mode.NONE && text.isNotEmpty() && text == getString(R.string.np_lyrics_unavailable)
+
+    private fun npLyricAlpha(text: String): Float =
+        if (isNpUnavailableText(text)) NowPlayingLyricSlot.UNAVAILABLE_ALPHA else 1f
+
+    /** Sets the slot's text; "Lyrics not available" is smaller and regular weight. */
+    private fun showNpLyricText(text: String) {
+        val faint = isNpUnavailableText(text)
+        if (faint != npLyricFaint) {
+            npLyricFaint = faint
+            if (faint) {
+                npLyric.setAutoSizeTextTypeUniformWithConfiguration(
+                    NowPlayingLyricSlot.UNAVAILABLE_TEXT_SP, NowPlayingLyricSlot.UNAVAILABLE_TEXT_SP, 1, TypedValue.COMPLEX_UNIT_SP
+                )
+            } else {
+                npLyric.setAutoSizeTextTypeUniformWithConfiguration(18, 22, 1, TypedValue.COMPLEX_UNIT_SP)
+            }
+        }
+        npLyric.text = text
+    }
+
+    /** v4.9.8: only a song with lyrics makes the slot tappable (and visible to TalkBack as a button). */
+    private fun applyNpLyricMode() {
+        val tappable = NowPlayingLyricSlot.isTappable(npLyricMode)
+        npLyric.isClickable = tappable
+        npLyric.isFocusable = tappable
+        npLyric.contentDescription = if (tappable) getString(R.string.np_open_lyrics) else null
+        npLyric.importantForAccessibility =
+            if (tappable || npLyricMode == NowPlayingLyricSlot.Mode.NONE) View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            else View.IMPORTANT_FOR_ACCESSIBILITY_NO
     }
 
     /** A light haptic tick, if it's on in Settings (the phone's own haptics setting also applies). */
@@ -3831,21 +3937,41 @@ class MainActivity : AppCompatActivity() {
     /** Coming back from the installer or that setting isn't a new app open for the pop-up. */
     private var updateSkipNextOpen = false
 
-    private fun onAppOpenedForUpdates() {
-        app.updateOpenSeen = true
+    /**
+     * v4.9.8: a cold start always checks; coming back to the front checks when the last good check is
+     * a few hours old (sooner after a failed one). Either way an update found earlier and not answered
+     * in this session can still show.
+     */
+    private fun onAppOpenedForUpdates(open: com.minim.music.util.AppForegroundTracker.AppOpen) {
         if (updateSkipNextOpen) {
             updateSkipNextOpen = false
             return
         }
         val gate = app.updateGate
-        gate.onAppOpened()
-        if (updateCheckJob?.isActive == true) return
-        updateCheckJob = lifecycleScope.launch {
-            val result = app.updates.check()
-            updateSavedApk = savedApkFor(result)
-            // A failed or empty check shows nothing on open
-            gate.onCheckResult(result)
+        gate.onAppOpened(open.awayMs)
+        val schedule = app.updateSchedule
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (updateCheckJob?.isActive == true || !schedule.shouldCheck(now, open.coldStart)) {
             checkUpdatePrompt()
+            return
+        }
+        schedule.onCheckStarted(now)
+        updateCheckJob = lifecycleScope.launch {
+            var finished = false
+            try {
+                val result = app.updates.check()
+                schedule.onCheckFinished(
+                    android.os.SystemClock.elapsedRealtime(),
+                    com.minim.music.data.update.UpdateCheckSchedule.isOk(result)
+                )
+                finished = true
+                updateSavedApk = savedApkFor(result) ?: updateSavedApk.takeIf { result is UpdateCheckResult.Failed }
+                // A failed check keeps what an earlier one found; it never shows an error on its own
+                gate.onCheckResult(result)
+                checkUpdatePrompt()
+            } finally {
+                if (!finished) schedule.onCheckCancelled()
+            }
         }
     }
 
@@ -3905,6 +4031,10 @@ class MainActivity : AppCompatActivity() {
         label.text = getString(R.string.update_checking)
         updateManualJob = lifecycleScope.launch {
             val result = app.updates.check()
+            app.updateSchedule.onCheckFinished(
+                android.os.SystemClock.elapsedRealtime(),
+                com.minim.music.data.update.UpdateCheckSchedule.isOk(result)
+            )
             val saved = savedApkFor(result)
             label.text = getString(R.string.update_check)
             when (result) {
@@ -3930,7 +4060,7 @@ class MainActivity : AppCompatActivity() {
     /** The pop-up: Minim's sheet with the new version, short notes, Later and Download now. */
     private fun showUpdatePopup(update: AvailableUpdate) {
         if (isWelcomeOpen) return
-        app.updateGate.markShown()
+        app.updateGate.markShown(update)
         openSheet { box ->
             sheetHeading(
                 box,
@@ -4373,6 +4503,11 @@ class MainActivity : AppCompatActivity() {
         window.navigationBarColor = p.bg
         // v4.9.3: a takeover on Home keeps its colours through a song change
         if (isTakeoverActive) applyTakeoverColors()
+        // v4.9.8: the full screen lyrics keep their see-through nav bar through a song change
+        if (::fsLyrics.isInitialized) {
+            fsLyrics.onPalette(p)
+            if (fsLyrics.isShowing) applyFsLyricsChrome()
+        }
         updateSystemBars()
         if (includeLists) {
             shelfAdapter.setPalette(p)
@@ -4795,7 +4930,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun goToArtist(line: String) {
         if (isQueueOpen) closeQueue()
-        if (isLyricsOpen) closeLyrics()
+        if (isLyricsOpen) closeLyrics(animate = false)
         if (isSettingsOpen) closeSettings()
         if (isNowPlayingOpen) collapseNowPlaying()
         openArtistByName(line)

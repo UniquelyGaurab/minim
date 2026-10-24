@@ -70,16 +70,18 @@ data class Pal(val bg: Int, val fg: Int, val muted: Int) {
  *   text:fg|bg|muted -> text colour
  *   tint:fg|bg    -> icon tint
  *   opt           -> settings option pill (filled when selected, outlined otherwise)
+ *   unpainted     -> this view and everything inside keep their own colours (v4.9.8: the full
+ *                    screen lyrics colour themselves from the cover, not from the palette)
  */
 object Painter {
 
+    const val UNPAINTED = "unpainted"
+
     fun paint(view: View, p: Pal) {
         val tag = view.tag as? String
+        if (tag == UNPAINTED) return
         if (tag != null) paintOne(view, tag, p)
-        when (view) {
-            is ProgressLine -> view.setColors(p.fg, p.muted)
-            is LyricsView -> view.setColors(p.fg, p.muted)
-        }
+        if (view is ProgressLine) view.setColors(p.fg, p.muted)
         if (view is ViewGroup) {
             for (i in 0 until view.childCount) paint(view.getChildAt(i), p)
         }

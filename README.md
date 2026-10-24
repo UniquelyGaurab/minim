@@ -9,12 +9,13 @@ It runs on Android 9 (API 28) and newer, and the app is about 7 MB.
 - **Dynamic colours:** the whole app takes its colours from the cover of the song that's playing. A **Default** mode in Settings keeps it black and white instead.
 - **Light and dark:** both themes, in Dynamic and Default.
 - **Rotating greetings:** Home greets you with lines that change every few seconds, including ones based on what you're playing, your recent songs and your liked songs.
-- **Synced lyrics:** time-synced lyrics from LRCLib, with a timing adjustment in Settings.
+- **Synced lyrics:** time-synced lyrics from LRCLib, with a timing adjustment in Settings. Tap the lyric line on Now Playing for full screen lyrics over a blurred cover, lit up word by word (Flow) or line by line (Lyrics style in Settings).
 - **Discover:** shelves of songs picked from what you listen to, plus a radio queue that keeps playing similar songs.
 - **Artist pages:** a full-bleed artist photo, monthly listeners, top songs, albums and a shuffle button. Open one from search or by tapping the artist on Now Playing.
 - **Stats and daily recap:** today's listening time, songs, artists and your streak, plus a daily recap story with a card you can share or save.
 - **Volume boost:** Off, Normal or Loud, for songs that play too quietly.
-- **Updates in the app:** each time Minim opens, it checks this repo's latest release and offers to download and install a newer version. You can also check any time in Settings.
+- **HD artwork:** covers load at the size each spot needs, up to full screen width.
+- **Updates in the app:** when Minim opens or comes back after a few hours, it checks this repo's latest release and offers to download and install a newer version. You can also check any time in Settings.
 - **Library:** liked songs, playlists, recents and a song menu on long-press (play next, add to queue, add to playlist, go to artist, share).
 
 ## Download

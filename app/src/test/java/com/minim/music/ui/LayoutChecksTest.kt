@@ -126,4 +126,77 @@ class LayoutChecksTest {
         assertTrue(more!!.attr("layout_gravity")!!.startsWith("end"))
         assertNull(np.firstOrNull { it.attr("id") == "@+id/queue_add_to_playlist" })
     }
+
+    @Test
+    fun nowPlayingHasUpNextPillInsteadOfSwipeHint() {
+        val np = parse("view_now_playing.xml")
+        val all = np.elements()
+        assertNull(all.firstOrNull { it.attr("id") == "@+id/np_hint" })
+        assertTrue(all.none { it.attr("text") == "@string/np_swipe_hint" })
+        val pill = all.first { it.attr("id") == "@+id/np_up_next" }
+        assertEquals("@drawable/shape_pill", pill.attr("background"))
+        assertEquals("fill:fg text:bg", pill.attr("tag"))
+        assertEquals("@string/np_up_next", pill.attr("text"))
+        // It's the last thing on the screen, where the hint was, with a fixed height for fitNowPlaying
+        // (v4.9.8: the screen's elements live in np_content, inside the coloured screen)
+        val content = np.childElements().single()
+        assertEquals("@+id/np_content", content.attr("id"))
+        assertEquals("@+id/np_up_next", content.childElements().last().attr("id"))
+        assertTrue(pill.attr("layout_height")!!.endsWith("dp"))
+    }
+
+    @Test
+    fun nowPlayingScreenKeepsItsColourWhileItsContentFades() {
+        val np = parse("view_now_playing.xml")
+        assertEquals("@+id/screen_now_playing", np.attr("id"))
+        assertEquals("bg", np.attr("tag"))
+        assertEquals("true", np.attr("clickable"))
+        val content = np.childElements().single()
+        assertEquals("vertical", content.attr("orientation"))
+        assertNull("the colour belongs to the screen, not the fading content", content.attr("tag"))
+    }
+
+    @Test
+    fun fullscreenLyricsReplaceTheOldLyricsScreen() {
+        val dir = layoutDir()
+        assertFalse(File(dir, "view_lyrics.xml").exists())
+        val main = parse("activity_main.xml").childElements()
+        val includes = main.filter { it.tagName == "include" }.map { it.getAttribute("layout") }
+        val np = includes.indexOf("@layout/view_now_playing")
+        val fs = includes.indexOf("@layout/view_fullscreen_lyrics")
+        assertTrue(np >= 0 && fs == np + 1)
+        assertFalse(includes.contains("@layout/view_lyrics"))
+    }
+
+    @Test
+    fun fullscreenLyricsLayout_isUnpaintedAndHasNoControls() {
+        val root = parse("view_fullscreen_lyrics.xml")
+        assertEquals("@+id/screen_fs_lyrics", root.attr("id"))
+        assertEquals(Painter.UNPAINTED, root.attr("tag"))
+        assertEquals("gone", root.attr("visibility"))
+        val all = root.elements()
+        // Nothing inside takes palette colours (the cover decides them)
+        assertTrue(all.drop(1).none { it.attr("tag") != null })
+        val ids = all.mapNotNull { it.attr("id")?.substringAfter('/') }.toSet()
+        assertTrue(ids.containsAll(listOf("fs_backdrop", "fs_bg_a", "fs_bg_b", "fs_scrim", "fs_lines", "fs_bar")))
+        // Lyrics only: no title, buttons or other controls
+        assertTrue(all.none { it.tagName == "Button" || it.tagName.endsWith("ImageButton") })
+        assertTrue(all.none { it.attr("id")?.contains("title") == true })
+        // The bar rests at the bottom; the cover is cropped to fill the screen
+        val bar = all.first { it.attr("id") == "@+id/fs_bar" }
+        assertEquals("com.minim.music.ui.ProgressLine", bar.tagName)
+        assertTrue(bar.attr("layout_gravity")!!.startsWith("bottom"))
+        assertEquals("centerCrop", all.first { it.attr("id") == "@+id/fs_bg_a" }.attr("scaleType"))
+        val lines = all.first { it.attr("id") == "@+id/fs_lines" }
+        assertEquals("vertical", lines.attr("requiresFadingEdge"))
+    }
+
+    @Test
+    fun lyricLineKeepsItsFixedHeight_andSettingsHasNoQueueLongPress() {
+        val lyric = parse("view_now_playing.xml").elements().first { it.attr("id") == "@+id/np_lyric" }
+        assertEquals("68dp", lyric.attr("layout_height"))
+        val settings = ids("view_settings.xml")
+        assertFalse(settings.contains("set_lpress_queue"))
+        assertTrue(settings.containsAll(listOf("set_lpress_lyrics", "set_lpress_off")))
+    }
 }

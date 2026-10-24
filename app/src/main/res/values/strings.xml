@@ -24,7 +24,9 @@
 
     <!-- Player -->
     <string name="youre_vibing_to">You\'re vibing to</string>
-    <string name="np_swipe_hint">swipe up for lyrics</string>
+    <string name="np_up_next">Up Next</string>
+    <string name="np_lyrics_unavailable">Lyrics not available</string>
+    <string name="np_open_lyrics">Open full screen lyrics</string>
     <string name="minimise_player">Minimise player</string>
     <string name="album_art">Album art</string>
     <string name="previous">Previous</string>
@@ -41,9 +43,9 @@
     <string name="time_zero_remaining">-0:00</string>
 
     <!-- Lyrics -->
-    <string name="lyrics_credit">lyrics from LrcLib</string>
     <string name="lyrics_loading">Fetching lyrics…</string>
     <string name="lyrics_unavailable">Lyrics unavailable for this track.</string>
+    <string name="fs_lyrics_play_pause">Play or pause</string>
 
     <!-- Library -->
     <string name="liked_songs">Liked Songs</string>
@@ -87,7 +89,6 @@
     <string name="opt_skip">Skip track</string>
     <string name="opt_off">Off</string>
     <string name="opt_play_pause">Play / Pause</string>
-    <string name="opt_queue">Queue</string>
     <string name="opt_lyrics">Lyrics</string>
     <string name="settings_boost">Volume boost</string>
     <string name="boost_hint">Makes songs louder. Normal is about 20% louder, Loud about 35%.</string>
@@ -97,6 +98,10 @@
     <string name="settings_haptics">Haptic feedback</string>
     <string name="opt_on">On</string>
     <string name="settings_lyrics_timing">Lyrics timing</string>
+    <string name="settings_lyrics_style">Lyrics style</string>
+    <string name="lyrics_style_hint">Full screen lyrics light up word by word, or a line at a time</string>
+    <string name="opt_lyrics_flow">Flow</string>
+    <string name="opt_lyrics_line">Line</string>
     <string name="lyrics_timing_hint">Shows lyrics earlier (+) or later (−). Tap the value to reset.</string>
     <string name="lyrics_timing_minus">−</string>
     <string name="lyrics_timing_plus">+</string>

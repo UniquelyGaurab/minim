@@ -51,16 +51,24 @@ class AppPreferences(context: Context) {
             prefs.edit().putString(KEY_GESTURE_DOUBLE_TAP, valid).apply()
         }
 
+    /**
+     * Long-press on the Now Playing art. v4.9.8: Up next has its own pill, so the old
+     * "LPRESS_QUEUE" choice is gone; a saved one reads as off. Choices: Lyrics or off (default).
+     */
     var gestureLongPressAction: String
-        get() = validateGesture(
-            prefs.getString(KEY_GESTURE_LONG_PRESS, GESTURE_LPRESS_QUEUE),
-            VALID_LPRESS_ACTIONS,
-            GESTURE_LPRESS_QUEUE
-        )
+        get() = longPressActionOf(prefs.getString(KEY_GESTURE_LONG_PRESS, null))
         set(value) {
-            val valid = validateGesture(value, VALID_LPRESS_ACTIONS, GESTURE_LPRESS_QUEUE)
-            prefs.edit().putString(KEY_GESTURE_LONG_PRESS, valid).apply()
+            prefs.edit().putString(KEY_GESTURE_LONG_PRESS, longPressActionOf(value)).apply()
         }
+
+    /** v4.9.8 part 4: full screen lyrics light up word by word (Flow, default) or line by line. */
+    var lyricsStyle: String
+        get() = lyricsStyleOf(prefs.getString(KEY_LYRICS_STYLE, null))
+        set(value) {
+            prefs.edit().putString(KEY_LYRICS_STYLE, lyricsStyleOf(value)).apply()
+        }
+
+    val isFlowLyrics: Boolean get() = lyricsStyle == LYRICS_STYLE_FLOW
 
     var crossfadeSeconds: Int
         get() = prefs.getInt(KEY_CROSSFADE_SEC, 0).let { if (it in listOf(0, 2, 4)) it else 0 }
@@ -162,7 +170,7 @@ class AppPreferences(context: Context) {
         prefs.edit()
             .putString(KEY_GESTURE_SWIPE, GESTURE_SWIPE_SKIP)
             .putString(KEY_GESTURE_DOUBLE_TAP, GESTURE_DTAP_PLAY_PAUSE)
-            .putString(KEY_GESTURE_LONG_PRESS, GESTURE_LPRESS_QUEUE)
+            .putString(KEY_GESTURE_LONG_PRESS, GESTURE_DISABLED)
             .apply()
     }
 
@@ -238,6 +246,7 @@ class AppPreferences(context: Context) {
         private const val KEY_GESTURE_SWIPE = "gesture_swipe_action"
         private const val KEY_GESTURE_DOUBLE_TAP = "gesture_dtap_action"
         private const val KEY_GESTURE_LONG_PRESS = "gesture_lpress_action"
+        private const val KEY_LYRICS_STYLE = "lyrics_style_v498"
         private const val KEY_CROSSFADE_SEC = "crossfade_sec"
         private const val KEY_USER_NAME = "user_name"
         private const val KEY_WELCOME_DONE = "welcome_done_v47"
@@ -270,11 +279,21 @@ class AppPreferences(context: Context) {
         const val GESTURE_SWIPE_SKIP = "SWIPE_SKIP"
         const val GESTURE_DTAP_PLAY_PAUSE = "DTAP_PLAY_PAUSE"
         const val GESTURE_DTAP_LIKE = "DTAP_LIKE"
-        const val GESTURE_LPRESS_QUEUE = "LPRESS_QUEUE"
         const val GESTURE_LPRESS_LYRICS = "LPRESS_LYRICS"
 
         private val VALID_SWIPE_ACTIONS = setOf(GESTURE_SWIPE_SKIP, GESTURE_DISABLED)
         private val VALID_DTAP_ACTIONS = setOf(GESTURE_DTAP_PLAY_PAUSE, GESTURE_DTAP_LIKE, GESTURE_DISABLED)
-        private val VALID_LPRESS_ACTIONS = setOf(GESTURE_LPRESS_QUEUE, GESTURE_LPRESS_LYRICS, GESTURE_DISABLED)
+        private val VALID_LPRESS_ACTIONS = setOf(GESTURE_LPRESS_LYRICS, GESTURE_DISABLED)
+
+        /** v4.9.8: anything but Lyrics (including the removed "LPRESS_QUEUE") is off. */
+        fun longPressActionOf(raw: String?): String =
+            if (raw != null && raw in VALID_LPRESS_ACTIONS) raw else GESTURE_DISABLED
+
+        const val LYRICS_STYLE_FLOW = "FLOW"
+        const val LYRICS_STYLE_LINE = "LINE"
+
+        /** v4.9.8 part 4: Flow unless Line was picked (nothing saved, or anything else, is Flow). */
+        fun lyricsStyleOf(raw: String?): String =
+            if (raw == LYRICS_STYLE_LINE) LYRICS_STYLE_LINE else LYRICS_STYLE_FLOW
     }
 }

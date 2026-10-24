@@ -1,21 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   v4.2 Now Playing, top to bottom: back pill, "You're vibing to", cover art, the current lyric
-  line, title, artist, progress + controls, "swipe up for lyrics".
+  line (v4.9.8: tap it for full screen lyrics), title, artist, progress + controls, "Up Next" pill.
   The weighted Space views share the spare height so a tall 20:9 screen has no empty band;
   each also has a small fixed height so a short screen still breathes. MainActivity keeps the
   art at 73% of the width and shrinks it only when the screen is too short for everything.
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- v4.9.8: the screen (colour, touch blocking) wraps np_content, so the full screen lyrics can
+     fade everything on Now Playing out while the background colour stays put. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/screen_now_playing"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:clickable="true"
     android:focusable="true"
-    android:gravity="center_horizontal"
-    android:orientation="vertical"
     android:tag="bg"
-    android:visibility="gone">
+    android:visibility="gone"
+    tools:ignore="MergeRootFrame,UselessParent">
+
+<LinearLayout
+    android:id="@+id/np_content"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:gravity="center_horizontal"
+    android:orientation="vertical">
 
     <!-- v4.9.7: the collapse pill stays in the centre; the 3 dot menu sits at the top right -->
     <FrameLayout
@@ -86,7 +95,9 @@
         android:layout_height="16dp"
         android:layout_weight="1.2" />
 
-    <!-- The current synced lyric line. Fixed height: nothing moves when it wraps or is empty. -->
+    <!-- The current synced lyric line. Fixed height: nothing moves when it wraps or is empty.
+         v4.9.8: tappable when the song has lyrics (opens full screen lyrics); a faint
+         "Lyrics not available" otherwise. MainActivity sets clickable / alpha / size. -->
     <TextView
         android:id="@+id/np_lyric"
         style="@style/MinimText.Semi"
@@ -100,7 +111,6 @@
         android:autoSizeTextType="uniform"
         android:ellipsize="end"
         android:gravity="center"
-        android:importantForAccessibility="no"
         android:maxLines="2"
         android:tag="text:fg"
         android:textSize="22sp" />
@@ -156,14 +166,21 @@
         android:layout_height="16dp"
         android:layout_weight="0.7" />
 
+    <!-- v4.9.8: the "Up Next" pill replaces "swipe up for lyrics" (same total height: 30 + 16 dp) -->
     <TextView
-        android:id="@+id/np_hint"
-        style="@style/MinimText"
+        android:id="@+id/np_up_next"
+        style="@style/MinimText.Semi"
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="18dp"
-        android:padding="6dp"
-        android:tag="text:fg"
-        android:text="@string/np_swipe_hint"
-        android:textSize="11sp" />
+        android:layout_height="30dp"
+        android:layout_marginBottom="16dp"
+        android:background="@drawable/shape_pill"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:tag="fill:fg text:bg"
+        android:text="@string/np_up_next"
+        android:textSize="12sp" />
 </LinearLayout>
+</FrameLayout>

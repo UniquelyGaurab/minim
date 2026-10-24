@@ -46,7 +46,13 @@ sealed class UpdateFlowState {
 class AppUpdates(private val context: Context, client: OkHttpClient) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val checker by lazy { UpdateChecker(baseClient, userAgent = userAgent()) }
+    private val checker by lazy {
+        UpdateChecker(
+            baseClient, userAgent = userAgent(),
+            webLatestUrl = UpdateChecker.WEB_LATEST_URL,
+            downloadBaseUrl = UpdateChecker.DOWNLOAD_BASE_URL
+        )
+    }
     private val baseClient = client
     private var downloader: ApkDownloader? = null
     private var downloadJob: Job? = null

@@ -26,11 +26,21 @@ class ArtworkPipeline(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val diskCacheDir = File(context.cacheDir, "artwork_disk").apply { mkdirs() }
 
-    private val bitmapCache = object : LruCache<String, Bitmap>(5 * 1024 * 1024) {
+    // v4.9.8: HD covers are full-colour bitmaps (a 1080px cover is about 4.7 MB), so the memory cache is
+    // an eighth of the app's heap (16-64 MB) instead of a fixed 5 MB that held barely one of them.
+    private val bitmapCache = object : LruCache<String, Bitmap>(memoryCacheBytes()) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
 
     private val accentCache = LruCache<String, Int>(200)
+
+    /** v4.9.8: image sizes that answered 404 (maxresdefault for many songs), skipped for a while. */
+    private val missingUrls = LruCache<String, Long>(512)
+    @Volatile private var writesSinceTrim = 0
+
+    init {
+        scope.launch { trimDisk() }
+    }
 
     fun loadInto(
         imageView: ImageView,
@@ -135,39 +145,118 @@ class ArtworkPipeline(
         }
     }
 
+    /**
+     * v4.9.8: the image for a view [reqSizePx] across, in full quality. Tries [ArtworkUrls.candidates]
+     * in order (an HD size first, the original URL last) and remembers sizes that don't exist for a while.
+     * Decoded as ARGB_8888 (4.9.7 and older used RGB_565, which banded gradients and soft covers), sampled
+     * down by powers of two only while it stays at least [reqSizePx], and YouTube video frames are cut to a
+     * centred square without their black bars.
+     */
     private fun fetchAndDecodeDownsampled(url: String, reqSizePx: Int): Bitmap? {
+        for (candidate in ArtworkUrls.candidates(url, reqSizePx)) {
+            if (isKnownMissing(candidate)) continue
+            val file = fetchToDisk(candidate) ?: continue
+            val bmp = decodeFile(file, reqSizePx, ArtworkUrls.isVideoThumb(candidate))
+            if (bmp != null) return bmp
+            // A file that won't decode: drop it so the next load downloads it again
+            file.delete()
+        }
+        return null
+    }
+
+    /** The cached file for [url], downloading it first when needed. Null when it can't be had. */
+    private fun fetchToDisk(url: String): File? {
         return try {
             val diskFile = File(diskCacheDir, sha256(url))
-            if (!diskFile.exists() || diskFile.length() == 0L) {
-                val request = Request.Builder().url(url).build()
-                okHttpClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) return null
-                    val bytes = response.body?.bytes() ?: return null
-                    if (bytes.isEmpty()) return null
-                    FileOutputStream(diskFile).use { it.write(bytes) }
+            if (diskFile.exists() && diskFile.length() > 0L) {
+                touch(diskFile)
+                return diskFile
+            }
+            val request = Request.Builder().url(url).build()
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    // 404: this size doesn't exist for this image (maxresdefault often doesn't)
+                    if (response.code == 404 || response.code == 410) markMissing(url)
+                    return null
+                }
+                val bytes = response.body?.bytes() ?: return null
+                if (bytes.isEmpty()) return null
+                val part = File(diskCacheDir, diskFile.name + "." + Thread.currentThread().id + ".part")
+                FileOutputStream(part).use { it.write(bytes) }
+                if (!part.renameTo(diskFile)) {
+                    part.delete()
+                    return null
                 }
             }
-
-            val boundsOptions = BitmapFactory.Options().apply {
-                inJustDecodeBounds = true
+            if (++writesSinceTrim >= TRIM_EVERY_WRITES) {
+                writesSinceTrim = 0
+                trimDisk()
             }
-            BitmapFactory.decodeFile(diskFile.absolutePath, boundsOptions)
-            if (boundsOptions.outWidth <= 0 || boundsOptions.outHeight <= 0) {
-                return null
-            }
-
-            val decodeOptions = BitmapFactory.Options().apply {
-                inSampleSize = calculateInSampleSize(
-                    boundsOptions.outWidth,
-                    boundsOptions.outHeight,
-                    reqSizePx,
-                    reqSizePx
-                )
-                inPreferredConfig = Bitmap.Config.RGB_565
-            }
-            BitmapFactory.decodeFile(diskFile.absolutePath, decodeOptions)
+            diskFile
         } catch (_: Exception) {
             null
+        }
+    }
+
+    private fun decodeFile(file: File, reqSizePx: Int, videoFrame: Boolean): Bitmap? {
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, bounds)
+            val w = bounds.outWidth
+            val h = bounds.outHeight
+            if (w <= 0 || h <= 0) return null
+            val square = if (videoFrame) ArtworkUrls.squareCrop(w, h, videoFrame = true) else null
+            val keepW = square?.side ?: w
+            val keepH = square?.side ?: h
+            val opts = BitmapFactory.Options().apply {
+                inSampleSize = calculateInSampleSize(keepW, keepH, reqSizePx, reqSizePx)
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            val decoded = BitmapFactory.decodeFile(file.absolutePath, opts) ?: return null
+            if (square == null) return decoded
+            // The same square on the sampled-down bitmap
+            val crop = ArtworkUrls.squareCrop(decoded.width, decoded.height, videoFrame = true)
+            if (crop.side <= 0 || (crop.side == decoded.width && crop.side == decoded.height)) return decoded
+            val out = Bitmap.createBitmap(decoded, crop.left, crop.top, crop.side, crop.side)
+            if (out !== decoded) decoded.recycle()
+            out
+        } catch (_: OutOfMemoryError) {
+            bitmapCache.evictAll()
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun isKnownMissing(url: String): Boolean {
+        val at = missingUrls.get(url) ?: return false
+        if (System.currentTimeMillis() - at < MISSING_FOR_MS) return true
+        missingUrls.remove(url)
+        return false
+    }
+
+    private fun markMissing(url: String) {
+        missingUrls.put(url, System.currentTimeMillis())
+    }
+
+    private fun touch(f: File) {
+        val now = System.currentTimeMillis()
+        if (now - f.lastModified() > TOUCH_AFTER_MS) f.setLastModified(now)
+    }
+
+    /** Keeps the disk cache under [DISK_CACHE_BYTES], dropping the least recently used files. */
+    private fun trimDisk() {
+        try {
+            val files = diskCacheDir.listFiles()?.filter { it.isFile } ?: return
+            var total = files.sumOf { it.length() }
+            if (total <= DISK_CACHE_BYTES) return
+            for (f in files.sortedBy { it.lastModified() }) {
+                if (total <= DISK_CACHE_BYTES * 8 / 10) break
+                val len = f.length()
+                if (f.delete()) total -= len
+            }
+        } catch (_: Exception) {
+            // Only tidying
         }
     }
 
@@ -212,6 +301,15 @@ class ArtworkPipeline(
     }
 
     companion object {
+        /** v4.9.8: the disk cache keeps the most recently used covers up to this size. */
+        const val DISK_CACHE_BYTES = 150L * 1024L * 1024L
+        private const val TRIM_EVERY_WRITES = 40
+        private const val MISSING_FOR_MS = 6L * 60L * 60L * 1000L
+        private const val TOUCH_AFTER_MS = 24L * 60L * 60L * 1000L
+
+        fun memoryCacheBytes(maxHeap: Long = Runtime.getRuntime().maxMemory()): Int =
+            (maxHeap / 8L).coerceIn(16L * 1024L * 1024L, 64L * 1024L * 1024L).toInt()
+
         fun calculateInSampleSize(
             rawWidth: Int,
             rawHeight: Int,

@@ -110,10 +110,9 @@ class MusicSourceAdapter(okHttpClient: OkHttpClient) {
             return null
         }
         val id = extractVideoId(item.url) ?: return null
-        val thumb = item.thumbnails
-            .minByOrNull { kotlin.math.abs(it.width - 240) }
-            ?.url
-            ?: item.thumbnails.firstOrNull()?.url.orEmpty()
+        // v4.9.8: keep the biggest thumbnail (it was the one nearest 240px wide). The artwork loader asks
+        // for the size each view needs anyway (ArtworkUrls), this is just the best last-resort fallback.
+        val thumb = bigImage(item.thumbnails, 1280)
         val duration = if (item.duration > 0) item.duration else 0L
         return Track(
             id = id,
