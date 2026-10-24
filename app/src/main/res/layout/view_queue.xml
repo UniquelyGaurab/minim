@@ -38,15 +38,6 @@
             android:tag="tint:fg" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/queue_add_to_playlist"
-        style="@style/MinimText.Option"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="34dp"
-        android:layout_marginTop="12dp"
-        android:text="@string/add_current_to_playlist" />
-
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent">
@@ -57,7 +48,7 @@
             android:layout_height="match_parent"
             android:clipToPadding="false"
             android:overScrollMode="never"
-            android:paddingTop="8dp"
+            android:paddingTop="14dp"
             android:paddingBottom="40dp" />
 
         <TextView

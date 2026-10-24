@@ -378,10 +378,15 @@
             android:text="@string/lyrics_timing_hint"
             android:textSize="11sp" />
 
+        <!-- v4.9.7: centred rows must not use the pills' bottom margin. LinearLayout centres
+             with (space - height) / 2 + top - bottom margin, so the 8dp margin pulled the pills
+             4dp above the row and cut their tops off. The row keeps the 8dp gap below instead. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
+            android:layout_marginBottom="8dp"
+            android:baselineAligned="false"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -390,6 +395,7 @@
                 style="@style/MinimText.Option"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginBottom="0dp"
                 android:contentDescription="@string/lyrics_timing_later"
                 android:minWidth="44dp"
                 android:text="@string/lyrics_timing_minus"
@@ -401,7 +407,6 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="8dp"
-                android:layout_marginBottom="8dp"
                 android:clickable="true"
                 android:focusable="true"
                 android:gravity="center"
@@ -415,6 +420,7 @@
                 style="@style/MinimText.Option"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginBottom="0dp"
                 android:contentDescription="@string/lyrics_timing_earlier"
                 android:minWidth="44dp"
                 android:text="@string/lyrics_timing_plus"
@@ -501,10 +507,13 @@
             android:text="@string/settings_about" />
 
         <!-- v4.9.6: the only place to check for updates by hand (the check on every open is quiet) -->
+        <!-- v4.9.7: no bottom margin on the pill in a centred row (see Lyrics timing) -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
+            android:layout_marginBottom="8dp"
+            android:baselineAligned="false"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -513,6 +522,7 @@
                 style="@style/MinimText.Option"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginBottom="0dp"
                 android:text="@string/update_check" />
 
             <TextView
@@ -520,7 +530,6 @@
                 style="@style/MinimText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
                 android:alpha="0.6"
                 android:tag="text:fg"
                 android:textSize="12sp" />

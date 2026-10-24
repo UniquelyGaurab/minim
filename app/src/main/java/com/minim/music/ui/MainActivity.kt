@@ -112,13 +112,17 @@ class MainActivity : AppCompatActivity() {
         val gear: View = root.findViewById(R.id.top_gear)
     }
 
-    private class Mini(val root: View) {
+    /**
+     * A mini player. The floating one keeps its buttons inside the pill; since v4.9.7 the Home one
+     * has them in [actions], three circles just below the pill (the pill itself is cover + text).
+     */
+    private class Mini(val root: View, val actions: View = root) {
         val art: ImageView = root.findViewById(R.id.mini_art)
         val title: TextView = root.findViewById(R.id.mini_title)
         val artist: TextView = root.findViewById(R.id.mini_artist)
-        val like: ImageView = root.findViewById(R.id.mini_like)
-        val play: ImageView = root.findViewById(R.id.mini_play)
-        val next: ImageView = root.findViewById(R.id.mini_next)
+        val like: ImageView = actions.findViewById(R.id.mini_like)
+        val play: ImageView = actions.findViewById(R.id.mini_play)
+        val next: ImageView = actions.findViewById(R.id.mini_next)
     }
 
     private class Controls(root: View) {
@@ -389,7 +393,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         homeListening = findViewById(R.id.home_listening)
-        homeMini = Mini(findViewById(R.id.home_mini))
+        homeMini = Mini(findViewById(R.id.home_mini), findViewById(R.id.home_mini_actions))
         floatMini = Mini(findViewById(R.id.mini_player))
         homeGreeting = findViewById(R.id.home_greeting)
         homeSearch = findViewById(R.id.home_search)
@@ -593,6 +597,7 @@ class MainActivity : AppCompatActivity() {
         setShown(floatMini.root, hasTrack && !coveredByPlayer && onScreenThatFloats, playbackChanged)
         setShown(homeListening, hasTrack, playbackChanged)
         setShown(homeMini.root, hasTrack, playbackChanged)
+        setShown(homeMini.actions, hasTrack, playbackChanged)
         syncGreetingRotation()
         checkRecapPopup()
     }
@@ -1260,7 +1265,8 @@ class MainActivity : AppCompatActivity() {
         val m = homeMini
         val metrics = resources.displayMetrics
         val d = metrics.density
-        val fixed = m.root.paddingStart + m.root.paddingEnd + (40 + 10 + 4) * d + 3 * 34 * d
+        // v4.9.7: the pill is only cover + text now (the buttons are circles below it)
+        val fixed = m.root.paddingStart + m.root.paddingEnd + (38 + 10) * d
         val textW = maxOf(
             m.title.paint.measureText(m.title.text?.toString().orEmpty()),
             m.artist.paint.measureText(m.artist.text?.toString().orEmpty())
@@ -2479,6 +2485,11 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("ClickableViewAccessibility")
     private fun setupNowPlaying() {
         findViewById<View>(R.id.np_back).setOnClickListener { collapseNowPlaying() }
+        // v4.9.7: 3 dot menu at the top right (Add to playlist, Go to artist, Share, Sleep timer)
+        findViewById<View>(R.id.np_more).setOnClickListener { v ->
+            haptic(v)
+            showNowPlayingMenu()
+        }
         findViewById<View>(R.id.np_hint).setOnClickListener { openLyrics() }
         setupControls(npControls)
         // Art at 73% of the width (as before); smaller only if the screen is too short for it all
@@ -2658,9 +2669,6 @@ class MainActivity : AppCompatActivity() {
             adapter = queueAdapter
         }
         findViewById<View>(R.id.queue_close).setOnClickListener { closeQueue() }
-        findViewById<View>(R.id.queue_add_to_playlist).setOnClickListener {
-            app.playbackController.uiState.value.currentTrack?.let { showAddToPlaylistSheet(it) }
-        }
     }
 
     private fun openQueue() {
@@ -3543,7 +3551,11 @@ class MainActivity : AppCompatActivity() {
         val homePal = takeoverHomePal ?: return
         val t = takeoverT.coerceIn(0f, 1f)
         Painter.paint(screenHome, pal.lerp(homePal, t))
-        takeoverMiniPal?.let { Painter.paint(homeMini.root, pal.lerp(it, t)) }
+        takeoverMiniPal?.let {
+            val miniPal = pal.lerp(it, t)
+            Painter.paint(homeMini.root, miniPal)
+            Painter.paint(homeMini.actions, miniPal)
+        }
         // Home goes see-through so the photo underneath shows; the root behind it is the song colour
         screenHome.setBackgroundColor(android.graphics.Color.TRANSPARENT)
         window.navigationBarColor =
@@ -4111,7 +4123,16 @@ class MainActivity : AppCompatActivity() {
         updateWantsInstall = false
         updateAwaitingPermission = null
         val intent = app.updates.installIntent(file)
-        if (intent == null || !AppUpdates.tryStart(this, intent)) {
+        if (intent == null) {
+            app.updates.reset()
+            showNote(getString(R.string.update_err_installer))
+            renderUpdateSheet()
+            return
+        }
+        // v4.9.7: stop the music before Android replaces the app. Updating Minim while it was
+        // playing could make the installer say "App not installed" even when it had worked.
+        pauseForInstall()
+        if (!AppUpdates.tryStart(this, intent)) {
             app.updates.reset()
             showNote(getString(R.string.update_err_installer))
             renderUpdateSheet()
@@ -4121,6 +4142,16 @@ class MainActivity : AppCompatActivity() {
         updateSkipNextOpen = true
         app.updates.reset()
         if (updateSheet != null) closeSheet()
+    }
+
+    /** Pauses playback (and saves the listening time so far) right before the installer opens. */
+    private fun pauseForInstall() {
+        try {
+            app.playbackController.flushListening()
+            app.playbackController.pause()
+        } catch (_: Exception) {
+            // Never let this block the update
+        }
     }
 
     private fun openUnknownSourcesSetting() {
@@ -4673,6 +4704,79 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * v4.9.7 Now Playing 3 dot menu, a Minim sheet in the app's colours: Add to playlist,
+     * Go to artist (the first one when there are several), Share and Sleep timer.
+     */
+    private fun showNowPlayingMenu() {
+        val track = app.playbackController.uiState.value.currentTrack ?: return
+        val hasArtist = MusicSourceAdapter.firstArtistName(track.artist).isNotBlank()
+        openSheet { box ->
+            sheetSongHeader(box, track)
+            sheetAction(box, R.drawable.ic_playlist_add, getString(R.string.add_to_playlist)) {
+                showAddToPlaylistSheet(track)
+            }
+            if (hasArtist) {
+                sheetAction(box, R.drawable.ic_person, getString(R.string.sheet_go_to_artist)) {
+                    closeSheet()
+                    goToArtist(track.artist)
+                }
+            }
+            sheetAction(box, R.drawable.ic_share, getString(R.string.sheet_share)) {
+                closeSheet { shareTrack(track) }
+            }
+            sheetAction(
+                box,
+                R.drawable.ic_bedtime,
+                getString(R.string.settings_sleep),
+                trailing = sleepRemainingLabel() ?: getString(R.string.opt_off)
+            ) {
+                showSleepTimerSheet()
+            }
+        }
+    }
+
+    /** "12:34" left on the sleep timer, or null when it's off. */
+    private fun sleepRemainingLabel(): String? {
+        val ms = app.sleepTimerManager.remainingTimeMs.value
+        if (ms <= 0L) return null
+        return ArtworkPipeline.formatDurationSec((ms + 999L) / 1000L)
+    }
+
+    /** Sleep timer from Now Playing: Off / 15 / 30 / 60 min, the same choices as Settings. */
+    private fun showSleepTimerSheet() {
+        val left = sleepRemainingLabel()
+        openSheet { box ->
+            sheetHeading(box, getString(R.string.settings_sleep), left?.let { getString(R.string.sleep_status, it) })
+            val choices = listOf(
+                0 to getString(R.string.opt_off),
+                15 to getString(R.string.opt_15),
+                30 to getString(R.string.opt_30),
+                60 to getString(R.string.opt_60)
+            )
+            for ((minutes, label) in choices) {
+                val picked = if (minutes == 0) left == null else left != null && sleepChoice == minutes
+                sheetAction(
+                    box,
+                    R.drawable.ic_bedtime,
+                    label,
+                    trailingIcon = if (picked) R.drawable.ic_check else null
+                ) {
+                    closeSheet()
+                    sleepChoice = minutes
+                    if (minutes == 0) {
+                        app.sleepTimerManager.cancelTimer()
+                        if (left != null) showNote(getString(R.string.note_sleep_off))
+                    } else {
+                        app.sleepTimerManager.startTimer(minutes)
+                        showNote(getString(R.string.note_sleep_set, label))
+                    }
+                    if (isSettingsOpen) renderSettingsOptions()
+                }
+            }
+        }
+    }
+
     /** From the queue: move that song to right after the one playing. */
     private fun playQueueItemNext(index: Int) {
         val state = app.playbackController.uiState.value
@@ -4885,7 +4989,7 @@ class MainActivity : AppCompatActivity() {
         private const val TIP_INTERVAL_MS = 10_000L
         private const val GREETING_SP = 24f
         private const val GREETING_MIN_SP = 17f
-        private const val PILL_MIN_DP = 220f
+        private const val PILL_MIN_DP = 170f
         private const val SEARCH_DEBOUNCE_MS = 300L
         private const val WELCOME_AUTO_MS = 3_000L
     }

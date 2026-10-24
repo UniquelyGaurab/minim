@@ -59,7 +59,6 @@
     <string name="delete">Delete</string>
     <string name="delete_playlist_title">Delete "%1$s"?</string>
     <string name="add_to_playlist">Add to playlist</string>
-    <string name="add_current_to_playlist">Add this song to a playlist</string>
     <string name="play_next">Play next</string>
     <string name="added_to_playlist">Added to %1$s</string>
     <string name="remove_from_playlist">Remove from playlist</string>
@@ -187,6 +186,10 @@
     <string name="note_unliked">Removed from Liked Songs</string>
     <string name="note_removed_from">Removed from %1$s</string>
     <string name="note_removed_queue">Removed from queue</string>
+    <!-- v4.9.7 Now Playing menu -->
+    <string name="np_more">More options</string>
+    <string name="note_sleep_set">Sleep timer set for %1$s</string>
+    <string name="note_sleep_off">Sleep timer off</string>
     <string name="note_created">Created %1$s</string>
     <string name="note_deleted">Deleted %1$s</string>
     <string name="note_already_in">Already in %1$s</string>

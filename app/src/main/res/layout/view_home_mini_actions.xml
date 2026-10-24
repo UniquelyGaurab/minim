@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v4.9.7 the Home player's buttons, out of the pill: like, play/pause and next as three circles
+     just below it. Same colours as the pill (fill:fg, icons tint:bg). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:clipChildren="false"
+    android:clipToPadding="false"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingTop="4dp"
+    android:paddingBottom="8dp">
+
+    <ImageView
+        android:id="@+id/mini_like"
+        android:layout_width="42dp"
+        android:layout_height="42dp"
+        android:background="@drawable/shape_circle"
+        android:clickable="true"
+        android:contentDescription="@string/like"
+        android:elevation="6dp"
+        android:focusable="true"
+        android:foreground="?attr/selectableItemBackgroundBorderless"
+        android:padding="11dp"
+        android:src="@drawable/ic_heart_outline"
+        android:tag="fill:fg tint:bg" />
+
+    <ImageView
+        android:id="@+id/mini_play"
+        android:layout_width="42dp"
+        android:layout_height="42dp"
+        android:layout_marginStart="14dp"
+        android:background="@drawable/shape_circle"
+        android:clickable="true"
+        android:contentDescription="@string/play"
+        android:elevation="6dp"
+        android:focusable="true"
+        android:foreground="?attr/selectableItemBackgroundBorderless"
+        android:padding="9dp"
+        android:src="@drawable/ic_play"
+        android:tag="fill:fg tint:bg" />
+
+    <ImageView
+        android:id="@+id/mini_next"
+        android:layout_width="42dp"
+        android:layout_height="42dp"
+        android:layout_marginStart="14dp"
+        android:background="@drawable/shape_circle"
+        android:clickable="true"
+        android:contentDescription="@string/next"
+        android:elevation="6dp"
+        android:focusable="true"
+        android:foreground="?attr/selectableItemBackgroundBorderless"
+        android:padding="9dp"
+        android:src="@drawable/ic_next"
+        android:tag="fill:fg tint:bg" />
+</LinearLayout>

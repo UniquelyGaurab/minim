@@ -1,87 +1,98 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/queue_row"
+<!-- v4.9.7 Up next row: the same filled song row as search and playlists (item_track: soft fill,
+     10dp padding, 44dp cover, 15sp / 13sp text), with up / down / remove kept on the right.
+     The playing song is drawn fully filled (styleSongRow). -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginStart="26dp"
-    android:layout_marginEnd="22dp"
-    android:layout_marginBottom="6dp"
-    android:background="@drawable/shape_card_outline"
-    android:clickable="true"
-    android:focusable="true"
-    android:gravity="center_vertical"
-    android:orientation="horizontal"
-    android:paddingStart="8dp"
-    android:paddingTop="8dp"
-    android:paddingEnd="4dp"
-    android:paddingBottom="8dp"
-    android:tag="fill:fg">
-
-    <ImageView
-        android:id="@+id/queue_art"
-        android:layout_width="42dp"
-        android:layout_height="42dp"
-        android:background="@drawable/shape_art_small"
-        android:importantForAccessibility="no"
-        android:scaleType="centerCrop"
-        android:tag="fill:fg" />
+    android:paddingStart="30dp"
+    android:paddingEnd="26dp"
+    android:paddingBottom="8dp">
 
     <LinearLayout
-        android:layout_width="0dp"
+        android:id="@+id/queue_row"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
-        android:layout_weight="1"
-        android:orientation="vertical">
+        android:background="@drawable/shape_card"
+        android:clickable="true"
+        android:focusable="true"
+        android:foreground="?attr/selectableItemBackground"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="10dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="4dp"
+        android:paddingBottom="10dp"
+        android:tag="fill:soft">
 
-        <TextView
-            android:id="@+id/queue_title"
-            style="@style/MinimText.Bold"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:ellipsize="end"
-            android:singleLine="true"
-            android:tag="text:fg"
-            android:textSize="12sp" />
+        <ImageView
+            android:id="@+id/queue_art"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="@drawable/shape_art_small"
+            android:importantForAccessibility="no"
+            android:scaleType="centerCrop"
+            android:tag="fill:fg" />
 
-        <TextView
-            android:id="@+id/queue_artist"
-            style="@style/MinimText"
-            android:layout_width="match_parent"
+        <LinearLayout
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:ellipsize="end"
-            android:singleLine="true"
-            android:tag="text:fg"
-            android:textSize="10sp" />
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="4dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/queue_title"
+                style="@style/MinimText.Semi"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:tag="text:fg"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/queue_artist"
+                style="@style/MinimText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:alpha="0.7"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:tag="text:fg"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/queue_up"
+            android:layout_width="32dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/move_up"
+            android:padding="7dp"
+            android:src="@drawable/ic_arrow_up"
+            android:tag="tint:fg" />
+
+        <ImageView
+            android:id="@+id/queue_down"
+            android:layout_width="32dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/move_down"
+            android:padding="7dp"
+            android:src="@drawable/ic_arrow_down"
+            android:tag="tint:fg" />
+
+        <ImageView
+            android:id="@+id/queue_remove"
+            android:layout_width="32dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/remove"
+            android:padding="8dp"
+            android:src="@drawable/ic_close"
+            android:tag="tint:fg" />
     </LinearLayout>
-
-    <ImageView
-        android:id="@+id/queue_up"
-        android:layout_width="34dp"
-        android:layout_height="34dp"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/move_up"
-        android:padding="8dp"
-        android:src="@drawable/ic_arrow_up"
-        android:tag="tint:fg" />
-
-    <ImageView
-        android:id="@+id/queue_down"
-        android:layout_width="34dp"
-        android:layout_height="34dp"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/move_down"
-        android:padding="8dp"
-        android:src="@drawable/ic_arrow_down"
-        android:tag="tint:fg" />
-
-    <ImageView
-        android:id="@+id/queue_remove"
-        android:layout_width="34dp"
-        android:layout_height="34dp"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/remove"
-        android:padding="9dp"
-        android:src="@drawable/ic_close"
-        android:tag="tint:fg" />
-</LinearLayout>
+</FrameLayout>

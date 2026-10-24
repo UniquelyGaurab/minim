@@ -32,16 +32,6 @@ private fun inflate(parent: ViewGroup, layout: Int): View =
 /** Default palette until MainActivity sends the real one (design greens, Light mode). */
 private val DEFAULT_PAL = Pal.build(0, false)
 
-/** Switches an outlined card between outlined and filled, and flips the colour roles inside it. */
-private fun styleCard(card: View, art: ImageView, texts: List<TextView>, icons: List<ImageView>, filled: Boolean) {
-    card.setBackgroundResource(if (filled) R.drawable.shape_card else R.drawable.shape_card_outline)
-    card.tag = "fill:fg"
-    art.tag = if (filled) "fill:bg" else "fill:fg"
-    val on = if (filled) "bg" else "fg"
-    texts.forEach { it.tag = "text:$on" }
-    icons.forEach { it.tag = "tint:$on" }
-}
-
 /**
  * v4.9.6: song rows (search, Liked Songs, playlists, albums) look like the Stats "today's songs"
  * list: a soft-filled rounded row. The playing song is fully filled with the colours swapped,
@@ -474,12 +464,15 @@ class QueueAdapter(
         fun bind(track: Track, position: Int, active: Boolean, size: Int, artwork: ArtworkPipeline, pal: Pal) {
             title.text = track.title
             artist.text = track.artist
-            styleCard(row, art, listOf(title, artist), listOf(up, down, remove), active)
+            // v4.9.7: the same filled row as search and playlists; the buttons follow the text colour
+            styleSongRow(row, art, listOf(title, artist), active)
+            val on = if (active) "bg" else "fg"
+            listOf(up, down, remove).forEach { it.tag = "tint:$on" }
             up.alpha = if (position > 0) 1f else 0.3f
             up.isEnabled = position > 0
             down.alpha = if (position < size - 1) 1f else 0.3f
             down.isEnabled = position < size - 1
-            artwork.loadInto(art, track.thumbnailUrl, dp(42))
+            artwork.loadInto(art, track.thumbnailUrl, dp(44))
             Painter.paint(itemView, pal)
         }
     }

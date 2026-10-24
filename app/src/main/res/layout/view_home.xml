@@ -40,13 +40,25 @@
 
     <include
         android:id="@+id/home_mini"
-        layout="@layout/view_mini_player"
+        layout="@layout/view_home_mini"
         android:layout_width="wrap_content"
         android:layout_height="44dp"
         android:visibility="gone"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="@id/home_gl_pill" />
+
+    <!-- v4.9.7: like / play-pause / next as three circles just below the pill -->
+    <include
+        android:id="@+id/home_mini_actions"
+        layout="@layout/view_home_mini_actions"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:visibility="gone"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/home_mini" />
 
     <TextView
         android:id="@+id/home_greeting"

@@ -17,18 +17,38 @@
     android:tag="bg"
     android:visibility="gone">
 
-    <ImageView
-        android:id="@+id/np_back"
-        android:layout_width="48dp"
-        android:layout_height="28dp"
-        android:layout_marginTop="16dp"
-        android:background="@drawable/shape_pill"
-        android:contentDescription="@string/minimise_player"
-        android:foreground="?attr/selectableItemBackgroundBorderless"
-        android:paddingTop="3dp"
-        android:paddingBottom="3dp"
-        android:src="@drawable/ic_chevron_down"
-        android:tag="fill:fg tint:bg" />
+    <!-- v4.9.7: the collapse pill stays in the centre; the 3 dot menu sits at the top right -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:layout_marginTop="10dp"
+        android:paddingStart="24dp"
+        android:paddingEnd="20dp">
+
+        <ImageView
+            android:id="@+id/np_back"
+            android:layout_width="48dp"
+            android:layout_height="28dp"
+            android:layout_gravity="center"
+            android:background="@drawable/shape_pill"
+            android:contentDescription="@string/minimise_player"
+            android:foreground="?attr/selectableItemBackgroundBorderless"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
+            android:src="@drawable/ic_chevron_down"
+            android:tag="fill:fg tint:bg" />
+
+        <ImageView
+            android:id="@+id/np_more"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_gravity="end|center_vertical"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/np_more"
+            android:padding="8dp"
+            android:src="@drawable/ic_more_vert"
+            android:tag="tint:fg" />
+    </FrameLayout>
 
     <Space
         android:id="@+id/np_gap_top"
