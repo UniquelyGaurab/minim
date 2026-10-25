@@ -46,6 +46,7 @@
     <string name="lyrics_loading">Fetching lyrics…</string>
     <string name="lyrics_unavailable">Lyrics unavailable for this track.</string>
     <string name="fs_lyrics_play_pause">Play or pause</string>
+    <string name="fs_lyrics_play_from_line">Play from this line</string>
 
     <!-- Library -->
     <string name="liked_songs">Liked Songs</string>

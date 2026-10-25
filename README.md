@@ -2,14 +2,14 @@
 
 Minim is a lightweight, minimal YouTube Music client for Android. It keeps only what you need to listen: search, a clean player, your library and a few fun extras, with no clutter.
 
-It runs on Android 9 (API 28) and newer, and the app is about 8.5 MB.
+It runs on Android 9 (API 28) and newer, and the app is about 8.6 MB.
 
 ## Features
 
 - **Dynamic colours:** the whole app takes its colours from the cover of the song that's playing. A **Default** mode in Settings keeps it black and white instead.
 - **Light and dark:** both themes, in Dynamic and Default.
-- **Rotating greetings:** Home greets you with lines that change every few seconds, including ones based on what you're playing, your recent songs and your liked songs.
-- **Synced lyrics:** time-synced lyrics from LRCLib, with a timing adjustment in Settings. Tap the lyric line on Now Playing for full screen lyrics over a blurred cover, lit up word by word (Flow) or line by line (Lyrics style in Settings).
+- **Rotating greetings:** Home greets you with a new line every 7 seconds, including ones about what you're playing, your recent songs, your liked songs and how much you've listened. Apart from the time-of-day greetings, they all come from [`greetings/greetings.json`](greetings/greetings.json) in this repo, so new lines arrive without an update.
+- **Synced lyrics:** time-synced lyrics from LRCLib, with a timing adjustment in Settings. Tap the lyric line on Now Playing for full screen lyrics over a blurred cover, lit up word by word (Flow) or line by line (Lyrics style in Settings). In full screen lyrics, tap any line to jump the song there.
 - **Smooth motion:** colours fade between songs, tabs slide, lists slide in, Up next glides, covers fade in, pills respond to presses and Stats numbers count up. Turn it all off with Remove animations in Settings.
 - **Discover:** shelves of songs picked from what you listen to, plus a radio queue that keeps playing similar songs.
 - **Artist pages:** a full-bleed artist photo, monthly listeners, top songs, albums and a shuffle button. Open one from search or by tapping the artist on Now Playing.
@@ -67,7 +67,7 @@ Android only installs an update over an existing app when both are signed with t
 
 ## Editing greetings
 
-Home greetings can be added without a new build. Minim downloads [`greetings/greetings.json`](greetings/greetings.json) from this repo about once a day and keeps a copy for offline use. If the file is broken it is ignored and the built-in greetings carry on.
+Home greetings can be added without a new build. Minim checks [`greetings/greetings.json`](greetings/greetings.json) in this repo every 10 minutes while it's open (5.1.0 and newer; older versions about once a day), and keeps a copy for offline use. New lines join the rotation without a restart. If the file is broken it is ignored and the last good copy carries on.
 
 To edit it from your phone:
 
@@ -76,7 +76,7 @@ To edit it from your phone:
 3. Tap the pencil icon (Edit). If you don't see it, switch to the desktop site in your browser's menu.
 4. Make your change, tap **Commit changes**, and commit straight to `main`.
 
-Phones pick it up the next time Minim checks, usually within a day.
+Phones on 5.1.0 pick it up within about 10 minutes while Minim is open; older versions within about a day.
 
 Each greeting is one line in the list:
 
@@ -91,7 +91,24 @@ Each greeting is one line in the list:
 - `year` (optional): only that year. Festivals that move, like Diwali, Holi and Eid, need a new entry with the new dates each year.
 - `name` (optional): a label for you. Minim ignores it, along with any other field it doesn't know.
 
-Rules that keep the file working: keep `"version": 1` at the top, put a comma between greetings but not after the last one, and use straight double quotes. A greeting with a mistake in it (no text, too long, a date that doesn't exist like `02-30`) is skipped and the rest still work. A mistake in the file's structure, like a missing bracket, makes Minim ignore the whole new file and keep the last good copy. Pasting the file into [jsonlint.com](https://jsonlint.com) before committing catches those.
+Rules that keep the file working: keep `"version": 2` at the top, put a comma between greetings but not after the last one, and use straight double quotes. A greeting with a mistake in it (no text, too long, a date that doesn't exist like `02-30`) is skipped and the rest still work. A mistake in the file's structure, like a missing bracket, makes Minim ignore the whole new file and keep the last good copy. Pasting the file into [jsonlint.com](https://jsonlint.com) before committing catches those.
+
+### Listening greetings (5.1.0)
+
+Lines about your listening go in a separate `"stats"` list after `"greetings"`. Versions before 5.1.0 don't read it, so they never show a line with an unfilled placeholder.
+
+```json
+"stats": [
+  { "text": "{song}, again?\nAt this point it pays rent.", "min": { "plays": 3 } },
+  { "text": "{song} at this hour?\nNo judgement. Okay, a little.", "hours": "0-4" }
+]
+```
+
+- Placeholders for words: `{song}` and `{artist}` (what's in the player), `{last}` and `{lastartist}` (the song before), `{topsong}` and `{topartist}` (most played this week), `{likedsong}` (newest like), `{likedartist}`, `{playlist}` (newest), `{bigplaylist}` (biggest) and `{weekday}`.
+- Placeholders for numbers: `{plays}` (plays of the current song this week), `{today}`, `{liked}`, `{topsongplays}`, `{topartistplays}`, `{artists}` (this week), `{likedartistsongs}`, `{playlists}` and `{bigplaylistsongs}`. A line that uses a number needs at least 1 unless `min` says otherwise.
+- A line only shows when every placeholder in it has data. `{name}` works here too.
+- Conditions (all optional, every one that's set must hold): `min` and `max` (for example `{ "plays": 5 }`), `needs` (placeholders that must have data even if the text doesn't use them), `hours` (`"22-3"` wraps past midnight, or a single hour like `8`), `days` (`["sat", "sun"]`), `playing` (`true` while a song plays, `false` while paused) and `liked` (whether the song in the player is liked).
+- A line with an unknown placeholder or a broken condition is skipped, and the rest still work.
 
 ## Credits
 

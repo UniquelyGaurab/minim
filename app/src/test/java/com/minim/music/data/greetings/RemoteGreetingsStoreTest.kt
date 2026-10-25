@@ -20,6 +20,7 @@ class RemoteGreetingsStoreTest {
 
     private var now = 1_000_000_000_000L
     private val hour = 60L * 60 * 1000
+    private val minute = 60L * 1000
 
     private fun store(dir: File = tmp.root) = RemoteGreetingsStore(dir) { now }
 
@@ -52,14 +53,15 @@ class RemoteGreetingsStoreTest {
     }
 
     @Test
-    fun onlyAboutOnceADay() {
+    fun everyTenMinutes() {
+        // 5.1.0: was about once a day
         val f = FakeFetcher(FetchResult.Ok(good, null))
         store().refresh(f)
-        now += 2 * hour
+        now += 2 * minute
         assertEquals(RemoteGreetingsStore.Outcome.NOT_DUE, store().refresh(f).outcome)
-        now += 10 * hour
+        now += 7 * minute
         assertFalse(store().isDue())
-        now += 9 * hour // 21 hours after the last good check
+        now += 1 * minute // 10 minutes after the last good check
         assertTrue(store().isDue())
         assertEquals(RemoteGreetingsStore.Outcome.UPDATED, store().refresh(f).outcome)
         assertEquals(2, f.calls)
@@ -73,10 +75,10 @@ class RemoteGreetingsStoreTest {
         assertEquals(RemoteGreetingsStore.Outcome.FAILED, store().refresh(failing).outcome)
         assertEquals("Volume up.", store().loadCached()!!.anytime[0].line1)
         // Not again straight away...
-        now += 1 * hour
+        now += 5 * minute
         assertEquals(RemoteGreetingsStore.Outcome.NOT_DUE, store().refresh(failing).outcome)
-        // ...but after the retry gap
-        now += 3 * hour
+        // ...but after the 10 minute retry gap
+        now += 5 * minute
         assertEquals(RemoteGreetingsStore.Outcome.FAILED, store().refresh(failing).outcome)
         assertEquals(2, failing.calls)
     }
@@ -160,5 +162,18 @@ class RemoteGreetingsStoreTest {
         RemoteGreetingsSync.run(tmp.root, FakeFetcher(FetchResult.Ok(good2, null))) { published.add(it) }
         assertTrue(published.isNotEmpty())
         assertEquals(2, published.last().anytime.size)
+    }
+
+    @Test
+    fun shippedSeedStandsInUntilTheFirstDownload() {
+        val seed = { good2 }
+        // Nothing downloaded yet: the seed
+        assertEquals(2, RemoteGreetingsSync.startingFile(store(), seed)!!.anytime.size)
+        // A broken or missing seed is ignored
+        assertNull(RemoteGreetingsSync.startingFile(store()) { "{{{" })
+        assertNull(RemoteGreetingsSync.startingFile(store()) { throw java.io.FileNotFoundException() })
+        // Once a file was downloaded, that one wins
+        store().refresh(FakeFetcher(FetchResult.Ok(good, null)))
+        assertEquals(store().loadCached(), RemoteGreetingsSync.startingFile(store(), seed))
     }
 }

@@ -274,6 +274,9 @@ class MainActivity : AppCompatActivity() {
     private var greetingFactsAt = 0L
     private var greetingIndex = Greetings.TIME_BASED
     private var greetingJob: Job? = null
+    private var greetingFileJob: Job? = null
+    /** The two lines on screen, so a "new" greeting that reads the same doesn't animate. */
+    private var shownGreeting: Pair<String, String>? = null
     private var greetingAnimating = false
     private var isActivityResumed = false
     private var wasStopped = false
@@ -355,8 +358,9 @@ class MainActivity : AppCompatActivity() {
         // v4.9.8: an app open (cold start, or the app back from the background, even into a new
         // MainActivity) may run a quiet update check; see onAppOpenedForUpdates
         app.foreground.takeOpen()?.let { onAppOpenedForUpdates(it) }
-        // v4.9.6: new greetings from GitHub, about once a day (does nothing when not due)
-        app.syncRemoteGreetings()
+        // v4.9.6: new greetings from GitHub. 5.1.0: checked every 10 minutes while the app is open
+        // (the store skips the download when it isn't due, and an unchanged file is a tiny 304)
+        startGreetingFileChecks()
         // Coming back from the background counts as opening the app: time-based greeting first
         // 5.0.0 part 3: read the cloud config again (at most every 30 min) and redo today's festival
         app.vibe.refresh()
@@ -386,6 +390,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         wasStopped = true
+        greetingFileJob?.cancel()
+        greetingFileJob = null
         // v4.9.8 part 4: no Flow frames in the background
         if (::fsLyrics.isInitialized) fsLyrics.setHostVisible(false)
         if (::npLyric.isInitialized) npLyric.setHostVisible(false)
@@ -1234,7 +1240,7 @@ class MainActivity : AppCompatActivity() {
         greetingPlayTrackId = null
         greetingIndex = nextGreeting()
         renderGreeting(animate = true)
-        // Restart the 10 s clock so the next greeting doesn't arrive straight away
+        // Restart the 7 s clock so the next greeting doesn't arrive straight away
         greetingJob?.cancel()
         greetingJob = null
         syncGreetingRotation()
@@ -1351,36 +1357,34 @@ class MainActivity : AppCompatActivity() {
         return greetingRotation.next { Greetings.fits(it, facts, name, now) }
     }
 
-    /** A regular greeting to fall back on; personal ones (v4.7) only when they fit the saved name. */
+    /** A regular greeting to fall back on: the time-based ones and the remote anytime lines that fit. */
     private fun nextRegularGreeting(): Int {
         val name = app.preferences.userName
         return greetingRotation.nextRegular { Greetings.fits(it, GreetingFacts(), name) }
     }
 
-    /** The lines for [greetingIndex]; a fun one whose data has gone (song stopped...) becomes a regular one. */
+    /**
+     * The lines for [greetingIndex]. A stat one whose data has gone (song stopped...), a remote one
+     * that left the file or its dates, or the named time greeting after the name was removed
+     * becomes a regular one instead.
+     */
     private fun currentGreetingLines(): Pair<String, String> {
         greetingOverride?.let { return it }
         val name = app.preferences.userName
-        if (Greetings.isData(greetingIndex)) {
-            Greetings.dataLines(greetingIndex, liveGreetingFacts())?.let { return it }
-            greetingIndex = nextRegularGreeting()
-        }
-        // A personal one whose name was added or removed since it was picked, or a remote one (v4.9.6)
-        // that left the file or its dates: use a regular one instead
         repeat(3) {
             when {
-                Greetings.isPersonal(greetingIndex) -> {
-                    Greetings.personalLines(greetingIndex, name)?.let { return it }
-                    greetingIndex = nextRegularGreeting()
-                }
                 Greetings.isRemote(greetingIndex) -> {
-                    Greetings.remoteLines(greetingIndex, name)?.let { return it }
+                    val facts = if (Greetings.isAnytime(greetingIndex)) GreetingFacts() else liveGreetingFacts()
+                    Greetings.remoteLines(greetingIndex, name, facts = facts)?.let { return it }
                     greetingIndex = nextRegularGreeting()
                 }
-                else -> return Greetings.lines(greetingIndex, name)
+                greetingIndex == Greetings.TIME_NAMED && name.isBlank() -> greetingIndex = nextRegularGreeting()
+                greetingIndex == Greetings.TIME_NAMED || greetingIndex == Greetings.TIME_BASED ->
+                    return Greetings.lines(greetingIndex, name)
+                else -> greetingIndex = Greetings.TIME_BASED
             }
         }
-        if (greetingIndex !in 0 until Greetings.COUNT) greetingIndex = Greetings.TIME_BASED
+        greetingIndex = Greetings.TIME_BASED
         return Greetings.lines(greetingIndex, name)
     }
 
@@ -1388,7 +1392,10 @@ class MainActivity : AppCompatActivity() {
         get() = isActivityResumed && !isWelcomeOpen && tab == Tab.HOME && !isSearchOpen && !isListOpen &&
             !isNowPlayingOpen && !isLyricsOpen && !isQueueOpen && !isSettingsOpen
 
-    /** Every 10 s a new greeting and a new tip, only while Home is on screen and the app is in front. */
+    /**
+     * A new greeting every 7 s (5.1.0, was 10 s) and a new tip every 10 s, only while Home is on
+     * screen and the app is in front.
+     */
     private fun syncGreetingRotation() {
         syncTipRotation()
         // v4.9.3: leaving Home (tabs, Search, Now Playing...) fades the takeover out early
@@ -1424,6 +1431,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** 5.1.0: looks for a new greetings file now and then every 10 minutes, until the app goes to the background. */
+    private fun startGreetingFileChecks() {
+        if (greetingFileJob?.isActive == true) return
+        greetingFileJob = lifecycleScope.launch {
+            while (isActive) {
+                app.syncRemoteGreetings()
+                // A little over 10 minutes, so the store's "10 minutes since the last check" has passed
+                delay(GREETING_FILE_CHECK_MS + 5_000L)
+            }
+        }
+    }
+
     private fun syncTipRotation() {
         if (isHomeShowing) {
             if (tipJob?.isActive == true) return
@@ -1444,6 +1463,8 @@ class MainActivity : AppCompatActivity() {
     /** Shows greeting [greetingIndex]: the old text fades out and up, the new one rises in. */
     private fun renderGreeting(animate: Boolean) {
         val (l1, l2) = currentGreetingLines()
+        // 5.1.0: the same words again (only the time greeting fits) stay put instead of flashing
+        if (animate && !greetingAnimating && shownGreeting == (l1 to l2)) return
         if (!animate || !animationsOn() || !homeGreeting.isShown) {
             if (greetingAnimating) {
                 greetingAnimating = false
@@ -1484,6 +1505,7 @@ class MainActivity : AppCompatActivity() {
         val line1 = if (available > 0f) TextUtils.ellipsize(l1, homeGreeting.paint, available, TextUtils.TruncateAt.END) else l1
         val line2 = if (available > 0f) TextUtils.ellipsize(l2, homeGreeting.paint, available, TextUtils.TruncateAt.END) else l2
         homeGreeting.text = "$line1\n$line2"
+        shownGreeting = l1 to l2
     }
 
     /**
@@ -2884,6 +2906,7 @@ class MainActivity : AppCompatActivity() {
                 return wasPlaying
             }
             override fun seek(fraction: Float, finished: Boolean) = seekFromBar(fraction, finished, fsLyrics.bar)
+            override fun seekToLyric(lineStartMs: Long) = seekToLyricLine(lineStartMs)
             override fun onChromeChanged() = applyFsLyricsChrome()
         })
         fsLyrics.flowStyle = app.preferences.isFlowLyrics
@@ -2932,6 +2955,30 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Dragging either progress bar (Now Playing's or the full screen lyrics' one) seeks. */
+    /**
+     * 5.1.0: a tapped lyric line. The line shows at song time + offsets, so the song goes to the
+     * line's time minus the file's [offset:] and the Lyrics timing setting (never before 0 or past
+     * the end), with a light tick. The lines and bars update now instead of on the next tick.
+     */
+    private fun seekToLyricLine(lineStartMs: Long) {
+        val data = lyrics ?: return
+        if (!data.isSynced) return
+        val durationMs = app.playbackController.uiState.value.durationMs
+        var target = FlowTiming.seekTargetForLine(lineStartMs, data.offsetMs, app.preferences.lyricsOffsetMs)
+        if (durationMs > 0L) target = target.coerceAtMost(durationMs - 1L)
+        isSeeking = false
+        app.playbackController.seekTo(target)
+        haptic(screenFsLyrics, HapticFeedbackConstants.CLOCK_TICK)
+        if (durationMs > 0L) {
+            val fraction = (target.toFloat() / durationMs).coerceIn(0f, 1f)
+            npControls.elapsed.text = ArtworkPipeline.formatDurationSec(target / 1000L)
+            npControls.remaining.text = formatRemaining(durationMs, target)
+            npControls.progress.setFraction(fraction)
+            fsLyrics.bar.setFraction(fraction)
+        }
+        updateLyricLine(target, animate = true)
+    }
+
     private fun seekFromBar(fraction: Float, finished: Boolean, source: ProgressLine) {
         val durationMs = app.playbackController.uiState.value.durationMs
         if (durationMs > 0L) {
@@ -5917,7 +5964,9 @@ class MainActivity : AppCompatActivity() {
         private const val ANNOUNCEMENT_DELAY_MS = 1_200L
         private const val UPDATE_POPUP_DELAY_MS = 900L
         private const val ARTIST_SHELF = "artist:"
-        private const val GREETING_INTERVAL_MS = 10_000L
+        private const val GREETING_INTERVAL_MS = 7_000L
+        /** 5.1.0: how often to look for a new greetings file while the app is open. */
+        private const val GREETING_FILE_CHECK_MS = 10L * 60 * 1000
         private const val GREETING_MESSAGE_MS = 5_000L
         private const val GREETING_FACTS_MAX_AGE_MS = 60_000L
         private const val TIP_INTERVAL_MS = 10_000L

@@ -40,6 +40,13 @@ object FlowTiming {
     fun shiftedPosition(positionMs: Long, fileOffsetMs: Long, userOffsetMs: Int): Long =
         positionMs + fileOffsetMs + userOffsetMs
 
+    /**
+     * 5.1.0: where to seek so the line starting at [lineStartMs] becomes the active one: the
+     * inverse of [shiftedPosition], never before the start of the song.
+     */
+    fun seekTargetForLine(lineStartMs: Long, fileOffsetMs: Long, userOffsetMs: Int): Long =
+        (lineStartMs - fileOffsetMs - userOffsetMs).coerceAtLeast(0L)
+
     /** The active line at [shiftedMs]: the last one that has started, -1 before the first. */
     fun activeIndex(lines: List<LyricsLine>, shiftedMs: Long): Int {
         var index = -1

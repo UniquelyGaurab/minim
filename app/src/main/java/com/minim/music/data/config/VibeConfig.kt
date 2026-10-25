@@ -118,7 +118,8 @@ data class VibeConfig(
         if (isOn(SWITCH_GREETINGS)) all.addAll(greetings)
         if (isOn(SWITCH_FESTIVALS)) for (e in events) all.addAll(e.greetings)
         if (all.isEmpty()) return RemoteGreetingFile.EMPTY
-        return RemoteGreetingFile(1, all.filter { !it.isOccasion }, all.filter { it.isOccasion })
+        // 5.1.0: lines with stat placeholders or conditions go to the stats slots
+        return RemoteGreetingFile.of(1, all)
     }
 
     fun lockApplies(installed: InstalledVersion): Boolean = lock?.applies(installed) == true

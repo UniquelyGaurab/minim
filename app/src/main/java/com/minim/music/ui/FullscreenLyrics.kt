@@ -63,6 +63,11 @@ class FullscreenLyrics(
         /** Plays or pauses; returns true when it was playing (so it is pausing now). */
         fun togglePlayPause(): Boolean
         fun seek(fraction: Float, finished: Boolean)
+        /**
+         * 5.1.0: a lyric line was tapped. Seeks to the moment line time [lineStartMs] shows (the
+         * timing offsets taken back out) with a light tick, and puts that line in place.
+         */
+        fun seekToLyric(lineStartMs: Long)
         /** The mix, ink or state changed: status bar icons, nav bar colour, status cover. */
         fun onChromeChanged()
     }
@@ -154,6 +159,11 @@ class FullscreenLyrics(
         bar.onSeek = { f, finished -> host.seek(f, finished) }
         overlay.excludeView = bar
         overlay.onDoubleTap = { doubleTap() }
+        // 5.1.0: tap a line to jump there
+        overlay.tapBlocked = { list.scrollState != RecyclerView.SCROLL_STATE_IDLE }
+        overlay.onSingleTap = { e -> tapAt(e.rawX, e.rawY) }
+        adapter.lineActionLabel = res.getString(R.string.fs_lyrics_play_from_line)
+        adapter.onLineAction = { seekToLine(it) }
         overlay.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or, ob ->
             if (r - l != or - ol || b - t != ob - ot) onSizeChanged()
         }
@@ -628,6 +638,27 @@ class FullscreenLyrics(
     // ------------------------------------------------------------------------------------------
     // Double tap: play / pause with a small pulse, since there are no controls on screen
     // ------------------------------------------------------------------------------------------
+
+    /** 5.1.0: a single tap at screen point [rawX], [rawY]: the synced line under it, if any. */
+    private fun tapAt(rawX: Float, rawY: Float) {
+        if (state != State.OPEN || !adapter.synced || !list.isShown) return
+        val loc = IntArray(2)
+        list.getLocationOnScreen(loc)
+        val child = list.findChildViewUnder(rawX - loc[0], rawY - loc[1]) ?: return
+        val pos = list.getChildAdapterPosition(child)
+        if (pos == RecyclerView.NO_POSITION) return
+        seekToLine(pos)
+    }
+
+    private fun seekToLine(pos: Int) {
+        if (state != State.OPEN || !adapter.synced) return
+        val line = adapter.lines.getOrNull(pos) ?: return
+        // Follow the song again straight away, so the tapped line slides to the middle
+        list.removeCallbacks(resumeFollow)
+        userScrolling = false
+        host.seekToLyric(line.startMs)
+        scrollToActive(smooth = host.animationsOn())
+    }
 
     private fun doubleTap() {
         if (state != State.OPEN) return

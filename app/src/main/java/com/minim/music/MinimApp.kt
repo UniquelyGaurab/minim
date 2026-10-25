@@ -184,15 +184,17 @@ class MinimApp : Application() {
     }
 
     /**
-     * v4.9.6: loads the greetings file from GitHub (offline copy first, a fresh download about once
-     * a day). Safe to call on every app start: it returns at once and does nothing when not due.
+     * v4.9.6: loads the greetings file from GitHub (offline copy first, then a fresh download when
+     * due: 5.1.0 checks every 10 minutes while the app is open, see MainActivity). Safe to call
+     * often: it returns at once and does nothing when not due.
      */
     fun syncRemoteGreetings() {
         try {
             greetingsExecutor.execute {
                 RemoteGreetingsSync.run(
                     dir = File(filesDir, "greetings"),
-                    fetcher = OkHttpGreetingsFetcher(okHttpClient)
+                    fetcher = OkHttpGreetingsFetcher(okHttpClient),
+                    seed = { assets.open(GREETINGS_SEED_ASSET).bufferedReader().use { it.readText() } }
                 ) { file ->
                     githubGreetings = file
                     publishGreetings()
@@ -220,6 +222,9 @@ class MinimApp : Application() {
     }
 
     companion object {
+        /** 5.1.0: a copy of greetings/greetings.json, used until the first download. */
+        const val GREETINGS_SEED_ASSET = "greetings_seed.json"
+
         @Volatile
         lateinit var instance: MinimApp
             private set

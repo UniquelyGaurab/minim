@@ -628,6 +628,13 @@ class LibraryDatabase(context: Context) :
             """.trimIndent(), arrayOf(weekStart)
         ).use { c -> if (c.moveToFirst()) { topArtist = c.getString(0); topArtistPlays = c.getInt(1) } }
 
+        // 5.1.0: plays per song this week, for the {plays} greetings about the song in the player
+        val weekPlays = HashMap<String, Int>()
+        db.rawQuery(
+            "SELECT track_id, COUNT(*) AS c FROM plays WHERE played_at >= ? GROUP BY track_id ORDER BY c DESC LIMIT 500",
+            arrayOf(weekStart)
+        ).use { c -> while (c.moveToNext()) c.getString(0)?.let { weekPlays[it] = c.getInt(1) } }
+
         val artistsWeek = count(
             "SELECT COUNT(DISTINCT t.artist) FROM plays p INNER JOIN tracks t ON t.id = p.track_id WHERE p.played_at >= ?",
             arrayOf(weekStart)
@@ -683,7 +690,8 @@ class LibraryDatabase(context: Context) :
             playlistCount = playlistCount,
             newestPlaylist = newest,
             biggestPlaylist = biggest,
-            biggestPlaylistSongs = biggestSongs
+            biggestPlaylistSongs = biggestSongs,
+            weekPlays = weekPlays
         )
     }
 

@@ -72,35 +72,167 @@ data class DateRange(
     }
 }
 
-/** One remote greeting, already split into the two Home lines. [range] null = an anytime line. */
+/**
+ * 5.1.0: what a greeting can talk about besides {name}. [value] gives one token's data right now:
+ * a String (a song, an artist...), an Int (a count) or a Boolean (the [GreetingTokens.PLAYING] and
+ * [GreetingTokens.SONG_LIKED] flags), or null when there's nothing to say.
+ */
+fun interface GreetingData {
+    fun value(token: String): Any?
+
+    companion object {
+        val NONE = GreetingData { null }
+    }
+}
+
+/** 5.1.0: the placeholders a greeting may use, written as {token} in its text. */
+object GreetingTokens {
+    const val NAME = "name"
+
+    /** Words, replaced with a short name. */
+    val WORDS: Set<String> = setOf(
+        "song", "artist", "last", "lastartist", "topsong", "topartist",
+        "likedsong", "likedartist", "playlist", "bigplaylist", "weekday"
+    )
+
+    /** Counts, replaced with the number. A line that uses one needs at least 1 unless "min" says less. */
+    val COUNTS: Set<String> = setOf(
+        "plays", "today", "liked", "topsongplays", "topartistplays", "artists",
+        "likedartistsongs", "playlists", "bigplaylistsongs"
+    )
+
+    val STATS: Set<String> = WORDS + COUNTS
+    val KNOWN: Set<String> = STATS + NAME
+
+    /** Flags (not placeholders): whether the song in the player is playing, and whether it's liked. */
+    const val PLAYING = "playing"
+    const val SONG_LIKED = "songliked"
+
+    val TOKEN = Regex("\\{([A-Za-z_]+)\\}")
+
+    fun tokensIn(text: String): Set<String> {
+        if (text.indexOf('{') < 0) return emptySet()
+        return TOKEN.findAll(text).map { it.groupValues[1] }.toSet()
+    }
+}
+
+/**
+ * 5.1.0: the extra conditions a greeting can have. Every one that is set must hold.
+ * - [min] / [max]: a count must be at least / at most this
+ * - [needs]: placeholders that must have data even though the text doesn't use them
+ * - [fromHour]..[toHour]: hours of the day (0-23, may wrap past midnight like 22-3); -1 = any hour
+ * - [days]: days of the week ([Calendar.DAY_OF_WEEK] values); empty = any day
+ * - [playing]: the song in the player is playing (true) or paused (false)
+ * - [liked]: the song in the player is liked (true) or not (false)
+ */
+data class GreetingRule(
+    val min: Map<String, Int> = emptyMap(),
+    val max: Map<String, Int> = emptyMap(),
+    val needs: Set<String> = emptySet(),
+    val fromHour: Int = -1,
+    val toHour: Int = -1,
+    val days: Set<Int> = emptySet(),
+    val playing: Boolean? = null,
+    val liked: Boolean? = null
+) {
+    val isEmpty: Boolean get() = this == NONE
+
+    fun hourOk(hour: Int): Boolean = when {
+        fromHour < 0 -> true
+        fromHour <= toHour -> hour in fromHour..toHour
+        else -> hour >= fromHour || hour <= toHour
+    }
+
+    companion object {
+        val NONE = GreetingRule()
+    }
+}
+
+/**
+ * One remote greeting, already split into the two Home lines. [range] null = an anytime line.
+ * 5.1.0: [rule] holds extra conditions, and the text may use the [GreetingTokens] placeholders.
+ */
 data class RemoteGreeting(
     val line1: String,
     val line2: String,
-    val range: DateRange? = null
+    val range: DateRange? = null,
+    val rule: GreetingRule = GreetingRule.NONE
 ) {
     val isOccasion: Boolean get() = range != null
     val usesName: Boolean get() = line1.contains(NAME_TOKEN) || line2.contains(NAME_TOKEN)
 
-    /** The lines for [name] (blank = none saved), or null when the greeting needs a name and has none. */
-    fun linesFor(name: String): Pair<String, String>? {
+    /** Every placeholder in the text. */
+    val tokens: Set<String> get() = GreetingTokens.tokensIn(line1) + GreetingTokens.tokensIn(line2)
+
+    /** 5.1.0: whether it talks about the user's listening (a stat placeholder or any condition). */
+    val usesStats: Boolean get() = !rule.isEmpty || tokens.any { it != GreetingTokens.NAME }
+
+    /**
+     * The lines for [name] (blank = none saved), or null when the greeting needs a name and has none.
+     * A greeting that needs listening data can't show without it: use [render].
+     */
+    fun linesFor(name: String): Pair<String, String>? = render(name, GreetingData.NONE, null)
+
+    /**
+     * 5.1.0: the lines with every placeholder filled in, or null when the greeting can't show now:
+     * a placeholder has no data, a count is below 1 (or its "min") or above its "max", or the hour,
+     * day, playing or liked condition doesn't hold. [now] null skips the date, hour and day checks.
+     */
+    fun render(name: String, data: GreetingData, now: Calendar?): Pair<String, String>? {
         val n = name.trim()
         if (usesName && n.isEmpty()) return null
-        return line1.replace(NAME_TOKEN, n) to line2.replace(NAME_TOKEN, n)
+        if (now != null) {
+            if (range != null && !range.matches(now)) return null
+            if (!rule.hourOk(now.get(Calendar.HOUR_OF_DAY))) return null
+            if (rule.days.isNotEmpty() && now.get(Calendar.DAY_OF_WEEK) !in rule.days) return null
+        } else if (rule.fromHour >= 0 || rule.days.isNotEmpty()) {
+            return null
+        }
+        rule.playing?.let { if (data.value(GreetingTokens.PLAYING) as? Boolean != it) return null }
+        rule.liked?.let { if (data.value(GreetingTokens.SONG_LIKED) as? Boolean != it) return null }
+        val values = HashMap<String, String>()
+        for (t in tokens + rule.needs) {
+            if (t == GreetingTokens.NAME) continue
+            when (val v = data.value(t)) {
+                is String -> if (v.isBlank()) return null else values[t] = v.trim()
+                is Int -> if (v < (rule.min[t] ?: 1)) return null else values[t] = v.toString()
+                else -> return null
+            }
+        }
+        for ((k, m) in rule.min) if ((data.value(k) as? Int ?: return null) < m) return null
+        for ((k, m) in rule.max) if ((data.value(k) as? Int ?: return null) > m) return null
+        if (values.isEmpty() && !usesName) return line1 to line2
+        fun fill(s: String): String = if (s.indexOf('{') < 0) s else GreetingTokens.TOKEN.replace(s) { m ->
+            val t = m.groupValues[1]
+            if (t == GreetingTokens.NAME) n else values[t] ?: m.value
+        }
+        val l1 = fill(line1)
+        val l2 = fill(line2)
+        if (l1.length > MAX_FILLED_LINE || l2.length > MAX_FILLED_LINE) return null
+        return l1 to l2
     }
 
     companion object {
         const val NAME_TOKEN = "{name}"
+
+        /** 5.1.0: a line longer than this once the placeholders are filled in doesn't show. */
+        const val MAX_FILLED_LINE = 48
     }
 }
 
-/** A parsed greetings file. [skipped] counts entries that were thrown away as invalid. */
+/**
+ * A parsed greetings file. [skipped] counts entries that were thrown away as invalid.
+ * 5.1.0: [stats] holds the greetings built from the user's listening (the file's "stats" list, plus
+ * any line in "greetings" that uses a stat placeholder or a condition).
+ */
 data class RemoteGreetingFile(
     val version: Int,
     val anytime: List<RemoteGreeting>,
     val occasions: List<RemoteGreeting>,
-    val skipped: Int = 0
+    val skipped: Int = 0,
+    val stats: List<RemoteGreeting> = emptyList()
 ) {
-    val size: Int get() = anytime.size + occasions.size
+    val size: Int get() = anytime.size + occasions.size + stats.size
 
     companion object {
         val EMPTY = RemoteGreetingFile(0, emptyList(), emptyList(), 0)
@@ -117,7 +249,20 @@ data class RemoteGreetingFile(
                 maxOf(a.version, b.version),
                 (a.anytime + b.anytime).take(max),
                 (a.occasions + b.occasions).take(max),
-                a.skipped + b.skipped
+                a.skipped + b.skipped,
+                (a.stats + b.stats).take(max)
+            )
+        }
+
+        /** 5.1.0: sorts parsed entries into anytime, occasion and stats lists (stats first). */
+        fun of(version: Int, entries: List<RemoteGreeting>, skipped: Int = 0): RemoteGreetingFile {
+            val max = RemoteGreetingsParser.MAX_ENTRIES
+            return RemoteGreetingFile(
+                version,
+                entries.filter { !it.isOccasion && !it.usesStats }.take(max),
+                entries.filter { it.isOccasion }.take(max),
+                skipped,
+                entries.filter { !it.isOccasion && it.usesStats }.take(max)
             )
         }
     }
@@ -130,7 +275,8 @@ data class RemoteGreetingFile(
  */
 object RemoteGreetingsParser {
 
-    const val SUPPORTED_VERSION = 1
+    /** 5.1.0: version 2 adds the "stats" list. Older apps (4.9.6-5.0.0) accept any version 1-1000. */
+    const val SUPPORTED_VERSION = 2
     const val MAX_ENTRIES = 300
     const val MAX_SCANNED = 2000
     const val MAX_TEXT = 80
@@ -152,7 +298,7 @@ object RemoteGreetingsParser {
         }
         if (root !is Map<*, *>) return null
         val version = when (val v = root["version"]) {
-            null -> SUPPORTED_VERSION
+            null -> 1
             is Long -> if (v in 1..1000) v.toInt() else return null
             is Double -> if (v >= 1 && v <= 1000 && v == Math.floor(v)) v.toInt() else return null
             else -> return null
@@ -160,6 +306,7 @@ object RemoteGreetingsParser {
         val list = root["greetings"] as? List<*> ?: return null
         val anytime = ArrayList<RemoteGreeting>()
         val occasions = ArrayList<RemoteGreeting>()
+        val stats = ArrayList<RemoteGreeting>()
         var skipped = 0
         for ((i, item) in list.withIndex()) {
             if (i >= MAX_SCANNED || anytime.size + occasions.size >= MAX_ENTRIES) {
@@ -170,10 +317,27 @@ object RemoteGreetingsParser {
             when {
                 g == null -> skipped++
                 g.isOccasion -> occasions.add(g)
+                // 5.1.0: a line that talks about the listening belongs with the stats ones
+                g.usesStats -> if (stats.size < MAX_ENTRIES) stats.add(g) else skipped++
                 else -> anytime.add(g)
             }
         }
-        return RemoteGreetingFile(version, anytime, occasions, skipped)
+        // 5.1.0: the "stats" list. Older apps never read it, so its placeholders can't reach them.
+        // A "stats" that isn't a list is ignored (the greetings above still count).
+        val statList = root["stats"] as? List<*>
+        if (statList != null) {
+            for ((i, item) in statList.withIndex()) {
+                if (i >= MAX_SCANNED || stats.size >= MAX_ENTRIES) {
+                    skipped += statList.size - i
+                    break
+                }
+                val g = try { parseEntry(item) } catch (e: Exception) { null }
+                if (g == null) skipped++ else stats.add(g)
+            }
+        } else if (root["stats"] != null) {
+            skipped++
+        }
+        return RemoteGreetingFile(version, anytime, occasions, skipped, stats)
     }
 
     /** One entry, or null when it is not usable. */
@@ -181,6 +345,11 @@ object RemoteGreetingsParser {
         if (item !is Map<*, *>) return null
         val raw = item["text"] as? String ?: return null
         val (l1, l2) = cleanLines(raw) ?: return null
+        // 5.1.0: a placeholder this version doesn't know (a typo, or one from a newer Minim) would
+        // show up raw, so the whole line is skipped
+        val tokens = GreetingTokens.tokensIn(l1) + GreetingTokens.tokensIn(l2)
+        if (tokens.any { it !in GreetingTokens.KNOWN }) return null
+        val rule = parseRule(item) ?: return null
 
         val fromRaw = item["from"]
         val toRaw = item["to"]
@@ -189,7 +358,7 @@ object RemoteGreetingsParser {
         if (fromRaw == null) {
             // An anytime line: dates without a start make no sense, so they make the entry invalid
             if (toRaw != null || dayRaw != null || yearRaw != null) return null
-            return RemoteGreeting(l1, l2, null)
+            return RemoteGreeting(l1, l2, null, rule)
         }
         val year: Int? = when (yearRaw) {
             null -> null
@@ -212,7 +381,67 @@ object RemoteGreetingsParser {
                 range = range.copy(mainMonth = dm, mainDay = dd)
             }
         }
-        return RemoteGreeting(l1, l2, range)
+        return RemoteGreeting(l1, l2, range, rule)
+    }
+
+    private val DAYS = mapOf(
+        "sun" to Calendar.SUNDAY, "mon" to Calendar.MONDAY, "tue" to Calendar.TUESDAY,
+        "wed" to Calendar.WEDNESDAY, "thu" to Calendar.THURSDAY, "fri" to Calendar.FRIDAY,
+        "sat" to Calendar.SATURDAY
+    )
+    private val HOURS = Regex("^\\s*(\\d{1,2})\\s*-\\s*(\\d{1,2})\\s*$")
+
+    /**
+     * 5.1.0: an entry's conditions ("min", "max", "needs", "hours", "days", "playing", "liked"), or
+     * null when one of them is broken (then the entry is skipped). No conditions = [GreetingRule.NONE].
+     */
+    fun parseRule(item: Map<*, *>): GreetingRule? {
+        fun counts(v: Any?): Map<String, Int>? {
+            if (v == null) return emptyMap()
+            if (v !is Map<*, *>) return null
+            val out = LinkedHashMap<String, Int>()
+            for ((k, x) in v) {
+                val key = (k as? String)?.trim() ?: return null
+                if (key !in GreetingTokens.COUNTS) return null
+                val n = when (x) {
+                    is Long -> x
+                    is Double -> if (x == Math.floor(x)) x.toLong() else return null
+                    else -> return null
+                }
+                if (n !in 0..1_000_000) return null
+                out[key] = n.toInt()
+            }
+            return out
+        }
+        fun words(v: Any?): List<String>? = when (v) {
+            null -> emptyList()
+            is String -> listOf(v)
+            is List<*> -> v.map { (it as? String) ?: return null }
+            else -> null
+        }
+        val min = counts(item["min"]) ?: return null
+        val max = counts(item["max"]) ?: return null
+        val needs = (words(item["needs"]) ?: return null).map { it.trim().removePrefix("{").removeSuffix("}") }
+        if (needs.any { it !in GreetingTokens.STATS }) return null
+        var fromHour = -1
+        var toHour = -1
+        when (val h = item["hours"]) {
+            null -> {}
+            is Long -> if (h in 0..23) { fromHour = h.toInt(); toHour = h.toInt() } else return null
+            is String -> {
+                val m = HOURS.matchEntire(h) ?: return null
+                fromHour = m.groupValues[1].toInt()
+                toHour = m.groupValues[2].toInt()
+                if (fromHour !in 0..23 || toHour !in 0..23) return null
+            }
+            else -> return null
+        }
+        val days = (words(item["days"]) ?: return null).map {
+            DAYS[it.trim().lowercase(java.util.Locale.ROOT).take(3)] ?: return null
+        }.toSet()
+        val playing = when (val p = item["playing"]) { null -> null; is Boolean -> p; else -> return null }
+        val liked = when (val p = item["liked"]) { null -> null; is Boolean -> p; else -> return null }
+        return GreetingRule(min, max, needs.toSet(), fromHour, toHour, days, playing, liked)
     }
 
     /** "MM-DD" (also "M-D" or "MM/DD") to month and day, or null. Range checks happen in [validDay]. */

@@ -26,7 +26,8 @@ object Tips {
         "Switch Light or Dark in Settings.",            // 9
         "Set a sleep timer in Settings.",               // 10
         "Discover has songs picked from what you play.",  // 11 v4.3: tap opens Discover
-        "Not into a Discover song? Long-press it."       // 12 v4.3: "Not interested"
+        "Not into a Discover song? Long-press it.",      // 12 v4.3: "Not interested"
+        "In full screen lyrics, tap a line to jump there."  // 13 5.1.0: tap a synced line to seek
     )
 
     val count: Int get() = all.size

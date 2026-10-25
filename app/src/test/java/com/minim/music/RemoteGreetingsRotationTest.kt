@@ -46,11 +46,11 @@ class RemoteGreetingsRotationTest {
 
     @Test
     fun idRangesDoNotOverlap() {
-        assertTrue(Greetings.isPersonal(200) && Greetings.isPersonal(213))
-        assertTrue(!Greetings.isPersonal(1000) && !Greetings.isPersonal(5000))
+        assertTrue(Greetings.isStat(3000) && !Greetings.isAnytime(3000) && !Greetings.isOccasion(3000))
+        assertTrue(!Greetings.isStat(1000) && !Greetings.isStat(5000))
         assertTrue(Greetings.isAnytime(1000) && !Greetings.isOccasion(1000))
         assertTrue(Greetings.isOccasion(5000) && !Greetings.isAnytime(5000))
-        assertTrue(!Greetings.isRemote(14) && !Greetings.isRemote(143) && !Greetings.isRemote(213))
+        assertTrue(!Greetings.isRemote(Greetings.TIME_BASED) && !Greetings.isRemote(Greetings.TIME_NAMED))
     }
 
     @Test
@@ -103,15 +103,18 @@ class RemoteGreetingsRotationTest {
         val one = RemoteGreetingFile(1, emptyList(), listOf(RemoteGreeting("Jai Hind!", "Play it proud.", DateRange(8, 15, 8, 15))), 0)
         val ids = picks(one, day(2027, 8, 15), "", 120)
         assertEquals(40, ids.count { it == 5000 })
-        ids.zipWithNext().forEach { (x, y) -> assertNotEquals(x, y) }
+        // 5.1.0: with no name and no other lines the time greeting is the only regular one and may
+        // come back, but the festival line never shows twice in a row
+        ids.zipWithNext().forEach { (x, y) -> assertTrue(x != 5000 || y != 5000) }
     }
 
     @Test
     fun emptyRemoteFileBehavesLikeBefore() {
         val ids = picks(RemoteGreetingFile.EMPTY, day(2026, 11, 8), "Gaurab", 200)
         assertTrue(ids.none { Greetings.isRemote(it) })
-        val regular = ids.filter { !Greetings.isData(it) }
-        assertTrue(regular.isNotEmpty())
+        // 5.1.0: only the built-in time greetings are left, taking turns
+        assertEquals(setOf(Greetings.TIME_BASED, Greetings.TIME_NAMED), ids.toSet())
+        ids.zipWithNext().forEach { (x, y) -> assertNotEquals(x, y) }
     }
 
     @Test
@@ -137,7 +140,7 @@ class RemoteGreetingsRotationTest {
     fun nextRegularFallbackIncludesAnytimeOnlyWhenTheyFit() {
         val r = Greetings.Rotation(Random(5)) { remoteFile }
         val strict = (1..200).map { r.nextRegular() }
-        assertTrue(strict.none { Greetings.isRemote(it) || Greetings.isPersonal(it) })
+        assertTrue(strict.all { it == Greetings.TIME_BASED })
         val open = (1..200).map {
             r.nextRegular { id ->
                 if (Greetings.isRemote(id)) Greetings.remoteLines(id, "G", day(2026, 11, 8), remoteFile) != null

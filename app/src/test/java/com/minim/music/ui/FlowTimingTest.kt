@@ -200,4 +200,18 @@ class FlowTimingTest {
         assertEquals(AppPreferences.LYRICS_STYLE_LINE, AppPreferences.lyricsStyleOf("LINE"))
         assertEquals(AppPreferences.LYRICS_STYLE_FLOW, AppPreferences.lyricsStyleOf("FLOW"))
     }
+
+    // --- 5.1.0: tap a line ----------------------------------------------------------------------
+
+    @Test fun `tapping a line seeks to where it shows`() {
+        // Line at 12.0 s, file offset +200 ms, Lyrics timing +300 ms: the song goes to 11.5 s
+        val target = FlowTiming.seekTargetForLine(12_000L, 200L, 300)
+        assertEquals(11_500L, target)
+        // ...and at 11.5 s that line is the active one
+        val starts = listOf(0L, 6_000L, 12_000L, 18_000L).map { LyricsLine(it, it + 6000L, "x") }
+        assertEquals(2, FlowTiming.activeIndex(starts, FlowTiming.shiftedPosition(target, 200L, 300)))
+        // Never before the start of the song
+        assertEquals(0L, FlowTiming.seekTargetForLine(100L, 0L, 300))
+        assertEquals(1_500L, FlowTiming.seekTargetForLine(1_000L, 0L, -500))
+    }
 }

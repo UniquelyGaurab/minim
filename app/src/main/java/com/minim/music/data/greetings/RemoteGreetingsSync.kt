@@ -55,8 +55,8 @@ class OkHttpGreetingsFetcher(
 
 /**
  * Keeps [com.minim.music.ui.Greetings.remote] filled: the offline copy as soon as the app starts,
- * then a fresh download about once a day. Every failure just leaves the current lines (or none) in
- * place, so Home always has the built-in greetings.
+ * then a fresh download when one is due (5.1.0: every 10 minutes while the app is open). Every
+ * failure just leaves the current lines in place; the time-based greeting is always built in.
  */
 object RemoteGreetingsSync {
 
@@ -69,13 +69,20 @@ object RemoteGreetingsSync {
      * Loads the offline copy (first call only) and downloads a new file when one is due. Blocking:
      * call from a background thread. [publish] receives each file to use.
      */
-    fun run(dir: File, fetcher: GreetingsFetcher, publish: (RemoteGreetingFile) -> Unit) {
+    fun run(
+        dir: File,
+        fetcher: GreetingsFetcher,
+        seed: () -> String? = { null },
+        publish: (RemoteGreetingFile) -> Unit
+    ) {
         if (!running.compareAndSet(false, true)) return
         try {
             val store = RemoteGreetingsStore(dir)
             if (!cacheLoaded) {
                 cacheLoaded = true
-                store.loadCached()?.let(publish)
+                // 5.1.0: before the first download (a new install, offline) the copy of
+                // greetings.json shipped in the app stands in, so Home has more than the time greeting
+                startingFile(store, seed)?.let(publish)
             }
             val result = store.refresh(fetcher)
             result.file?.let(publish)
@@ -85,4 +92,12 @@ object RemoteGreetingsSync {
             running.set(false)
         }
     }
+
+    /** 5.1.0: the offline copy, else the shipped seed, else null (a broken seed is ignored). */
+    internal fun startingFile(store: RemoteGreetingsStore, seed: () -> String?): RemoteGreetingFile? =
+        store.loadCached() ?: try {
+            RemoteGreetingsParser.parse(seed())
+        } catch (e: Throwable) {
+            null
+        }
 }

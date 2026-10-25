@@ -27,6 +27,9 @@ import kotlin.math.max
  * v4.9.8: the full screen lyrics' root. It watches every touch for a double tap (play/pause)
  * without taking the touches away from the lyric list underneath, so scrolling still works.
  * Touches that start on [excludeView] (the progress bar) never count toward a double tap.
+ * 5.1.0: a single tap (one that didn't become a double tap) goes to [onSingleTap], unless
+ * [tapBlocked] said no when the finger went down (the list was still scrolling: that tap only
+ * stops the fling).
  */
 class FullscreenLyricsLayout @JvmOverloads constructor(
     context: Context,
@@ -34,9 +37,12 @@ class FullscreenLyricsLayout @JvmOverloads constructor(
 ) : FrameLayout(context, attrs) {
 
     var onDoubleTap: (() -> Unit)? = null
+    var onSingleTap: ((MotionEvent) -> Unit)? = null
+    var tapBlocked: (() -> Boolean)? = null
     var excludeView: View? = null
 
     private var tracking = false
+    private var blockedTap = false
 
     private val detector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent): Boolean = true
@@ -44,10 +50,15 @@ class FullscreenLyricsLayout @JvmOverloads constructor(
             onDoubleTap?.invoke()
             return true
         }
+        override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+            if (!blockedTap) onSingleTap?.invoke(e)
+            return true
+        }
     })
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+            blockedTap = tapBlocked?.invoke() == true
             tracking = !isOnExcluded(ev)
             if (!tracking) {
                 // Forget any half-finished double tap, so a tap on the bar can't complete one
@@ -196,6 +207,10 @@ class FullscreenLyricsAdapter(
 
     class Holder(val line: LyricLineView) : RecyclerView.ViewHolder(line)
 
+    /** 5.1.0: TalkBack's "play from this line" on a synced line (a finger tap comes in through the root). */
+    var onLineAction: ((Int) -> Unit)? = null
+    var lineActionLabel: String = ""
+
     var lines: List<LyricsLine> = emptyList()
         private set
     var synced: Boolean = false
@@ -247,6 +262,23 @@ class FullscreenLyricsAdapter(
         val end = if (synced) l.startMs + flowDurations[position] else l.endMs
         holder.line.bindLine(l.text.trim(), l.startMs, end, l)
         style(holder.line, position, animate = false)
+        if (synced && onLineAction != null) {
+            androidx.core.view.ViewCompat.replaceAccessibilityAction(
+                holder.line,
+                androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_CLICK,
+                lineActionLabel
+            ) { v, _ ->
+                (v.parent as? RecyclerView)?.getChildAdapterPosition(v)
+                    ?.takeIf { it != RecyclerView.NO_POSITION }
+                    ?.let { onLineAction?.invoke(it) }
+                true
+            }
+        } else {
+            androidx.core.view.ViewCompat.removeAccessibilityAction(
+                holder.line,
+                androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_CLICK.id
+            )
+        }
     }
 
     /** A view coming back from RecyclerView's cache isn't re-bound: bring its look up to date. */

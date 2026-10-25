@@ -15,7 +15,8 @@ fun interface GreetingsFetcher {
 }
 
 /**
- * v4.9.6: the offline copy of the remote greetings file and the "about once a day" rule.
+ * v4.9.6: the offline copy of the remote greetings file and the "how often to check" rule
+ * (5.1.0: every 10 minutes while the app is open).
  *
  * - The last good file is kept in [dir] so greetings work offline and right after the app opens.
  * - A download is only tried when the last good check is [CHECK_EVERY_MS] old, and after a failed
@@ -162,8 +163,10 @@ class RemoteGreetingsStore(
     companion object {
         const val CACHE_NAME = "remote_greetings.json"
         const val META_NAME = "remote_greetings.meta"
-        const val CHECK_EVERY_MS = 20L * 60 * 60 * 1000   // about once a day
-        const val RETRY_AFTER_MS = 3L * 60 * 60 * 1000    // after a failed try
+        // 5.1.0: every 10 minutes while the app is open (was 20 h). The ETag makes an unchanged
+        // check a tiny 304, and a failed try waits the same 10 minutes before the next one.
+        const val CHECK_EVERY_MS = 10L * 60 * 1000
+        const val RETRY_AFTER_MS = 10L * 60 * 1000
         const val MAX_BYTES = 64 * 1024
     }
 }

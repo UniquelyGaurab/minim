@@ -12,7 +12,7 @@ import org.junit.Test
 import java.util.Calendar
 import kotlin.random.Random
 
-/** v4.7: name greetings, no-name greetings and the greeting-only artist name rule. */
+/** v4.7: the greeting-only artist name rule; 5.1.0: the built-in time greetings. */
 class GreetingsNameTest {
 
     private fun at(hour: Int): Calendar = Calendar.getInstance().apply {
@@ -68,12 +68,13 @@ class GreetingsNameTest {
     fun shortenedNamesShowInGreetings() {
         val facts = GreetingFacts(
             nowId = "x", nowTitle = "Hukum", nowArtist = "Anirudh Ravichander", nowPlaying = true,
-            lastId = "x", lastTitle = "Hukum", lastArtist = "Anirudh Ravichander", topArtistWeek = "Anirudh Ravichander"
+            lastId = "y", lastTitle = "Chaleya", lastArtist = "Anirudh Ravichander",
+            topArtistWeek = "Anirudh Ravichander", topArtistWeekPlays = 9
         )
-        val all = Greetings.DATA_IDS.mapNotNull { Greetings.dataLines(it, facts, at(15)) }
-        val text = all.joinToString(" ") { it.first + " " + it.second }
-        assertTrue(text.contains("Anirudh"))
-        assertFalse(text.contains("Ravichander"))
+        val data = facts.toData(at(15))
+        assertEquals("Anirudh", data.value("artist"))
+        assertEquals("Anirudh", data.value("lastartist"))
+        assertEquals("Anirudh", data.value("topartist"))
     }
 
     @Test
@@ -81,96 +82,51 @@ class GreetingsNameTest {
         assertEquals("Hukum", Greetings.shortTitle("Anirudh Ravichander - Hukum", "Anirudh Ravichander"))
     }
 
-    // ---- Name and no-name greetings ----
+    // ---- 5.1.0: the built-in greetings are only the time-based ones ----
 
     @Test
-    fun thereAreFiftyTwoGreetings() {
-        assertEquals(6, Greetings.NAME_IDS.size)
-        assertEquals(4, Greetings.NO_NAME_IDS.size)
-        assertEquals(27, Greetings.DATA_IDS.size)
-        assertEquals(15, Greetings.COUNT)
-        assertEquals(52, Greetings.TOTAL)
-        assertEquals(52, (Greetings.REGULAR_IDS + Greetings.DATA_IDS).toSet().size)
+    fun onlyTheTimeGreetingsAreBuiltIn() {
+        assertEquals(listOf(Greetings.TIME_BASED, Greetings.TIME_NAMED), Greetings.REGULAR_IDS)
+        assertTrue(Greetings.fits(Greetings.TIME_BASED, noFacts, ""))
+        assertTrue(Greetings.fits(Greetings.TIME_NAMED, noFacts, "Gaurab"))
+        assertFalse(Greetings.fits(Greetings.TIME_NAMED, noFacts, "  "))
+        // Old built-in ids (4.5 stat lines, 4.7 name lines) are gone
+        for (old in listOf(2, 14, 100, 120, 143, 200, 213)) assertFalse(Greetings.fits(old, noFacts, "Gaurab"))
     }
 
     @Test
-    fun nameGreetingsUseTheNameAndNeedOne() {
-        for (id in Greetings.NAME_IDS) {
-            for (hour in listOf(2, 9, 14, 20)) {
-                val lines = Greetings.personalLines(id, "Gaurab", at(hour))
-                assertNotNull("id $id", lines)
-                assertTrue("id $id", (lines!!.first + lines.second).contains("Gaurab"))
-            }
-            assertNull(Greetings.personalLines(id, ""))
-            assertNull(Greetings.personalLines(id, "   "))
-            assertTrue(Greetings.fits(id, noFacts, "Gaurab"))
-            assertFalse(Greetings.fits(id, noFacts, ""))
-        }
-        assertEquals("Evening, Gaurab.", Greetings.personalLines(201, "Gaurab", at(19))!!.first)
-        assertEquals("Gaurab's back." to "Press play.", Greetings.personalLines(200, " Gaurab "))
+    fun timeGreetingsFollowTheClock() {
+        assertEquals("Hi there!" to "Good Morning.", Greetings.lines(Greetings.TIME_BASED, "", at(9)))
+        assertEquals("Hi Gaurab!" to "Good Evening.", Greetings.lines(Greetings.TIME_BASED, " Gaurab ", at(20)))
+        assertEquals("Up late?" to "Night tunes it is.", Greetings.lines(Greetings.TIME_BASED, "", at(2)))
+        assertEquals("Evening, Gaurab." to "What's on tonight?", Greetings.lines(Greetings.TIME_NAMED, "Gaurab", at(19)))
+        assertEquals("Morning, Gaurab." to "Ease into it.", Greetings.lines(Greetings.TIME_NAMED, "Gaurab", at(7)))
+        // The named one without a name falls back to the plain time greeting
+        assertEquals(Greetings.lines(Greetings.TIME_BASED, "", at(14)), Greetings.lines(Greetings.TIME_NAMED, "", at(14)))
     }
 
     @Test
-    fun noNameGreetingsOnlyWithoutAName() {
-        for (id in Greetings.NO_NAME_IDS) {
-            assertNotNull(Greetings.personalLines(id, ""))
-            assertNull(Greetings.personalLines(id, "Gaurab"))
-            assertTrue(Greetings.fits(id, noFacts, ""))
-            assertFalse(Greetings.fits(id, noFacts, "Gaurab"))
-        }
-        assertEquals("Hey, you." to "Yeah, you.", Greetings.personalLines(210, ""))
-    }
-
-    @Test
-    fun personalGreetingsAreNotDataOnes() {
-        for (id in Greetings.NAME_IDS + Greetings.NO_NAME_IDS) {
-            assertTrue(Greetings.isPersonal(id))
-            assertFalse(Greetings.isData(id))
-        }
-        for (id in Greetings.DATA_IDS) assertFalse(Greetings.isPersonal(id))
-        for (id in 0 until Greetings.COUNT) assertFalse(Greetings.isPersonal(id))
-    }
-
-    private fun rotate(name: String, n: Int = 3000): List<Int> {
-        val rot = Greetings.Rotation(Random(7))
-        val out = mutableListOf<Int>()
-        var last = -1
-        repeat(n) {
-            val g = rot.next { Greetings.fits(it, noFacts, name) }
-            assertNotEquals("no repeats twice in a row", last, g)
+    fun withNoRemoteFileTheRotationNeverCrashes() {
+        val rot = Greetings.Rotation(Random(7)) { com.minim.music.data.greetings.RemoteGreetingFile.EMPTY }
+        rot.markShown(Greetings.TIME_BASED)
+        // No name: the time greeting is the only one there is
+        repeat(50) { assertEquals(Greetings.TIME_BASED, rot.next { Greetings.fits(it, noFacts, "") }) }
+        // With a name the two time greetings take turns
+        var last = Greetings.TIME_BASED
+        repeat(50) {
+            val g = rot.next { Greetings.fits(it, noFacts, "Gaurab") }
+            assertNotEquals(last, g)
             last = g
-            out += g
         }
-        return out
-    }
-
-    @Test
-    fun rotationWithANameShowsNameGreetingsButNeverNoNameOnes() {
-        val shown = rotate("Gaurab").toSet()
-        assertTrue(shown.containsAll(Greetings.NAME_IDS))
-        assertTrue(shown.none { it in Greetings.NO_NAME_IDS })
-        assertTrue(shown.containsAll((0 until Greetings.COUNT).toList()))
-    }
-
-    @Test
-    fun rotationWithoutANameShowsNoNameGreetingsButNeverNameOnes() {
-        val shown = rotate("").toSet()
-        assertTrue(shown.containsAll(Greetings.NO_NAME_IDS))
-        assertTrue(shown.none { it in Greetings.NAME_IDS })
-    }
-
-    @Test
-    fun nextRegularWithoutFitsNeverGivesAPersonalGreeting() {
-        val rot = Greetings.Rotation(Random(3))
-        repeat(500) { assertTrue(rot.nextRegular() in 0 until Greetings.COUNT) }
     }
 
     @Test
     fun longNamesStillProduceTwoLines() {
         val name = "Abcdefghijklmnopqrst" // the 20-character maximum
-        for (id in Greetings.NAME_IDS) {
-            val lines = Greetings.personalLines(id, name)!!
+        for (hour in 0..23) for (id in Greetings.REGULAR_IDS) {
+            val lines = Greetings.lines(id, name, at(hour))
             assertTrue(lines.first.isNotBlank() && lines.second.isNotBlank())
+            assertNotNull(lines)
         }
     }
 }
