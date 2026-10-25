@@ -162,6 +162,9 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        // 5.2.0: swiping Minim away from Recents closes the app, so the Gemini chat is forgotten
+        // even while the music keeps playing
+        MinimApp.instance.wipeGeminiChat()
         val playerInstance = mediaSession?.player
         if (playerInstance == null || !playerInstance.playWhenReady || playerInstance.mediaItemCount == 0) {
             stopSelf()

@@ -30,6 +30,14 @@ that the app config under `config/` can be read by anyone but changed by no one 
 
 **Build → Authentication → Sign-in method → Google → Enable → Save.**
 
+## 4. Turn on built-in Gemini for the chat (optional, 5.2.0)
+
+The Gemini chat can run without anyone adding their own key, through Firebase AI Logic.
+**Build → AI Logic → Get started → choose the Gemini Developer API → Enable.** It's free to start.
+Until this is on, the chat says built-in Gemini is off and asks for a free key from Google AI Studio
+(Settings → Gemini → Add key). The app finds your project from `google-services.json`, so there is
+nothing to put in the code. Free-tier chat messages may be used by Google to improve its models.
+
 ## What Minim stores in the cloud
 
 Sync only runs while you're signed in. Everything lives under `users/{uid}`, where `{uid}` is your
@@ -149,7 +157,7 @@ Example (as JSON; in the console each key is a field of the matching type):
    fails without it. `./gradlew signingReport` prints it.
 3. Download **google-services.json** and put it in `app/`. It's in `.gitignore`: never commit it.
    `app/google-services.json.example` shows what it looks like.
-4. Do steps 1 to 3 above in your project.
+4. Do steps 1 to 3 above in your project (and step 4 if you want built-in Gemini).
 
 Without `app/google-services.json`, the build skips the Google services plugin and the app runs with
 the Account section hidden.

@@ -315,4 +315,84 @@
     <string name="vibe_got_it">Got it</string>
     <string name="vibe_link_failed">Couldn\'t open the link</string>
     <string name="vibe_lock_sub">Minim %1$s needs this update to keep working</string>
+    <!-- 5.2.0: Gemini chat -->
+    <string name="gemini_title">Gemini</string>
+    <string name="gemini_pill">Ask Gemini</string>
+    <string name="gemini_np_pill">Ask</string>
+    <string name="gemini_open">Open Gemini chat</string>
+    <string name="gemini_hint">Ask about your music…</string>
+    <string name="gemini_send">Send</string>
+    <string name="gemini_new_chat">New chat</string>
+    <string name="gemini_context_remove">Make it a general chat</string>
+    <string name="gemini_starter_roast">Roast me</string>
+    <string name="gemini_starter_playlist">Make a playlist</string>
+    <string name="gemini_starter_translate">Translate this</string>
+    <string name="gemini_starter_roast_msg">Roast my music taste</string>
+    <string name="gemini_starter_playlist_msg">Make me a playlist from what I\'ve been playing</string>
+    <string name="gemini_starter_translate_msg">Translate the lyrics of this song</string>
+    <string name="gemini_empty">Ask for a vibe, a playlist, lyrics in English, or a song you only half remember.</string>
+    <string name="gemini_liked">♥ Liked %1$s</string>
+    <string name="gemini_like_undone">Like undone</string>
+    <string name="gemini_undo">Undo</string>
+    <string name="gemini_already_liked">♥ %1$s is already in Liked</string>
+    <string name="gemini_playing">▶ Playing %1$s</string>
+    <plurals name="gemini_playing_more">
+        <item quantity="one">▶ Playing %1$s and %2$d more</item>
+        <item quantity="other">▶ Playing %1$s and %2$d more</item>
+    </plurals>
+    <string name="gemini_queued_one">+ Added %1$s to the queue</string>
+    <string name="gemini_queued_next_one">+ %1$s plays next</string>
+    <plurals name="gemini_queued">
+        <item quantity="one">+ Added %d song to the queue</item>
+        <item quantity="other">+ Added %d songs to the queue</item>
+    </plurals>
+    <plurals name="gemini_queued_next">
+        <item quantity="one">+ %d song plays next</item>
+        <item quantity="other">+ %d songs play next</item>
+    </plurals>
+    <string name="gemini_playlist_name_hint">Playlist name</string>
+    <string name="gemini_playlist_save">Save Playlist</string>
+    <string name="gemini_playlist_saved">Saved</string>
+    <string name="gemini_playlist_remove">Remove %1$s</string>
+    <plurals name="gemini_playlist_count">
+        <item quantity="one">%d song</item>
+        <item quantity="other">%d songs</item>
+    </plurals>
+    <string name="gemini_playlist_empty">Add some songs first</string>
+    <string name="gemini_playlist_failed">Couldn\'t save the playlist</string>
+    <string name="gemini_err_bad_key">Google didn\'t accept your API key. Check it in Settings → Gemini, or make a new one in Google AI Studio.</string>
+    <string name="gemini_err_quota">You\'ve hit Gemini\'s limit for now. Wait a minute, or try again tomorrow if the daily free limit is used up.</string>
+    <string name="gemini_err_model">The model \"%1$s\" isn\'t available. Pick another one in Settings → Gemini.</string>
+    <string name="gemini_err_default_off">Minim\'s built-in Gemini isn\'t switched on yet. Add your own free API key from Google AI Studio in Settings → Gemini and the chat works right away.</string>
+    <string name="gemini_err_offline">You\'re offline. Connect to the internet and try again.</string>
+    <string name="gemini_err_blocked">Gemini won\'t answer that one. Try asking another way.</string>
+    <string name="gemini_err_busy">Gemini is busy right now. Try again in a moment.</string>
+    <string name="gemini_err_region">Gemini isn\'t available in your country yet.</string>
+    <string name="gemini_err_other">Something went wrong: %1$s</string>
+    <string name="gemini_err_action_settings">Open Settings</string>
+    <string name="gemini_err_action_retry">Try again</string>
+    <!-- Settings: Gemini -->
+    <string name="set_gemini">Gemini</string>
+    <string name="set_gemini_model">Model</string>
+    <string name="set_gemini_custom">Custom</string>
+    <string name="set_gemini_custom_title">Custom model</string>
+    <string name="set_gemini_custom_sub">Type any model ID from Google AI Studio, like gemini-3.5-flash-lite.</string>
+    <string name="set_gemini_custom_hint">Model ID</string>
+    <string name="set_gemini_custom_bad">That doesn\'t look like a model ID. Use letters, numbers, dots and dashes.</string>
+    <string name="set_gemini_key">Your API key</string>
+    <string name="set_gemini_key_none">Not set. Using Minim\'s built-in Gemini.</string>
+    <string name="set_gemini_key_set">Saved on this phone: %1$s</string>
+    <string name="set_gemini_key_add">Add key</string>
+    <string name="set_gemini_key_change">Change</string>
+    <string name="set_gemini_key_remove">Remove</string>
+    <string name="set_gemini_key_title">Your Gemini API key</string>
+    <string name="set_gemini_key_sub">Make a free key at aistudio.google.com and paste it here. It\'s encrypted on this phone, never synced to your Minim account, and only ever sent to Google\'s Gemini API.</string>
+    <string name="set_gemini_key_hint">Paste your API key</string>
+    <string name="set_gemini_key_get">Get a key</string>
+    <string name="set_gemini_key_save">Save</string>
+    <string name="set_gemini_key_saved">Key saved</string>
+    <string name="set_gemini_key_removed">Key removed</string>
+    <string name="set_gemini_key_odd">That doesn\'t look like a Gemini key (they start with AIza). Saved anyway.</string>
+    <string name="set_gemini_key_failed">Couldn\'t save the key on this phone</string>
+    <string name="set_gemini_privacy">Chat messages go to Google Gemini. On the free tier, Google may use them to improve its models. Chats aren\'t saved: they\'re gone when you close Minim.</string>
 </resources>

@@ -13,6 +13,8 @@ import android.Manifest
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
@@ -85,6 +87,14 @@ import com.minim.music.data.sync.CloudSync
 import com.minim.music.data.sync.SyncText
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import com.minim.music.data.ai.ChatTools
+import com.minim.music.data.ai.GeminiChatSession
+import com.minim.music.data.ai.GeminiModels
+import com.minim.music.data.ai.GeminiRoute
+import com.minim.music.data.ai.GeminiSettings
+import com.minim.music.data.ai.MinimActions
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -324,6 +334,7 @@ class MainActivity : AppCompatActivity() {
         setupLyrics()
         setupQueue()
         setupSettings()
+        setupGemini()
         setupScreenGestures()
         setupBack()
         setupWelcome()
@@ -890,6 +901,8 @@ class MainActivity : AppCompatActivity() {
                     // 5.0.0 part 3: the locked update pop-up doesn't close; Back leaves the app
                     isLockSheetOpen -> moveTaskToBack(true)
                     ::sheetRoot.isInitialized && sheetRoot.visibility == View.VISIBLE -> closeSheet()
+                    // 5.2.0: the Gemini chat sheet (Back with the keyboard up just hides the keyboard)
+                    isGeminiOpen -> geminiChat.close()
                     isWelcomeOpen && welcomePage == 2 -> showWelcomePage(1)
                     isWelcomeOpen && welcomePage == 3 -> Unit // on its way to Home by itself
                     isSettingsOpen -> closeSettings()
@@ -2130,6 +2143,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Opens the page for the artist line on Now Playing ("Arijit Singh, Pritam" -> Arijit Singh). */
     private fun openArtistByName(line: String) {
+        if (isGeminiOpen) geminiChat.close()
         val name = MusicSourceAdapter.firstArtistName(line)
         showArtistScreen(fromSearch = false)
         val shown = artistPage
@@ -2461,6 +2475,9 @@ class MainActivity : AppCompatActivity() {
             margins(artistStatusScrim, 0, bars.top)
             margins(artistLogo, artistLogoBaseTop + bars.top)
             applySheetInsets(bars, insets.getInsets(WindowInsetsCompat.Type.ime()).bottom)
+            if (::geminiChat.isInitialized) geminiChat.applyInsets(
+                bars.top, bars.bottom, insets.getInsets(WindowInsetsCompat.Type.ime()).bottom, bars.left, bars.right
+            )
             margins(artistSearch, artistSearchBaseTop + bars.top)
             artistHeader.extraTop = bars.top
             updateArtistScrim()
@@ -3279,6 +3296,7 @@ class MainActivity : AppCompatActivity() {
         sel(R.id.set_sleep_30, sleepChoice == 30)
         sel(R.id.set_sleep_60, sleepChoice == 60)
         renderLyricsOffset()
+        renderGeminiSettings()
         Painter.paint(screenSettings, pal)
     }
 
@@ -4852,6 +4870,8 @@ class MainActivity : AppCompatActivity() {
         window.navigationBarColor = p.bg
         // v4.9.3: a takeover on Home keeps its colours through a song change
         if (isTakeoverActive) applyTakeoverColors()
+        // 5.2.0: the Gemini chat crossfades with everything else (Painter covers its tagged views)
+        if (::geminiChat.isInitialized) geminiChat.onPalette(p)
         // v4.9.8: the full screen lyrics keep their see-through nav bar through a song change
         if (::fsLyrics.isInitialized) {
             fsLyrics.onPalette(p)
@@ -5926,6 +5946,378 @@ class MainActivity : AppCompatActivity() {
 
     private fun dp(value: Float): Float = value * resources.displayMetrics.density
 
+    // ==========================================================================================
+    // 5.2.0: Gemini chat (the sheet that grows out of "Ask Gemini" on Home and "Ask" on Now Playing)
+    // ==========================================================================================
+
+    private lateinit var geminiChat: GeminiChatPanel
+    private val isGeminiOpen get() = ::geminiChat.isInitialized && geminiChat.isOpen
+
+    private fun setupGemini() {
+        geminiChat = GeminiChatPanel(findViewById(R.id.gemini_root), geminiHost)
+        findViewById<View>(R.id.home_gemini).setOnClickListener { v ->
+            haptic(v)
+            openGemini(v, null)
+        }
+        // From Now Playing the chat starts about the song that's playing (the chip can be removed)
+        findViewById<View>(R.id.np_gemini).setOnClickListener { v ->
+            haptic(v)
+            openGemini(v, app.playbackController.uiState.value.currentTrack)
+        }
+        setupGeminiSettings()
+        ViewCompat.requestApplyInsets(root)
+    }
+
+    private fun openGemini(from: View, song: Track?) {
+        if (isWelcomeOpen || isSheetOpen || recapStory != null || isGeminiOpen) return
+        if (currentFocus is EditText) hideKeyboard()
+        geminiChat.open(from, song)
+    }
+
+    private fun geminiModelLabel(id: String = app.geminiSettings.model): String =
+        if (GeminiModels.isPreset(id)) GeminiModels.labelFor(id)
+        else getString(R.string.set_gemini_custom) + " · " + id
+
+    /** What Gemini's tools can do in Minim. Every call runs on the main thread. */
+    private val geminiActions = object : MinimActions {
+        override suspend fun search(query: String): List<Track> =
+            when (val r = app.sourceAdapter.searchTracks(query)) {
+                is SourceResult.Success -> r.data
+                is SourceResult.Error -> throw java.io.IOException(r.message)
+            }
+
+        override suspend fun similar(seed: Track): List<Track> =
+            when (val r = app.sourceAdapter.fetchRadio(seed.id)) {
+                is SourceResult.Success -> r.data.filter { it.id != seed.id }
+                is SourceResult.Error -> throw java.io.IOException(r.message)
+            }
+
+        override fun currentTrack(): Track? = app.playbackController.uiState.value.currentTrack
+        override fun positionMs(): Long = app.playbackController.uiState.value.positionMs
+        override fun isPlaying(): Boolean = app.playbackController.uiState.value.isPlaying
+
+        override suspend fun lyricsText(track: Track): String? {
+            val data = app.lyricsProvider.getLyrics(track) ?: return null
+            val text = data.lines.joinToString("\n") { it.text.trim() }.trim()
+            return text.ifEmpty { null }
+        }
+
+        override fun upNext(): List<Track> {
+            val s = app.playbackController.uiState.value
+            return if (s.currentIndex < 0) s.queue else s.queue.drop(s.currentIndex + 1)
+        }
+
+        override fun play(tracks: List<Track>) {
+            val first = tracks.firstOrNull() ?: return
+            // One song: its radio carries on after it. Several: them in order, then the radio.
+            if (tracks.size == 1) app.playbackController.playRadio(first)
+            else app.playbackController.playListThenRadio(tracks)
+        }
+
+        override fun addToQueue(tracks: List<Track>, playNext: Boolean) {
+            val c = app.playbackController
+            if (c.uiState.value.currentTrack == null) {
+                // Nothing to queue behind: start them instead
+                if (tracks.isNotEmpty()) c.playTrack(tracks.first(), tracks)
+                return
+            }
+            // "Play next" puts each song right after the current one, so go backwards to keep the order
+            if (playNext) tracks.asReversed().forEach { c.playNext(it) } else tracks.forEach { c.addToQueue(it) }
+        }
+
+        override suspend fun isLiked(track: Track): Boolean = app.database.likedIds.value.contains(track.id)
+
+        override suspend fun setLiked(track: Track, liked: Boolean) = geminiSetLiked(track, liked)
+
+        override suspend fun recentTracks(limit: Int): List<Track> = app.database.getRecentTracks(limit)
+
+        override suspend fun likedTracks(): List<Track> = app.database.getLikedTracks()
+
+        override suspend fun playsSince(sinceMs: Long): List<Pair<Track, Long>> =
+            app.database.getPlayEvents(sinceMs).map { it.track to it.playedAt }
+
+        override fun openArtist(name: String) = geminiOpenArtist(name)
+
+        override fun nowMs(): Long = System.currentTimeMillis()
+    }
+
+    private suspend fun geminiSetLiked(track: Track, liked: Boolean) {
+        if (app.database.likedIds.value.contains(track.id) == liked) return
+        app.database.toggleLike(track)
+        refreshData()
+    }
+
+    private fun geminiOpenArtist(name: String) {
+        if (MusicSourceAdapter.firstArtistName(name).isBlank()) return
+        if (isSettingsOpen) closeSettings()
+        if (isQueueOpen) closeQueue()
+        if (isNowPlayingOpen) collapseNowPlaying()
+        openArtistByName(name)
+    }
+
+    private val geminiHost = object : GeminiChatPanel.Host {
+        override fun palette(): Pal = pal
+        override fun session(): GeminiChatSession = app.geminiChat
+
+        override fun send(text: String, focus: Track?): Boolean {
+            val now = java.text.SimpleDateFormat("EEEE d MMMM yyyy, h:mm a", java.util.Locale.ENGLISH)
+                .format(java.util.Date())
+            val prompt = ChatTools.systemPrompt(app.preferences.userName.takeIf { it.isNotBlank() }, now)
+            val ctx = applicationContext
+            val settings = app.geminiSettings
+            return app.geminiChat.send(text, focus, geminiActions, prompt) {
+                withContext(Dispatchers.IO) { GeminiRoute.endpoint(ctx, settings) }
+            }
+        }
+
+        override fun loadArt(view: ImageView, url: String?, sizePx: Int) {
+            app.artworkPipeline.loadInto(view, url, sizePx)
+        }
+
+        override fun playTrack(track: Track, list: List<Track>) {
+            app.playbackController.playRadio(track, list)
+        }
+
+        override fun showTrackOptions(anchor: View, track: Track) {
+            this@MainActivity.showTrackOptions(anchor, track)
+        }
+
+        override suspend fun setLiked(track: Track, liked: Boolean) = geminiSetLiked(track, liked)
+
+        override suspend fun savePlaylist(name: String, tracks: List<Track>): Boolean {
+            if (tracks.isEmpty()) return false
+            val base = name.trim().ifEmpty { getString(R.string.gemini_title) }.take(40)
+            // A playlist with that name already exists: "Name 2", "Name 3", ...
+            var id = app.database.createPlaylist(base)
+            var n = 2
+            while (id == -1L && n <= 20) {
+                id = app.database.createPlaylist("${base.take(36)} $n")
+                n++
+            }
+            if (id == -1L) return false
+            for (t in tracks) app.database.addTrackToPlaylist(id, t)
+            refreshData()
+            return true
+        }
+
+        override fun openArtist(name: String) = geminiOpenArtist(name)
+
+        override fun openGeminiSettings() {
+            openSettings()
+            val header = findViewById<View>(R.id.set_gemini_header)
+            screenSettings.post {
+                (screenSettings as? ScrollView)?.smoothScrollTo(0, (header.top - dp(24f).toInt()).coerceAtLeast(0))
+            }
+        }
+
+        override fun modelLabel(): String = geminiModelLabel()
+
+        override fun needsKeyUpFront(): Boolean =
+            !app.geminiSettings.hasApiKey &&
+                (!GeminiRoute.hasBuiltIn(this@MainActivity) || GeminiRoute.defaultKnownOff)
+
+        override fun note(text: String) = showNote(text)
+
+        override fun haptic(v: View, type: Int) = this@MainActivity.haptic(v, type)
+
+        override fun launch(block: suspend () -> Unit) {
+            lifecycleScope.launch { block() }
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // Settings -> Gemini: the model dropdown and your own Google AI Studio key
+    // ------------------------------------------------------------------------------------------
+
+    private fun setupGeminiSettings() {
+        findViewById<View>(R.id.set_gemini_model_pick).setOnClickListener { v ->
+            haptic(v)
+            showGeminiModelSheet()
+        }
+        findViewById<View>(R.id.set_gemini_key_add).setOnClickListener { v ->
+            haptic(v)
+            showGeminiKeySheet()
+        }
+        findViewById<View>(R.id.set_gemini_key_remove).setOnClickListener { v ->
+            haptic(v)
+            app.geminiSettings.clearApiKey()
+            renderGeminiSettings()
+            showNote(getString(R.string.set_gemini_key_removed))
+        }
+    }
+
+    private fun renderGeminiSettings() {
+        val s = app.geminiSettings
+        findViewById<TextView>(R.id.set_gemini_model_pick).apply {
+            text = geminiModelLabel() + "  ▾"
+            contentDescription = getString(R.string.set_gemini_model) + ": " + geminiModelLabel()
+        }
+        val key = if (s.hasApiKey) s.apiKey() else null
+        findViewById<TextView>(R.id.set_gemini_key_status).text =
+            if (key != null) getString(R.string.set_gemini_key_set, GeminiSettings.masked(key))
+            else getString(R.string.set_gemini_key_none)
+        findViewById<TextView>(R.id.set_gemini_key_add).setText(
+            if (key != null) R.string.set_gemini_key_change else R.string.set_gemini_key_add
+        )
+        findViewById<View>(R.id.set_gemini_key_remove).visibility = if (s.hasApiKey) View.VISIBLE else View.GONE
+    }
+
+    /** The model dropdown: the two Flash-Lite models, or Custom (any AI Studio model ID). */
+    private fun showGeminiModelSheet() {
+        val s = app.geminiSettings
+        val current = s.model
+        openSheet { box ->
+            sheetHeading(box, getString(R.string.set_gemini_model))
+            for (preset in GeminiModels.PRESETS) {
+                sheetAction(
+                    box, R.drawable.ic_sparkle, preset.label,
+                    trailingIcon = if (preset.id == current) R.drawable.ic_check else null
+                ) {
+                    s.model = preset.id
+                    renderSettingsOptions()
+                    closeSheet()
+                }
+            }
+            val custom = !GeminiModels.isPreset(current)
+            sheetAction(
+                box, R.drawable.ic_sparkle, getString(R.string.set_gemini_custom),
+                trailing = (if (custom) current else s.customModel).takeIf { it.isNotBlank() },
+                trailingIcon = if (custom) R.drawable.ic_check else null
+            ) { showGeminiCustomModelSheet() }
+        }
+    }
+
+    private fun showGeminiCustomModelSheet() {
+        val s = app.geminiSettings
+        openSheet { box ->
+            sheetHeading(box, getString(R.string.set_gemini_custom_title), getString(R.string.set_gemini_custom_sub), wrapSub = true)
+            val v = layoutInflater.inflate(R.layout.sheet_create_playlist, box, false)
+            val input = v.findViewById<EditText>(R.id.sheet_name_input)
+            val error = v.findViewById<TextView>(R.id.sheet_name_error)
+            val save = v.findViewById<TextView>(R.id.sheet_create)
+            input.setHint(R.string.set_gemini_custom_hint)
+            input.inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or
+                android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            input.filters = arrayOf(android.text.InputFilter.LengthFilter(100))
+            save.setText(R.string.set_gemini_key_save)
+            val start = if (GeminiModels.isPreset(s.model)) s.customModel else s.model
+            input.setText(start)
+            input.setSelection(input.text.length)
+            fun setReady(on: Boolean) {
+                save.isEnabled = on
+                save.alpha = if (on) 1f else 0.35f
+            }
+            setReady(start.isNotBlank())
+            input.addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(t: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(t: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun afterTextChanged(e: android.text.Editable?) {
+                    setReady(!e?.toString()?.trim().isNullOrEmpty())
+                    if (error.visibility == View.VISIBLE) error.visibility = View.GONE
+                }
+            })
+            fun submit() {
+                if (sheetClosing) return
+                val raw = input.text?.toString().orEmpty()
+                if (!GeminiModels.isValidId(raw)) {
+                    error.setText(R.string.set_gemini_custom_bad)
+                    error.visibility = View.VISIBLE
+                    return
+                }
+                haptic(save)
+                val id = GeminiModels.normalize(raw)
+                s.customModel = id
+                s.model = id
+                renderSettingsOptions()
+                closeSheet()
+            }
+            save.setOnClickListener { if (save.isEnabled) submit() }
+            input.setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == EditorInfo.IME_ACTION_DONE) { submit(); true } else false
+            }
+            box.addView(v)
+            input.requestFocus()
+            showKeyboard(input)
+        }
+    }
+
+    /** Add or change your own key. It's encrypted on the phone and never synced or logged. */
+    private fun showGeminiKeySheet() {
+        openSheet { box ->
+            sheetHeading(box, getString(R.string.set_gemini_key_title), getString(R.string.set_gemini_key_sub), wrapSub = true)
+            sheetAction(box, R.drawable.ic_open_link, getString(R.string.set_gemini_key_get), outlined = true) {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(AI_STUDIO_KEYS_URL)))
+                } catch (_: Exception) {
+                }
+            }
+            val v = layoutInflater.inflate(R.layout.sheet_create_playlist, box, false)
+            (v.layoutParams as? ViewGroup.MarginLayoutParams)?.topMargin = dp(14f).toInt()
+            val input = v.findViewById<EditText>(R.id.sheet_name_input)
+            val error = v.findViewById<TextView>(R.id.sheet_name_error)
+            val save = v.findViewById<TextView>(R.id.sheet_create)
+            input.setHint(R.string.set_gemini_key_hint)
+            input.inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            input.filters = arrayOf(android.text.InputFilter.LengthFilter(200))
+            input.isSaveEnabled = false // the key never goes into the saved screen state
+            input.typeface = android.graphics.Typeface.MONOSPACE
+            save.setText(R.string.set_gemini_key_save)
+            input.addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(t: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(t: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun afterTextChanged(e: android.text.Editable?) {
+                    val on = GeminiSettings.cleanKey(e?.toString().orEmpty()).isNotEmpty()
+                    save.isEnabled = on
+                    save.alpha = if (on) 1f else 0.35f
+                    if (error.visibility == View.VISIBLE) error.visibility = View.GONE
+                }
+            })
+            fun submit() {
+                if (sheetClosing) return
+                val raw = input.text?.toString().orEmpty()
+                if (GeminiSettings.cleanKey(raw).isEmpty()) return
+                haptic(save)
+                save.isEnabled = false
+                lifecycleScope.launch {
+                    val ok = withContext(Dispatchers.IO) { app.geminiSettings.setApiKey(raw) }
+                    if (!ok) {
+                        save.isEnabled = true
+                        error.setText(R.string.set_gemini_key_failed)
+                        error.visibility = View.VISIBLE
+                        return@launch
+                    }
+                    input.setText("")
+                    renderGeminiSettings()
+                    closeSheet()
+                    showNote(
+                        getString(
+                            if (GeminiSettings.looksLikeKey(raw)) R.string.set_gemini_key_saved
+                            else R.string.set_gemini_key_odd
+                        )
+                    )
+                }
+            }
+            save.setOnClickListener { if (save.isEnabled) submit() }
+            input.setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == EditorInfo.IME_ACTION_DONE) { submit(); true } else false
+            }
+            box.addView(v)
+            input.requestFocus()
+            showKeyboard(input)
+        }
+    }
+
+    override fun onDestroy() {
+        // 5.2.0: leaving the app (Back from Home, or it being closed) forgets the Gemini chat;
+        // a rotation or theme change keeps it
+        if (isFinishing && !isChangingConfigurations) app.wipeGeminiChat()
+        if (::geminiChat.isInitialized) geminiChat.detach()
+        super.onDestroy()
+    }
+
     private fun showKeyboard(target: View) {
         target.post {
             val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
@@ -5975,5 +6367,6 @@ class MainActivity : AppCompatActivity() {
         private const val PILL_MIN_DP = 170f
         private const val SEARCH_DEBOUNCE_MS = 300L
         private const val WELCOME_AUTO_MS = 3_000L
+        private const val AI_STUDIO_KEYS_URL = "https://aistudio.google.com/apikey"
     }
 }

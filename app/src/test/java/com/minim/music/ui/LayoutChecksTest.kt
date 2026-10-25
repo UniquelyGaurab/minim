@@ -139,9 +139,14 @@ class LayoutChecksTest {
         assertEquals("@string/np_up_next", pill.attr("text"))
         // It's the last thing on the screen, where the hint was, with a fixed height for fitNowPlaying
         // (v4.9.8: the screen's elements live in np_content, inside the coloured screen)
+        // (5.2.0: it shares that last row with the "Ask" Gemini pill)
         val content = np.childElements().single()
         assertEquals("@+id/np_content", content.attr("id"))
-        assertEquals("@+id/np_up_next", content.childElements().last().attr("id"))
+        val row = content.childElements().last()
+        assertEquals("@+id/np_pill_row", row.attr("id"))
+        assertTrue(row.attr("layout_height")!!.endsWith("dp"))
+        assertEquals("@+id/np_up_next", row.childElements().first().attr("id"))
+        assertEquals("@+id/np_gemini", row.childElements().last().attr("id"))
         assertTrue(pill.attr("layout_height")!!.endsWith("dp"))
     }
 

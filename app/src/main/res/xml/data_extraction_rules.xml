@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 5.2.0 (Android 12 and newer): same as backup_rules.xml, for cloud backups and phone-to-phone
+     transfers: everything as before, except your Gemini key settings (minim_ai.xml). -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="minim_ai.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="minim_ai.xml" />
+    </device-transfer>
+</data-extraction-rules>

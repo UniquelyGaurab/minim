@@ -19,12 +19,15 @@ It runs on Android 9 (API 28) and newer, and the app is about 8.6 MB.
 - **Optional Google sign-in (5.0):** Minim works fully without an account. Sign in from Settings if you want your music backed up and on more than one phone.
 - **Cloud sync (5.0):** while you're signed in, your likes, playlists, stats and play history sync, so Discover and your recommendations carry over to a new phone. The first sign-in merges what's on the phone with what's in your account, signing in with a different Google account asks whether to Merge or Start fresh, and changes made offline sync when you're back online. Settings stay on the phone.
 - **Festivals and announcements (5.0):** festival banners, colours and greetings, one-time announcements and feature switches can be set from a config document in Firestore, without a new build. See [FIREBASE_SETUP.md](FIREBASE_SETUP.md).
+- **Ask Gemini (5.2.0):** a chat with Google Gemini, opened from **Ask Gemini** under Search on Home or **Ask** next to Up next on Now Playing. It can find and play songs, queue them, like the song that's playing, open artist pages, translate or explain the lyrics, roast your listening stats and put together a playlist you can edit before saving. Replies are short and in any language. The chat is only kept while the app is open. Pick the model in Settings (Gemini 3.5 Flash-Lite by default, Gemini 3.1 Flash-Lite, or any model ID from Google AI Studio) and add your own free AI Studio key there if you like.
 - **Updates in the app:** when Minim opens or comes back after a few hours, it checks this repo's latest release and offers to download and install a newer version. You can also check any time in Settings.
 - **Library:** liked songs, playlists, recents and a song menu on long-press (play next, add to queue, add to playlist, go to artist, share).
 
 ## Privacy
 
 Signing in is optional. Minim only gets your name, profile picture and email. It never sees your password and can't access your Gmail, Drive, contacts or anything else in your Google account. Sync stores only song IDs, song details (title, artist, cover link, length) and times under your own account, and **Delete account** in Settings removes all of it.
+
+**Gemini chat:** chat messages go to Google Gemini; on the free tier Google may use them to improve its models. Only what you type, the song you attach and what Gemini asks Minim for (song details, lyrics, your likes, recent songs and listening stats) are sent. The chat isn't saved and is wiped when you close the app. Your own API key, if you add one, is encrypted on your phone, left out of Android backups, and never synced or logged.
 
 ## Download
 
@@ -51,6 +54,8 @@ The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. Run the unit tests
 ### Firebase (optional)
 
 Sign-in, sync and the config document need your own Firebase project. Without it the app builds and runs the same, and the Account section in Settings stays hidden. To turn it on, follow [FIREBASE_SETUP.md](FIREBASE_SETUP.md): create a Firebase project, put its `google-services.json` in `app/` (see `app/google-services.json.example`; the real file is ignored by git and must never be committed), and publish the rules in [`firestore.rules`](firestore.rules).
+
+The Gemini chat's built-in route uses Firebase AI Logic in the same project (step 4 in FIREBASE_SETUP.md). Without it, or without Firebase at all, the chat still works with your own key from [Google AI Studio](https://aistudio.google.com/apikey), added in Settings → Gemini.
 
 ### Signing
 
@@ -117,6 +122,7 @@ Lines about your listening go in a separate `"stats"` list after `"greetings"`. 
 - [AndroidX Media3 / ExoPlayer](https://github.com/androidx/media) for playback
 - [OkHttp](https://github.com/square/okhttp) for networking
 - [Firebase](https://firebase.google.com) Authentication and Cloud Firestore for the optional sign-in and sync
+- [Google Gemini](https://ai.google.dev) (Gemini API and Firebase AI Logic) for the chat
 - [Poppins](https://fonts.google.com/specimen/Poppins) font (SIL Open Font License)
 
 From the app's own credits: designed by Gaurab, built by Charlie (Sesame AI), early code by Google Gemini.

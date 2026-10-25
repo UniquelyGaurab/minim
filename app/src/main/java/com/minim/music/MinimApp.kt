@@ -149,6 +149,37 @@ class MinimApp : Application() {
         com.minim.music.data.config.VibeConfigSource(account)
     }
 
+    // ------------------------------------------------------------------------------------------
+    // 5.2.0: Gemini chat. The conversation lives here (not in the screen), so it survives closing
+    // the chat sheet, Now Playing, Settings and rotating the phone. It is only ever in memory:
+    // wiped when the app is closed (MainActivity finishing, or swiped away from Recents) and gone
+    // with the process. Nothing is written to disk or synced.
+    // ------------------------------------------------------------------------------------------
+
+    val geminiSettings: com.minim.music.data.ai.GeminiSettings by lazy {
+        com.minim.music.data.ai.GeminiSettings(this)
+    }
+
+    private val geminiMain by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
+    @Volatile private var geminiChatMade = false
+
+    val geminiChat: com.minim.music.data.ai.GeminiChatSession by lazy {
+        geminiChatMade = true
+        com.minim.music.data.ai.GeminiChatSession(
+            client = com.minim.music.data.ai.GeminiClient(okHttpClient),
+            scope = kotlinx.coroutines.CoroutineScope(
+                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main
+            ),
+            post = { block -> geminiMain.post(block) },
+        )
+    }
+
+    /** Forgets the whole chat (the app was closed). Safe from any thread. */
+    fun wipeGeminiChat() {
+        if (!geminiChatMade) return
+        geminiMain.post { try { geminiChat.clear() } catch (_: Throwable) { } }
+    }
+
     @Volatile private var githubGreetings = com.minim.music.data.greetings.RemoteGreetingFile.EMPTY
     @Volatile private var configGreetings = com.minim.music.data.greetings.RemoteGreetingFile.EMPTY
 

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 5.2.0 (Android 11 and older): back up everything as before, except your Gemini key settings
+     (minim_ai.xml). The key is encrypted with a key that never leaves this phone, so it could
+     never be read on another phone anyway. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="minim_ai.xml" />
+</full-backup-content>

@@ -156,21 +156,62 @@
         android:layout_height="16dp"
         android:layout_weight="0.7" />
 
-    <!-- v4.9.8: the "Up Next" pill replaces "swipe up for lyrics" (same total height: 30 + 16 dp) -->
-    <TextView
-        android:id="@+id/np_up_next"
-        style="@style/MinimText.Semi"
+    <!-- v4.9.8: the "Up Next" pill replaces "swipe up for lyrics" (same total height: 30 + 16 dp).
+         5.2.0: the Gemini pill sits next to it. -->
+    <LinearLayout
+        android:id="@+id/np_pill_row"
         android:layout_width="wrap_content"
         android:layout_height="30dp"
         android:layout_marginBottom="16dp"
-        android:background="@drawable/shape_pill"
-        android:clickable="true"
-        android:focusable="true"
-        android:gravity="center"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:tag="fill:fg text:bg"
-        android:text="@string/np_up_next"
-        android:textSize="12sp" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/np_up_next"
+            style="@style/MinimText.Semi"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:background="@drawable/shape_pill"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:tag="fill:fg text:bg"
+            android:text="@string/np_up_next"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:id="@+id/np_gemini"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/shape_pill"
+            android:clickable="true"
+            android:contentDescription="@string/gemini_open"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="16dp"
+            android:tag="fill:fg">
+
+            <ImageView
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_sparkle"
+                android:tag="tint:bg" />
+
+            <TextView
+                style="@style/MinimText.Semi"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:tag="text:bg"
+                android:text="@string/gemini_np_pill"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </LinearLayout>
 </LinearLayout>
 </FrameLayout>

@@ -110,6 +110,42 @@
             android:textSize="13sp" />
     </LinearLayout>
 
+    <!-- 5.2.0: open the Gemini chat (Minim's own sparkle, tinted like everything else) -->
+    <LinearLayout
+        android:id="@+id/home_gemini"
+        android:layout_width="wrap_content"
+        android:layout_height="32dp"
+        android:layout_marginTop="10dp"
+        android:background="@drawable/shape_pill_outline"
+        android:clickable="true"
+        android:contentDescription="@string/gemini_open"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingEnd="18dp"
+        android:tag="fill:fg"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/home_search">
+
+        <ImageView
+            android:layout_width="15dp"
+            android:layout_height="15dp"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_sparkle"
+            android:tag="tint:fg" />
+
+        <TextView
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:tag="text:fg"
+            android:text="@string/gemini_pill"
+            android:textSize="13sp" />
+    </LinearLayout>
+
     <!-- 5.0.0 part 3: today's festival line from the cloud config (config/app); gone otherwise -->
     <LinearLayout
         android:id="@+id/home_banner"
@@ -125,7 +161,7 @@
         android:visibility="gone"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/home_search">
+        app:layout_constraintTop_toBottomOf="@id/home_gemini">
 
         <TextView
             android:id="@+id/home_banner_text"

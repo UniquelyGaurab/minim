@@ -82,6 +82,9 @@
         android:tag="bg"
         android:visibility="gone" />
 
+    <!-- 5.2.0: the Gemini chat sheet, over every screen (Minim's own sheets still open above it) -->
+    <include layout="@layout/view_gemini_chat" />
+
     <!-- v4.8: Minim bottom sheet (song menu, playlists), over every screen -->
     <include layout="@layout/view_sheet" />
 

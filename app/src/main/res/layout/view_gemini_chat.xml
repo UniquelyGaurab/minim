@@ -1,0 +1,288 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  v5.2.0: the Gemini chat. A sheet that grows out of the pill you tapped, about 70% of the
+  screen tall with the music still showing behind it; drag the top up for full screen.
+  Every colour comes from the palette tags, so it follows the playing song's cover.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/gemini_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:visibility="gone">
+
+    <View
+        android:id="@+id/gemini_scrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0"
+        android:background="#59000000"
+        android:tag="unpainted" />
+
+    <LinearLayout
+        android:id="@+id/gemini_panel"
+        android:layout_width="match_parent"
+        android:layout_height="400dp"
+        android:layout_gravity="bottom"
+        android:background="@drawable/shape_sheet"
+        android:clickable="true"
+        android:focusable="false"
+        android:orientation="vertical"
+        android:tag="fill:bg">
+
+        <!-- The top: drag it to resize or close the chat -->
+        <LinearLayout
+            android:id="@+id/gemini_top"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="6dp">
+
+            <View
+                android:id="@+id/gemini_handle"
+                android:layout_width="36dp"
+                android:layout_height="4dp"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="10dp"
+                android:alpha="0.5"
+                android:background="@drawable/shape_pill"
+                android:tag="fill:muted" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:id="@+id/gemini_title_icon"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_sparkle"
+                    android:tag="tint:fg" />
+
+                <TextView
+                    style="@style/MinimText.Bold"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/gemini_title"
+                    android:tag="text:fg"
+                    android:textSize="17sp" />
+
+                <TextView
+                    android:id="@+id/gemini_model_label"
+                    style="@style/MinimText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:singleLine="true"
+                    android:tag="text:muted"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:id="@+id/gemini_new"
+                    style="@style/MinimText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="28dp"
+                    android:background="@drawable/shape_pill_outline"
+                    android:gravity="center"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:tag="fill:fg text:fg"
+                    android:text="@string/gemini_new_chat"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <!-- Opened from Now Playing: the song the chat is about. X makes it a general chat. -->
+            <LinearLayout
+                android:id="@+id/gemini_context"
+                android:layout_width="wrap_content"
+                android:layout_height="30dp"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/shape_pill"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="12dp"
+                android:paddingEnd="4dp"
+                android:tag="fill:soft"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/gemini_context_text"
+                    style="@style/MinimText.Semi"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxWidth="240dp"
+                    android:singleLine="true"
+                    android:tag="text:fg"
+                    android:textSize="12sp" />
+
+                <ImageView
+                    android:id="@+id/gemini_context_close"
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:layout_marginStart="2dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/gemini_context_remove"
+                    android:padding="6dp"
+                    android:src="@drawable/ic_close"
+                    android:tag="tint:fg" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <androidx.core.widget.NestedScrollView
+            android:id="@+id/gemini_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:fillViewport="true"
+            android:overScrollMode="never"
+            android:paddingBottom="8dp">
+
+            <LinearLayout
+                android:id="@+id/gemini_list"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="20dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="20dp" />
+        </androidx.core.widget.NestedScrollView>
+
+        <!-- Starter chips: fade away after your first message -->
+        <HorizontalScrollView
+            android:id="@+id/gemini_starters"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:overScrollMode="never"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="8dp">
+
+                <TextView
+                    android:id="@+id/gemini_starter_roast"
+                    style="@style/MinimText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:layout_marginEnd="8dp"
+                    android:background="@drawable/shape_pill_outline"
+                    android:gravity="center"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:tag="fill:fg text:fg"
+                    android:text="@string/gemini_starter_roast"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:id="@+id/gemini_starter_playlist"
+                    style="@style/MinimText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:layout_marginEnd="8dp"
+                    android:background="@drawable/shape_pill_outline"
+                    android:gravity="center"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:tag="fill:fg text:fg"
+                    android:text="@string/gemini_starter_playlist"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:id="@+id/gemini_starter_translate"
+                    style="@style/MinimText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:background="@drawable/shape_pill_outline"
+                    android:gravity="center"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:tag="fill:fg text:fg"
+                    android:text="@string/gemini_starter_translate"
+                    android:textSize="13sp" />
+            </LinearLayout>
+        </HorizontalScrollView>
+
+        <!-- Input: a pill text field; the send button fills in when there's text -->
+        <LinearLayout
+            android:id="@+id/gemini_input_row"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="bottom"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="12dp">
+
+            <EditText
+                android:id="@+id/gemini_input"
+                style="@style/MinimText"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="@drawable/shape_pill_outline"
+                android:hint="@string/gemini_hint"
+                android:imeOptions="actionSend"
+                android:importantForAutofill="no"
+                android:inputType="textCapSentences|textMultiLine"
+                android:maxLength="2000"
+                android:maxLines="4"
+                android:minHeight="44dp"
+                android:paddingStart="18dp"
+                android:paddingTop="11dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="11dp"
+                android:tag="fill:fg text:fg"
+                android:textCursorDrawable="@null"
+                android:textSize="14sp" />
+
+            <FrameLayout
+                android:id="@+id/gemini_send"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="8dp"
+                android:contentDescription="@string/gemini_send">
+
+                <View
+                    android:id="@+id/gemini_send_outline"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/shape_pill_outline"
+                    android:tag="fill:fg" />
+
+                <View
+                    android:id="@+id/gemini_send_fill"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:alpha="0"
+                    android:background="@drawable/shape_circle"
+                    android:scaleX="0.4"
+                    android:scaleY="0.4"
+                    android:tag="fill:fg" />
+
+                <ImageView
+                    android:id="@+id/gemini_send_icon"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_gravity="center"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_arrow_up"
+                    android:tag="tint:fg" />
+            </FrameLayout>
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

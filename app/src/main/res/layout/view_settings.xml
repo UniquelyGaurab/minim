@@ -672,6 +672,84 @@
             android:textSize="11sp"
             android:visibility="gone" />
 
+        <!-- 5.2.0: Gemini chat. Model picker (a dropdown sheet) and your own AI Studio key -->
+        <TextView
+            android:id="@+id/set_gemini_header"
+            style="@style/MinimText.Section"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:tag="text:fg"
+            android:text="@string/set_gemini" />
+
+        <TextView
+            style="@style/MinimText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:tag="text:muted"
+            android:text="@string/set_gemini_privacy"
+            android:textSize="11sp" />
+
+        <TextView
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:tag="text:fg"
+            android:text="@string/set_gemini_model"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/set_gemini_model_pick"
+            style="@style/MinimText.Option"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:ellipsize="end"
+            android:maxWidth="300dp"
+            android:singleLine="true" />
+
+        <TextView
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:tag="text:fg"
+            android:text="@string/set_gemini_key"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/set_gemini_key_status"
+            style="@style/MinimText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:tag="text:muted"
+            android:textSize="11sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/set_gemini_key_add"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/set_gemini_key_add" />
+
+            <TextView
+                android:id="@+id/set_gemini_key_remove"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/set_gemini_key_remove"
+                android:visibility="gone" />
+        </LinearLayout>
+
         <!-- Storage -->
         <TextView
             style="@style/MinimText.Section"
