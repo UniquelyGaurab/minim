@@ -46,6 +46,165 @@
                 android:tag="tint:fg" />
         </LinearLayout>
 
+        <!-- v5.0: Account (optional Google sign-in for sync). Hidden in builds without Firebase. -->
+        <LinearLayout
+            android:id="@+id/settings_account"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/MinimText.Section"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="26dp"
+                android:tag="text:fg"
+                android:text="@string/account_title" />
+
+            <!-- Signed out -->
+            <LinearLayout
+                android:id="@+id/account_signed_out"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/MinimText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:lineSpacingExtra="3dp"
+                    android:tag="text:muted"
+                    android:text="@string/account_pitch"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:id="@+id/account_sign_in"
+                    style="@style/MinimText.Semi"
+                    android:layout_width="wrap_content"
+                    android:layout_height="38dp"
+                    android:layout_marginTop="12dp"
+                    android:background="@drawable/shape_pill"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:paddingStart="20dp"
+                    android:paddingEnd="20dp"
+                    android:tag="fill:fg text:bg"
+                    android:text="@string/account_sign_in"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <!-- Signed in -->
+            <LinearLayout
+                android:id="@+id/account_signed_in"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <com.minim.music.ui.AvatarView
+                        android:id="@+id/account_avatar"
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:importantForAccessibility="no" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/account_name"
+                            style="@style/MinimText.Semi"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:singleLine="true"
+                            android:tag="text:fg"
+                            android:textSize="15sp" />
+
+                        <TextView
+                            android:id="@+id/account_status"
+                            style="@style/MinimText"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="3dp"
+                            android:tag="text:muted"
+                            android:text="@string/account_sync_on"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- 5.0.0 part 2c: why the last sync didn't go through (offline, refused, ...) -->
+                <TextView
+                    android:id="@+id/account_sync_problem"
+                    style="@style/MinimText.Semi"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:lineSpacingExtra="3dp"
+                    android:tag="text:fg"
+                    android:textSize="11sp"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/account_sign_out"
+                        style="@style/MinimText.Option"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:focusable="true"
+                        android:text="@string/account_sign_out" />
+
+                    <TextView
+                        android:id="@+id/account_delete"
+                        style="@style/MinimText.Option"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:focusable="true"
+                        android:text="@string/account_delete" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Errors (offline, cancelled, no Google account, ...) -->
+            <TextView
+                android:id="@+id/account_message"
+                style="@style/MinimText.Semi"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:lineSpacingExtra="3dp"
+                android:tag="text:fg"
+                android:textSize="11sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/account_privacy"
+                style="@style/MinimText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:lineSpacingExtra="3dp"
+                android:tag="text:muted"
+                android:text="@string/account_privacy"
+                android:textSize="11sp" />
+        </LinearLayout>
+
         <!-- Your name -->
         <TextView
             style="@style/MinimText.Section"

@@ -7,6 +7,14 @@ package com.minim.music.ui
  * The recap story and card keep the top song's colours either way.
  */
 object ColourMode {
-    /** The seed the app palette is built from: the cover colour in Dynamic, none in Default. */
-    fun seedFor(coverSeed: Int, dynamic: Boolean): Int = if (dynamic) coverSeed else 0
+    /**
+     * The seed the app palette is built from: the cover colour in Dynamic, none in Default.
+     * 5.0.0 part 3: with nothing playing (seed 0), Dynamic takes today's festival colour from the
+     * cloud config when there is one. Default stays black and white.
+     */
+    fun seedFor(coverSeed: Int, dynamic: Boolean, festivalSeed: Int = 0): Int = when {
+        !dynamic -> 0
+        coverSeed != 0 -> coverSeed
+        else -> festivalSeed
+    }
 }

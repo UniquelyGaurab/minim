@@ -274,4 +274,44 @@
     <string name="update_err_installer">Couldn\'t open Android\'s installer.</string>
     <string name="update_err_settings">Couldn\'t open that setting. Find Minim under Settings, Apps, Special app access, Install unknown apps.</string>
     <string name="update_note_background">Still downloading. Minim opens the installer when it\'s done.</string>
+
+    <!-- v5.0: Account (optional Google sign-in) -->
+    <string name="account_title">Account</string>
+    <string name="account_pitch">Optional. Sign in to keep your likes, playlists and stats when you switch phones. Minim works the same without it.</string>
+    <string name="account_sign_in">Sign in with Google</string>
+    <string name="account_signing_in">Signing in…</string>
+    <string name="account_sync_on">Sync on</string>
+    <string name="account_sign_out">Sign out</string>
+    <string name="account_delete">Delete account</string>
+    <string name="account_deleting">Deleting…</string>
+    <string name="account_privacy">Minim only gets your name, profile picture and email. It never sees your password and can\'t access your Gmail, Drive, contacts or anything else in your Google account.</string>
+    <string name="account_signed_in_note">Signed in</string>
+    <string name="account_signed_in_as">Signed in as %1$s</string>
+    <string name="account_signed_out_note">Signed out. Your music stays on this phone.</string>
+    <string name="account_deleted_note">Account deleted</string>
+    <string name="account_delete_title">Delete your Minim account?</string>
+    <string name="account_delete_sub">This removes your synced likes, playlists and stats from Minim\'s cloud and deletes your sign-in. Everything on this phone stays.</string>
+    <string name="account_delete_ok">Delete</string>
+    <string name="account_err_offline">You\'re offline. Connect to the internet and try again.</string>
+    <string name="account_err_cancelled">Sign-in cancelled.</string>
+    <string name="account_err_delete_cancelled">Account not deleted. Google needs you to pick your account to confirm it\'s you.</string>
+    <string name="account_err_no_account">There\'s no Google account on this phone. Add one in your phone\'s Settings, then try again.</string>
+    <string name="account_err_unavailable">Google sign-in isn\'t available on this phone.</string>
+    <string name="account_err_not_ready">Sync isn\'t ready yet. Try again later.</string>
+    <string name="account_err_wrong_account">Pick the same Google account you\'re signed in with.</string>
+    <string name="account_err_failed">Couldn\'t sign in. Try again in a bit.</string>
+    <string name="account_choice_title">This phone\'s music is from another account</string>
+    <string name="account_choice_sub">Merge adds it to %1$s. Start fresh replaces it with that account\'s music and keeps a backup on this phone.</string>
+    <string name="account_choice_named">%1$s\'s account</string>
+    <string name="account_choice_this">this account</string>
+    <string name="account_choice_merge">Merge</string>
+    <string name="account_choice_fresh">Start fresh</string>
+    <string name="account_choice_cancel">Cancel and sign out</string>
+    <string name="account_err_delete_failed">Couldn\'t delete your account. Try again in a bit.</string>
+    <!-- 5.0.0 part 3: festivals and announcements from the cloud config -->
+    <string name="vibe_banner_close">Close</string>
+    <string name="vibe_open">Open</string>
+    <string name="vibe_got_it">Got it</string>
+    <string name="vibe_link_failed">Couldn\'t open the link</string>
+    <string name="vibe_lock_sub">Minim %1$s needs this update to keep working</string>
 </resources>

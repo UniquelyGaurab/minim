@@ -96,6 +96,35 @@ class DiscoverEngine(
         updated
     }
 
+    /**
+     * 5.0.0: drops every song in [hidden] ("not interested", maybe marked on another phone) from the
+     * saved shelves. Returns the updated shelves, or null when nothing was removed.
+     */
+    suspend fun dropHidden(hidden: Set<String>): DiscoverSnapshot? = withContext(Dispatchers.IO) {
+        if (hidden.isEmpty()) return@withContext null
+        val s = cached() ?: return@withContext null
+        if (s.shelves.none { sh -> sh.tracks.any { it.id in hidden } }) return@withContext null
+        val shelves = s.shelves.map { sh -> sh.copy(tracks = sh.tracks.filter { it.id !in hidden }) }
+            .filter { it.tracks.size >= MIN_SHELF }
+        val updated = s.copy(shelves = shelves)
+        memory = updated
+        writeCache(updated)
+        updated
+    }
+
+    /**
+     * 5.0.0: the library changed a lot (a whole-library merge after signing in, or Start fresh), so
+     * the saved shelves count as stale and the next look at Discover rebuilds them. They still show
+     * until then. Kept in the saved file too, so it survives the app closing.
+     */
+    suspend fun markStale() = withContext(Dispatchers.IO) {
+        val s = cached() ?: return@withContext
+        if (s.bucket == STALE_BUCKET) return@withContext
+        val updated = s.copy(bucket = STALE_BUCKET)
+        memory = updated
+        writeCache(updated)
+    }
+
     /** Builds fresh shelves. Only one build runs at a time; a second caller gets its result. */
     suspend fun rebuild(): DiscoverSnapshot = buildLock.withLock {
         val previous = cached()
@@ -410,6 +439,8 @@ class DiscoverEngine(
         private const val DAY_MS = 24L * 60L * 60L * 1000L
         const val SHELF_SIZE = 10
         private const val MIN_SHELF = 4
+        /** A bucket no hour maps to: shelves marked stale by [markStale]. */
+        const val STALE_BUCKET = -2
         private const val MAX_SONG_SEC = 600L
         private const val PARALLEL = 3
         private const val MAX_SEEDS = 14

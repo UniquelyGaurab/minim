@@ -61,6 +61,24 @@ class AppPreferences(context: Context) {
             prefs.edit().putString(KEY_GESTURE_LONG_PRESS, longPressActionOf(value)).apply()
         }
 
+    // ---- 5.0.0 part 3: cloud config (festival banners closed, announcements already shown) ----
+
+    val dismissedAnnouncements: Set<String>
+        get() = SeenIds.read(prefs.getString(KEY_SEEN_ANNOUNCEMENTS, null)).toSet()
+
+    fun dismissAnnouncement(id: String) {
+        val now = SeenIds.add(SeenIds.read(prefs.getString(KEY_SEEN_ANNOUNCEMENTS, null)), id)
+        prefs.edit().putString(KEY_SEEN_ANNOUNCEMENTS, SeenIds.write(now)).apply()
+    }
+
+    fun isBannerDismissed(key: String): Boolean =
+        key in SeenIds.read(prefs.getString(KEY_CLOSED_BANNERS, null))
+
+    fun dismissBanner(key: String) {
+        val now = SeenIds.add(SeenIds.read(prefs.getString(KEY_CLOSED_BANNERS, null)), key)
+        prefs.edit().putString(KEY_CLOSED_BANNERS, SeenIds.write(now)).apply()
+    }
+
     /** v4.9.8 part 4: full screen lyrics light up word by word (Flow, default) or line by line. */
     var lyricsStyle: String
         get() = lyricsStyleOf(prefs.getString(KEY_LYRICS_STYLE, null))
@@ -246,6 +264,8 @@ class AppPreferences(context: Context) {
         private const val KEY_GESTURE_SWIPE = "gesture_swipe_action"
         private const val KEY_GESTURE_DOUBLE_TAP = "gesture_dtap_action"
         private const val KEY_GESTURE_LONG_PRESS = "gesture_lpress_action"
+        private const val KEY_SEEN_ANNOUNCEMENTS = "vibe_seen_announcements"
+        private const val KEY_CLOSED_BANNERS = "vibe_closed_banners"
         private const val KEY_LYRICS_STYLE = "lyrics_style_v498"
         private const val KEY_CROSSFADE_SEC = "crossfade_sec"
         private const val KEY_USER_NAME = "user_name"
@@ -296,4 +316,23 @@ class AppPreferences(context: Context) {
         fun lyricsStyleOf(raw: String?): String =
             if (raw == LYRICS_STYLE_LINE) LYRICS_STYLE_LINE else LYRICS_STYLE_FLOW
     }
+}
+
+/**
+ * 5.0.0 part 3: a short list of ids kept in one preference (one per line, newest last, at most
+ * [MAX] so it never grows without end). Pure, unit-tested.
+ */
+object SeenIds {
+    const val MAX = 100
+
+    fun read(raw: String?): List<String> =
+        raw.orEmpty().split('\n').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+
+    fun add(ids: List<String>, id: String): List<String> {
+        val clean = id.trim().replace('\n', ' ')
+        if (clean.isEmpty()) return ids
+        return (ids.filter { it != clean } + clean).takeLast(MAX)
+    }
+
+    fun write(ids: List<String>): String = ids.joinToString("\n")
 }

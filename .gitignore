@@ -30,3 +30,6 @@ local.properties
 tmp/
 *.tmp
 *.log
+
+# v5.0: Firebase config is private: never commit it (see FIREBASE_SETUP.md)
+google-services.json

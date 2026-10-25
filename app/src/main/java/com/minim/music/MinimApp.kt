@@ -1,5 +1,6 @@
 package com.minim.music
 
+import kotlinx.coroutines.launch
 import android.app.Application
 import android.content.ComponentCallbacks2
 import com.minim.music.data.greetings.OkHttpGreetingsFetcher
@@ -55,6 +56,17 @@ class MinimApp : Application() {
     /** v4.9.8: when the quiet update check runs (cold start, then every few hours on coming back). */
     val updateSchedule = com.minim.music.data.update.UpdateCheckSchedule()
 
+    /** v5.0: the optional Google account (Firebase Auth). Created on first use, never throws. */
+    val account: com.minim.music.data.account.MinimAccount by lazy {
+        com.minim.music.data.account.MinimAccount(this)
+    }
+
+    /** v5.0.0: cloud sync of likes, playlists and listening history (only while signed in). */
+    val sync: com.minim.music.data.sync.CloudSync by lazy {
+        com.minim.music.data.sync.CloudSync(this, database, account)
+    }
+    @Volatile private var syncStarted = false
+
     /**
      * v4.9.8: app opens for the whole process (replaces 4.9.6's flags on MainActivity, which missed
      * every open after the activity was closed while playback kept the process alive).
@@ -82,9 +94,15 @@ class MinimApp : Application() {
         // Hotfix 4.9.10: save any crash's stack trace; MainActivity shows it once on the next launch
         installCrashReporter()
         registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
-            override fun onActivityStarted(activity: android.app.Activity) = foreground.onActivityStarted()
-            override fun onActivityStopped(activity: android.app.Activity) =
+            override fun onActivityStarted(activity: android.app.Activity) {
+                val wasForeground = foreground.isInForeground
+                foreground.onActivityStarted()
+                if (!wasForeground && syncStarted) try { sync.onForeground() } catch (_: Throwable) { }
+            }
+            override fun onActivityStopped(activity: android.app.Activity) {
                 foreground.onActivityStopped(activity.isChangingConfigurations)
+                if (!foreground.isInForeground && syncStarted) try { sync.onBackground() } catch (_: Throwable) { }
+            }
             override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) = Unit
             override fun onActivityResumed(activity: android.app.Activity) = Unit
             override fun onActivityPaused(activity: android.app.Activity) = Unit
@@ -115,6 +133,48 @@ class MinimApp : Application() {
         syncRemoteGreetings()
         updates = com.minim.music.data.update.AppUpdates(this, okHttpClient)
         updates.cleanUp()
+        try {
+            sync.start()
+            syncStarted = true
+        } catch (t: Throwable) {
+            android.util.Log.w("MinimApp", "sync unavailable", t)
+        }
+        startVibe()
+    }
+
+    // ---- 5.0.0 part 3: the cloud config (Firestore config/app) ------------------------------
+
+    /** Festivals, announcements, switches, extra greetings and the update lock. */
+    val vibe: com.minim.music.data.config.VibeConfigSource by lazy {
+        com.minim.music.data.config.VibeConfigSource(account)
+    }
+
+    @Volatile private var githubGreetings = com.minim.music.data.greetings.RemoteGreetingFile.EMPTY
+    @Volatile private var configGreetings = com.minim.music.data.greetings.RemoteGreetingFile.EMPTY
+
+    /** Home's extra greetings: the GitHub file, then the cloud config's (and today's festival's). */
+    @Synchronized
+    private fun publishGreetings() {
+        val merged = com.minim.music.data.greetings.RemoteGreetingFile.merge(githubGreetings, configGreetings)
+        if (merged != Greetings.remote) Greetings.remote = merged
+    }
+
+    private fun startVibe() {
+        try {
+            val main = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
+            main.launch {
+                vibe.config.collect { cfg ->
+                    configGreetings = cfg.greetingFile()
+                    publishGreetings()
+                    if (syncStarted) try {
+                        sync.setRemoteEnabled(cfg.isOn(com.minim.music.data.config.VibeConfig.SWITCH_SYNC))
+                    } catch (_: Throwable) { }
+                }
+            }
+            vibe.refresh()
+        } catch (t: Throwable) {
+            android.util.Log.w("MinimApp", "cloud config unavailable", t)
+        }
     }
 
     private val greetingsExecutor by lazy {
@@ -133,7 +193,10 @@ class MinimApp : Application() {
                 RemoteGreetingsSync.run(
                     dir = File(filesDir, "greetings"),
                     fetcher = OkHttpGreetingsFetcher(okHttpClient)
-                ) { file -> Greetings.remote = file }
+                ) { file ->
+                    githubGreetings = file
+                    publishGreetings()
+                }
             }
         } catch (e: Exception) {
             // Greetings are optional

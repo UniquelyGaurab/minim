@@ -64,7 +64,7 @@ class AppUpdates(private val context: Context, client: OkHttpClient) {
 
     /** The installed versionName ("4.9.5-debug" for a debug build). */
     val installedVersionName: String? by lazy { packageInfo()?.versionName }
-    private val installedVersionCode: Long by lazy {
+    val installedVersionCode: Long by lazy {
         packageInfo()?.let { if (Build.VERSION.SDK_INT >= 28) it.longVersionCode else @Suppress("DEPRECATION") it.versionCode.toLong() } ?: 0L
     }
 

@@ -104,6 +104,22 @@ data class RemoteGreetingFile(
 
     companion object {
         val EMPTY = RemoteGreetingFile(0, emptyList(), emptyList(), 0)
+
+        /**
+         * 5.0.0 part 3: the GitHub file plus the cloud config's greetings ([b] after [a]), each list
+         * capped so every id stays inside its id block. The same inputs give an equal result.
+         */
+        fun merge(a: RemoteGreetingFile, b: RemoteGreetingFile): RemoteGreetingFile {
+            if (b.size == 0) return a
+            if (a.size == 0) return b
+            val max = RemoteGreetingsParser.MAX_ENTRIES
+            return RemoteGreetingFile(
+                maxOf(a.version, b.version),
+                (a.anytime + b.anytime).take(max),
+                (a.occasions + b.occasions).take(max),
+                a.skipped + b.skipped
+            )
+        }
     }
 }
 

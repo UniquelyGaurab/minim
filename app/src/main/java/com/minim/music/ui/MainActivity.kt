@@ -1,6 +1,11 @@
 package com.minim.music.ui
 
 import com.minim.music.data.update.AppUpdates
+import com.minim.music.data.config.Announcement
+import com.minim.music.data.config.FestivalEvent
+import com.minim.music.data.config.InstalledVersion
+import com.minim.music.data.config.UpdateLock
+import com.minim.music.data.config.VibeConfig
 import com.minim.music.data.update.AvailableUpdate
 import com.minim.music.data.update.UpdateCheckResult
 import com.minim.music.data.update.UpdateFlowState
@@ -70,8 +75,14 @@ import com.minim.music.ui.adapter.SearchResultsAdapter
 import com.minim.music.ui.adapter.TrackAdapter
 import com.minim.music.util.ArtworkPipeline
 import kotlinx.coroutines.Job
+import com.minim.music.data.account.AccountOutcome
+import com.minim.music.data.account.AccountProblem
+import com.minim.music.data.account.MinimAccount
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import com.minim.music.data.sync.CloudSync
+import com.minim.music.data.sync.SyncText
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -109,7 +120,8 @@ class MainActivity : AppCompatActivity() {
         val statsNew: View = root.findViewById(R.id.top_stats_new)
         val statsDot: View = root.findViewById(R.id.top_stats_dot)
         val lineLibrary: View = root.findViewById(R.id.top_line_library)
-        val gear: View = root.findViewById(R.id.top_gear)
+        /** v5.0: the profile picture that replaced the gear; still opens Settings. */
+        val gear: AvatarView = root.findViewById(R.id.top_gear)
     }
 
     /**
@@ -346,6 +358,9 @@ class MainActivity : AppCompatActivity() {
         // v4.9.6: new greetings from GitHub, about once a day (does nothing when not due)
         app.syncRemoteGreetings()
         // Coming back from the background counts as opening the app: time-based greeting first
+        // 5.0.0 part 3: read the cloud config again (at most every 30 min) and redo today's festival
+        app.vibe.refresh()
+        renderFestival()
         if (wasStopped) {
             wasStopped = false
             showTimeGreeting()
@@ -478,6 +493,8 @@ class MainActivity : AppCompatActivity() {
             row.tabStats.setOnClickListener { switchTabByHand(it, Tab.STATS) }
             row.tabLibrary.setOnClickListener { switchTabByHand(it, Tab.LIBRARY) }
             row.gear.setOnClickListener { openSettings() }
+            // v5.0: the avatar is round, not a pill, so it gets the 4.9.9 press shrink explicitly
+            PressScale.apply(row.gear)
             row.search.setOnClickListener { openSearch() }
         }
         fitTopRows()
@@ -864,6 +881,8 @@ class MainActivity : AppCompatActivity() {
             override fun handleOnBackPressed() {
                 when {
                     recapStory != null -> closeRecapStory()
+                    // 5.0.0 part 3: the locked update pop-up doesn't close; Back leaves the app
+                    isLockSheetOpen -> moveTaskToBack(true)
                     ::sheetRoot.isInitialized && sheetRoot.visibility == View.VISIBLE -> closeSheet()
                     isWelcomeOpen && welcomePage == 2 -> showWelcomePage(1)
                     isWelcomeOpen && welcomePage == 3 -> Unit // on its way to Home by itself
@@ -3012,6 +3031,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupSettings() {
         findViewById<View>(R.id.settings_close).setOnClickListener { closeSettings() }
+        setupAccount()
+        setupVibe()
 
         settingsName.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
@@ -4073,9 +4094,13 @@ class MainActivity : AppCompatActivity() {
      * It shows a moment later, after a re-check, so it never lands mid-animation.
      */
     private fun checkRecapPopup() {
+        // 5.0.0 part 3: the update lock comes before everything else
+        if (::sheetRoot.isInitialized && ::root.isInitialized && checkVibeLock()) return
         checkRecapPopupOnly()
         // v4.9.6: the update pop-up waits for the same things (sheets, the recap story)
         checkUpdatePrompt()
+        // 5.0.0 part 3: a cloud announcement goes last, once Home is quiet
+        checkAnnouncement()
     }
 
     private fun checkRecapPopupOnly() {
@@ -4230,6 +4255,8 @@ class MainActivity : AppCompatActivity() {
     private fun checkUpdatePrompt() {
         if (!::sheetRoot.isInitialized || !::root.isInitialized) return
         maybeContinueUpdateInstall()
+        // 5.0.0 part 3: the cloud config can turn the quiet pop-up off (Settings' check still works)
+        if (!vibe.isOn(VibeConfig.SWITCH_UPDATE_PROMPT)) return
         val action = app.updateGate.action(updatePromptBusy(), updateFlowActive())
         if (action != UpdatePromptGate.Action.SHOW) {
             if (action == UpdatePromptGate.Action.NONE) {
@@ -4294,11 +4321,14 @@ class MainActivity : AppCompatActivity() {
     private fun showUpdatePopup(update: AvailableUpdate) {
         if (isWelcomeOpen) return
         app.updateGate.markShown(update)
+        val locked = lockUpdate != null && update == lockUpdate
         openSheet { box ->
             sheetHeading(
                 box,
                 getString(R.string.update_title, update.version.toString()),
-                getString(R.string.update_sub, app.updates.installedVersionLabel)
+                if (locked) vibe.lock?.message ?: getString(R.string.vibe_lock_sub, app.updates.installedVersionLabel)
+                else getString(R.string.update_sub, app.updates.installedVersionLabel),
+                wrapSub = locked
             )
             val v = layoutInflater.inflate(R.layout.sheet_update, box, false)
             v.findViewById<TextView>(R.id.update_notes).text =
@@ -4419,6 +4449,14 @@ class MainActivity : AppCompatActivity() {
                 if (ready) buttons(R.string.update_install_now, UpdatePrimary.INSTALL, R.string.update_later)
                 else buttons(R.string.update_download_now, UpdatePrimary.DOWNLOAD, R.string.update_later)
             }
+        }
+        // 5.0.0 part 3: the locked pop-up has no Later and no Hide (Cancel while downloading stays)
+        if (lockUpdate != null && update == lockUpdate) {
+            v.primary.visibility = if (v.primary.tag == UpdatePrimary.HIDE) View.GONE else View.VISIBLE
+            v.secondary.visibility = if (mine && st is UpdateFlowState.Downloading) View.VISIBLE else View.GONE
+        } else {
+            v.primary.visibility = View.VISIBLE
+            v.secondary.visibility = View.VISIBLE
         }
         Painter.paint(v.root, pal)
     }
@@ -4707,7 +4745,7 @@ class MainActivity : AppCompatActivity() {
 
     /** v4.9.4: the app palette: song colours in Dynamic, black and white in Default. */
     private fun appPal(): Pal = Pal.build(
-        ColourMode.seedFor(paletteSeed, app.preferences.isDynamicColours),
+        ColourMode.seedFor(paletteSeed, app.preferences.isDynamicColours, festivalSeed),
         app.preferences.isDarkTheme
     )
 
@@ -4813,12 +4851,15 @@ class MainActivity : AppCompatActivity() {
         minimNote = findViewById(R.id.minim_note)
         sheetPadBottom = sheetPanel.paddingBottom
         sheetPanel.scrollChild = sheetScroll
-        sheetScrim.setOnClickListener { closeSheet() }
+        sheetScrim.setOnClickListener { if (!isLockSheetOpen) closeSheet() }
         sheetPanel.listener = object : SheetPanel.Listener {
             override fun onDrag(fraction: Float) {
                 sheetScrim.alpha = (1f - fraction).coerceIn(0f, 1f)
             }
-            override fun onDragDismiss() = closeSheet()
+            override fun onDragDismiss() {
+                // 5.0.0 part 3: the locked update pop-up springs back instead
+                if (isLockSheetOpen) onDragCancel() else closeSheet()
+            }
             override fun onDragCancel() {
                 sheetPanel.animate().translationY(0f).setDuration(180L)
                     .setInterpolator(DecelerateInterpolator()).start()
@@ -4950,11 +4991,17 @@ class MainActivity : AppCompatActivity() {
         minimNote.postDelayed(hide, 1900L)
     }
 
-    private fun sheetHeading(parent: android.widget.LinearLayout, title: String, sub: String? = null) {
+    private fun sheetHeading(parent: android.widget.LinearLayout, title: String, sub: String? = null, wrapSub: Boolean = false) {
         val v = layoutInflater.inflate(R.layout.sheet_heading, parent, false)
         v.findViewById<TextView>(R.id.sheet_heading).text = title
         v.findViewById<TextView>(R.id.sheet_heading_sub).apply {
             if (sub.isNullOrBlank()) visibility = View.GONE else { text = sub; visibility = View.VISIBLE }
+            // 5.0.0: a sentence or two that explains a choice (the account switch sheet)
+            if (wrapSub) {
+                isSingleLine = false
+                maxLines = 4
+                setLineSpacing(dp(3f), 1f)
+            }
         }
         parent.addView(v)
     }
@@ -5338,6 +5385,489 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ==========================================================================================
+    // v5.0: Account (optional Google sign-in). Minim works fully without it.
+    // ==========================================================================================
+
+    private var accountBusy = false
+    private var avatarUrl: String? = null
+    private var avatarJob: Job? = null
+
+    // ==========================================================================================
+    // 5.0.0 part 3: festivals, announcements, switches and the update lock, from the cloud
+    // config (Firestore config/app, read by app.vibe). Missing or unreadable config: none of it.
+    // ==========================================================================================
+
+    private var vibe: VibeConfig = VibeConfig.DEFAULT
+    private var festival: FestivalEvent? = null
+    /** Today's festival colour, used while nothing is playing (Dynamic colours only); 0 for none. */
+    private var festivalSeed = 0
+    private var announcementPending: Runnable? = null
+    /** The update the cloud config says this version must install first (null: not locked). */
+    private var lockUpdate: AvailableUpdate? = null
+    private var lockCheckJob: Job? = null
+    /** The lock already checked against GitHub this session (and the answer was "no lock"). */
+    private var lockCheckedFor: UpdateLock? = null
+    private lateinit var homeBanner: View
+    private lateinit var homeBannerText: TextView
+
+    private fun installedVersion() =
+        InstalledVersion.of(app.updates.installedVersionName, app.updates.installedVersionCode)
+
+    private fun setupVibe() {
+        homeBanner = findViewById(R.id.home_banner)
+        homeBannerText = findViewById(R.id.home_banner_text)
+        homeBanner.setOnClickListener { v ->
+            val link = festival?.link ?: return@setOnClickListener
+            haptic(v)
+            openVibeLink(link)
+        }
+        findViewById<View>(R.id.home_banner_close).setOnClickListener { v ->
+            val e = festival ?: return@setOnClickListener
+            haptic(v)
+            app.preferences.dismissBanner(bannerKey(e))
+            renderFestival()
+        }
+        PressScale.apply(homeBanner)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                app.vibe.config.collect { onVibeConfig(it) }
+            }
+        }
+    }
+
+    private fun onVibeConfig(cfg: VibeConfig) {
+        val lockChanged = cfg.lock != vibe.lock
+        vibe = cfg
+        if (lockChanged) {
+            lockCheckedFor = null
+            if (!cfg.lockApplies(installedVersion())) lockUpdate = null
+        }
+        renderFestival()
+        checkRecapPopup()
+    }
+
+    /** Today's festival: the banner under the search pill and the colour while nothing plays. */
+    private fun renderFestival() {
+        if (!::homeBanner.isInitialized) return
+        val e = vibe.activeEvent(java.util.Calendar.getInstance())
+        festival = e
+        val text = e?.banner
+        if (e != null && text != null && !app.preferences.isBannerDismissed(bannerKey(e))) {
+            homeBannerText.text = text
+            homeBanner.contentDescription = text
+            homeBanner.isClickable = e.link != null
+            homeBanner.visibility = View.VISIBLE
+        } else {
+            homeBanner.visibility = View.GONE
+        }
+        val seed = e?.accent ?: 0
+        if (seed != festivalSeed) {
+            festivalSeed = seed
+            animatePaletteTo(appPal())
+        }
+    }
+
+    /** A closed banner stays closed for that festival this year (it can come back next year). */
+    private fun bannerKey(e: FestivalEvent) = "${e.id}:${java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)}"
+
+    private fun openVibeLink(link: String) {
+        try {
+            startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(link)).addCategory(android.content.Intent.CATEGORY_BROWSABLE))
+        } catch (_: Exception) {
+            showNote(getString(R.string.vibe_link_failed))
+        }
+    }
+
+    /**
+     * The update lock. When the config's update_lock covers this version, Minim checks GitHub once;
+     * only when a newer release really is there does the update pop-up open and refuse to close.
+     * No newer release (a mistake in the config), or GitHub unreachable: no lock this time.
+     * Returns true while the lock is on (other pop-ups then wait).
+     */
+    private fun checkVibeLock(): Boolean {
+        val lock = vibe.lock
+        if (lock == null || !vibe.lockApplies(installedVersion())) {
+            lockUpdate = null
+            return false
+        }
+        val u = lockUpdate
+        if (u == null) {
+            if (lockCheckedFor == lock || lockCheckJob?.isActive == true) return false
+            lockCheckJob = lifecycleScope.launch {
+                val result = try { app.updates.check() } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) { null }
+                if (result is UpdateCheckResult.Available && vibe.lock == lock) {
+                    lockUpdate = result.update
+                    app.updateGate.onManualCheck(result)
+                    checkRecapPopup()
+                } else if (result !is UpdateCheckResult.Failed && result != null) {
+                    // GitHub has nothing newer: never lock anyone out over it
+                    lockCheckedFor = lock
+                } // offline or failed: tried again on the next app open
+            }
+            return false
+        }
+        if (isActivityResumed && !isWelcomeOpen && app.preferences.welcomeDone && !isSheetOpen &&
+            sheetRoot.visibility != View.VISIBLE && recapStory == null && !recapStoryOpening
+        ) {
+            updatePromptPending?.let { root.removeCallbacks(it) }
+            updatePromptPending = null
+            showUpdatePopup(u)
+        }
+        return true
+    }
+
+    /** The update pop-up is open for the locked update: it can't be swiped, tapped or backed away. */
+    private val isLockSheetOpen: Boolean
+        get() = lockUpdate != null && updateSheet?.root?.parent != null && updateSheetFor == lockUpdate
+
+    /** A one-time announcement sheet, when Home is quiet (after any update or recap pop-up). */
+    private fun checkAnnouncement() {
+        if (!::sheetRoot.isInitialized || announcementPending != null) return
+        if (!announcementQuiet() || nextAnnouncement() == null) return
+        val r = Runnable {
+            announcementPending = null
+            val a = nextAnnouncement()
+            if (a != null && announcementQuiet()) showAnnouncement(a)
+        }
+        announcementPending = r
+        root.postDelayed(r, ANNOUNCEMENT_DELAY_MS)
+    }
+
+    private fun nextAnnouncement(): Announcement? =
+        vibe.nextAnnouncement(installedVersion(), java.util.Calendar.getInstance(), app.preferences.dismissedAnnouncements)
+
+    private fun announcementQuiet(): Boolean {
+        val onHome = tab == Tab.HOME && !isSearchOpen && !isListOpen && !isShelfOpen && !isArtistOpen &&
+            !isLyricsOpen && !isQueueOpen && !isSettingsOpen && !isNowPlayingOpen
+        return onHome && isActivityResumed && !isWelcomeOpen && app.preferences.welcomeDone &&
+            sheetRoot.visibility != View.VISIBLE && recapStory == null && !recapStoryOpening &&
+            recapPopupPending == null && updatePromptPending == null && lockUpdate == null
+    }
+
+    private fun showAnnouncement(a: Announcement) {
+        // Shown once: marked as soon as it's on screen
+        app.preferences.dismissAnnouncement(a.id)
+        openSheet { box ->
+            sheetHeading(box, a.title)
+            if (a.text.isNotBlank()) {
+                val body = TextView(this).apply {
+                    text = a.text
+                    textSize = 14f
+                    setLineSpacing(dp(4f), 1f)
+                    tag = "text:fg"
+                    setPadding(dp(4f).toInt(), 0, dp(4f).toInt(), dp(16f).toInt())
+                }
+                box.addView(body)
+            }
+            val link = a.link
+            if (link != null) {
+                sheetAction(box, R.drawable.ic_open_link, a.button ?: getString(R.string.vibe_open)) {
+                    closeSheet { openVibeLink(link) }
+                }
+            }
+            sheetAction(box, R.drawable.ic_check, getString(R.string.vibe_got_it), outlined = link != null) {
+                closeSheet()
+            }
+        }
+    }
+
+    private fun setupAccount() {
+        val acc = app.account
+        val section = findViewById<View>(R.id.settings_account)
+        if (!acc.available) {
+            // A build without google-services.json (e.g. someone building the public repo)
+            section.visibility = View.GONE
+            return
+        }
+        findViewById<View>(R.id.account_sign_in).setOnClickListener { v ->
+            if (accountBusy) return@setOnClickListener
+            haptic(v)
+            startSignIn()
+        }
+        findViewById<View>(R.id.account_sign_out).setOnClickListener { v ->
+            if (accountBusy) return@setOnClickListener
+            haptic(v)
+            accountBusy = true
+            lifecycleScope.launch {
+                // v5.0.0: send what's still waiting to the cloud first (a few seconds at most), then stop syncing
+                try { app.sync.prepareSignOut() } catch (_: Throwable) { }
+                acc.signOut()
+                accountBusy = false
+                showAccountMessage(null)
+                showNote(getString(R.string.account_signed_out_note))
+            }
+        }
+        findViewById<View>(R.id.account_delete).setOnClickListener { v ->
+            if (accountBusy) return@setOnClickListener
+            haptic(v)
+            confirmDeleteAccount()
+        }
+        // 5.0.0 part 2c: "Sync is waiting" opens the Merge / Start fresh sheet again
+        findViewById<View>(R.id.account_status).setOnClickListener { v ->
+            val c = app.sync.pendingChoice.value ?: return@setOnClickListener
+            haptic(v)
+            showAccountChoiceSheet(c)
+        }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch { acc.user.collect { renderAccount(it); renderSyncStatus(app.sync.status.value) } }
+                // "Synced just now / X min ago", redrawn when it would read differently
+                launch {
+                    app.sync.status.collectLatest { st ->
+                        while (isActive) {
+                            renderSyncStatus(st)
+                            delay(SyncText.nextChangeMs(System.currentTimeMillis(), st.lastSyncAt))
+                        }
+                    }
+                }
+                // Signed in with a different Google account than the phone's music came from
+                launch {
+                    app.sync.pendingChoice.collect { c ->
+                        if (c == null) {
+                            choiceShownFor = null
+                            if (isChoiceSheetOpen) closeSheet()
+                        } else if (c != choiceShownFor) {
+                            choiceShownFor = c
+                            showAccountChoiceSheet(c)
+                        }
+                    }
+                }
+                // A pull brought changes from another phone: reload what shows the library
+                launch { app.sync.dataVersion.collect { onSyncedChanges(it) } }
+            }
+        }
+    }
+
+    // ---- 5.0.0 part 2c: sync status, the account switch sheet, reloads after a pull ----------
+
+    private var choiceShownFor: CloudSync.Choice? = null
+    private var choiceSheetHeading: View? = null
+    private val isChoiceSheetOpen get() = isSheetOpen && choiceSheetHeading?.parent != null
+    /** The last [CloudSync.dataVersion] the screens were reloaded for (starts at the current one). */
+    private var seenDataVersion = -1L
+
+    /** The line under the name, and the error line under it. */
+    private fun renderSyncStatus(st: CloudSync.Status) {
+        val status = findViewById<TextView>(R.id.account_status) ?: return
+        val problem = findViewById<TextView>(R.id.account_sync_problem) ?: return
+        if (app.account.user.value == null) {
+            problem.visibility = View.GONE
+            return
+        }
+        val line = SyncText.statusLine(st.phase, st.lastSyncAt, System.currentTimeMillis())
+        if (status.text?.toString() != line) status.text = line
+        val waiting = st.phase == CloudSync.Phase.NEEDS_CHOICE
+        if (status.isClickable != waiting) {
+            status.isClickable = waiting
+            status.isFocusable = waiting
+        }
+        // waiting for a choice isn't an error; the line above says what to do
+        val err = if (waiting) null else SyncText.problemLine(st.problem)
+        if (err == null) {
+            if (problem.visibility != View.GONE) problem.visibility = View.GONE
+        } else {
+            if (problem.text?.toString() != err) problem.text = err
+            if (problem.visibility != View.VISIBLE) problem.visibility = View.VISIBLE
+        }
+    }
+
+    /** Merge / Start fresh / Cancel and sign out. Dismissing it leaves the question waiting. */
+    private fun showAccountChoiceSheet(c: CloudSync.Choice) {
+        val first = c.name.trim().substringBefore(' ')
+        val who = if (c.name == "this" || first.isBlank()) getString(R.string.account_choice_this)
+        else getString(R.string.account_choice_named, first)
+        openSheet { box ->
+            sheetHeading(box, getString(R.string.account_choice_title), getString(R.string.account_choice_sub, who), wrapSub = true)
+            choiceSheetHeading = box.getChildAt(box.childCount - 1)
+            sheetAction(box, R.drawable.ic_add, getString(R.string.account_choice_merge)) {
+                closeSheet()
+                if (app.sync.pendingChoice.value == c) app.sync.choose(merge = true)
+            }
+            sheetAction(box, R.drawable.ic_repeat, getString(R.string.account_choice_fresh)) {
+                closeSheet()
+                if (app.sync.pendingChoice.value == c) app.sync.choose(merge = false)
+            }
+            sheetAction(box, R.drawable.ic_close, getString(R.string.account_choice_cancel), outlined = true) {
+                closeSheet()
+                cancelAccountChoice()
+            }
+        }
+    }
+
+    /** Cancel: nothing on the phone changes, nothing syncs, and Minim signs out of that account. */
+    private fun cancelAccountChoice() {
+        if (accountBusy) return
+        accountBusy = true
+        lifecycleScope.launch {
+            try {
+                app.sync.cancelChoice()
+                app.account.signOut()
+                showAccountMessage(null)
+                showNote(getString(R.string.account_signed_out_note))
+            } catch (_: Throwable) {
+            } finally {
+                accountBusy = false
+            }
+        }
+    }
+
+    /**
+     * The library changed under the screens (a pull from another phone, or Start fresh). Liked,
+     * Recents, playlists, the open list, Stats and the greetings reload in place (the lists diff, so
+     * scroll positions stay). Discover drops songs marked "not interested" elsewhere right away; its
+     * shelves are rebuilt only when it has none yet, or after a whole-library merge, and then not
+     * while it's on screen (the next time the tab opens).
+     */
+    private fun onSyncedChanges(version: Long) {
+        if (seenDataVersion < 0L || version <= seenDataVersion) {
+            if (seenDataVersion < 0L) seenDataVersion = version
+            return
+        }
+        seenDataVersion = version
+        val full = app.sync.lastChangeWasFull
+        greetingFactsAt = 0L
+        scheduleRefresh(300L)
+        lifecycleScope.launch {
+            try {
+                val engine = app.discoverEngine
+                engine.dropHidden(app.database.notInterestedIds.value)?.let { if (discoverShelves.isNotEmpty()) showDiscover(it, afterBuild = false) }
+                if (full) engine.markStale()
+                if (tab == Tab.DISCOVER && discoverShelves.isEmpty()) loadDiscover(force = false)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun startSignIn() {
+        val signIn = findViewById<TextView>(R.id.account_sign_in)
+        accountBusy = true
+        showAccountMessage(null)
+        signIn.text = getString(R.string.account_signing_in)
+        signIn.alpha = 0.6f
+        lifecycleScope.launch {
+            val outcome = app.account.signIn(this@MainActivity)
+            accountBusy = false
+            signIn.text = getString(R.string.account_sign_in)
+            signIn.alpha = 1f
+            when (outcome) {
+                is AccountOutcome.Done -> {
+                    val name = app.account.user.value?.name.orEmpty()
+                    showNote(
+                        if (name.isNotBlank()) getString(R.string.account_signed_in_as, name.substringBefore(' '))
+                        else getString(R.string.account_signed_in_note)
+                    )
+                }
+                is AccountOutcome.Problem -> showAccountMessage(accountProblemText(outcome.problem, deleting = false))
+            }
+        }
+    }
+
+    private fun confirmDeleteAccount() {
+        openSheet { box ->
+            sheetHeading(box, getString(R.string.account_delete_title), getString(R.string.account_delete_sub))
+            val v = layoutInflater.inflate(R.layout.sheet_confirm, box, false)
+            v.findViewById<TextView>(R.id.sheet_confirm_cancel).setOnClickListener { closeSheet() }
+            v.findViewById<TextView>(R.id.sheet_confirm_ok).apply {
+                text = getString(R.string.account_delete_ok)
+                setOnClickListener {
+                    if (sheetClosing || accountBusy) return@setOnClickListener
+                    haptic(it)
+                    closeSheet()
+                    deleteAccountNow()
+                }
+            }
+            box.addView(v)
+        }
+    }
+
+    private fun deleteAccountNow() {
+        val delete = findViewById<TextView>(R.id.account_delete)
+        val signOut = findViewById<View>(R.id.account_sign_out)
+        accountBusy = true
+        showAccountMessage(null)
+        delete.text = getString(R.string.account_deleting)
+        delete.alpha = 0.6f
+        signOut.alpha = 0.6f
+        lifecycleScope.launch {
+            // v5.0.0: pause sync so nothing is written back while the cloud data is deleted
+            try { app.sync.prepareDelete() } catch (_: Throwable) { }
+            val outcome = app.account.deleteAccount(this@MainActivity)
+            try { app.sync.afterDelete(deleted = outcome is AccountOutcome.Done) } catch (_: Throwable) { }
+            accountBusy = false
+            delete.text = getString(R.string.account_delete)
+            delete.alpha = 1f
+            signOut.alpha = 1f
+            when (outcome) {
+                is AccountOutcome.Done -> showNote(getString(R.string.account_deleted_note))
+                is AccountOutcome.Problem -> showAccountMessage(accountProblemText(outcome.problem, deleting = true))
+            }
+        }
+    }
+
+    private fun accountProblemText(problem: AccountProblem, deleting: Boolean): String = getString(
+        when (problem) {
+            AccountProblem.CANCELLED ->
+                if (deleting) R.string.account_err_delete_cancelled else R.string.account_err_cancelled
+            AccountProblem.OFFLINE -> R.string.account_err_offline
+            AccountProblem.NO_ACCOUNT -> R.string.account_err_no_account
+            AccountProblem.UNAVAILABLE -> R.string.account_err_unavailable
+            AccountProblem.NOT_READY -> R.string.account_err_not_ready
+            AccountProblem.WRONG_ACCOUNT -> R.string.account_err_wrong_account
+            AccountProblem.FAILED ->
+                if (deleting) R.string.account_err_delete_failed else R.string.account_err_failed
+        }
+    )
+
+    /** One short line under the Account buttons; null hides it. */
+    private fun showAccountMessage(text: String?) {
+        val msg = findViewById<TextView>(R.id.account_message)
+        msg.text = text.orEmpty()
+        msg.visibility = if (text.isNullOrEmpty()) View.GONE else View.VISIBLE
+    }
+
+    /** Signed in or out: the Settings section and every profile picture follow. */
+    private fun renderAccount(user: MinimAccount.User?) {
+        findViewById<View>(R.id.account_signed_out).visibility = if (user == null) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.account_signed_in).visibility = if (user == null) View.GONE else View.VISIBLE
+        if (user != null) {
+            findViewById<TextView>(R.id.account_name).text =
+                user.name.ifBlank { getString(R.string.account_signed_in_note) }
+        }
+        val url = user?.photoUrl
+        val loaded = avatars().all { it.hasPhoto }
+        if (url == avatarUrl && (url == null || loaded || avatarJob?.isActive == true)) return
+        avatarUrl = url
+        avatarJob?.cancel()
+        if (url == null) {
+            setAvatarPhoto(null, animate = false)
+            return
+        }
+        val px = dp(56f).toInt()
+        val cached = app.artworkPipeline.cachedBitmap(url, px)
+        if (cached != null) {
+            setAvatarPhoto(cached, animate = false)
+            return
+        }
+        setAvatarPhoto(null, animate = false)
+        // Offline before the photo was ever saved: the placeholder stays, and the next time Minim comes
+        // back to the front this runs again and retries.
+        avatarJob = lifecycleScope.launch {
+            val bitmap = app.artworkPipeline.loadBitmap(url, px)
+            if (avatarUrl == url && bitmap != null) setAvatarPhoto(bitmap, animate = animationsOn())
+        }
+    }
+
+    private fun avatars(): List<AvatarView> = topRows.map { it.second.gear } + findViewById<AvatarView>(R.id.account_avatar)
+
+    private fun setAvatarPhoto(bitmap: android.graphics.Bitmap?, animate: Boolean) {
+        for (a in avatars()) a.setPhoto(bitmap, animate)
+    }
+
+    // ==========================================================================================
     // Helpers
     // ==========================================================================================
 
@@ -5383,6 +5913,8 @@ class MainActivity : AppCompatActivity() {
         private const val MAX_RECAP_LOOKBACK = 30
         /** v4.9.1: the popup waits this long (and re-checks) so it never lands mid-animation. */
         private const val RECAP_POPUP_DELAY_MS = 700L
+        // 5.0.0 part 3: an announcement opens a moment after Home settles
+        private const val ANNOUNCEMENT_DELAY_MS = 1_200L
         private const val UPDATE_POPUP_DELAY_MS = 900L
         private const val ARTIST_SHELF = "artist:"
         private const val GREETING_INTERVAL_MS = 10_000L

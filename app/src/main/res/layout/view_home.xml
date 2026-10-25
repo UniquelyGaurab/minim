@@ -110,6 +110,46 @@
             android:textSize="13sp" />
     </LinearLayout>
 
+    <!-- 5.0.0 part 3: today's festival line from the cloud config (config/app); gone otherwise -->
+    <LinearLayout
+        android:id="@+id/home_banner"
+        android:layout_width="wrap_content"
+        android:layout_height="30dp"
+        android:layout_marginTop="14dp"
+        android:background="@drawable/shape_pill"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingEnd="4dp"
+        android:tag="fill:soft"
+        android:visibility="gone"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/home_search">
+
+        <TextView
+            android:id="@+id/home_banner_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:fontFamily="sans-serif-medium"
+            android:maxWidth="250dp"
+            android:maxLines="1"
+            android:tag="text:fg"
+            android:textSize="12sp" />
+
+        <ImageView
+            android:id="@+id/home_banner_close"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:layout_marginStart="2dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/vibe_banner_close"
+            android:padding="7dp"
+            android:src="@drawable/ic_close"
+            android:tag="tint:muted" />
+    </LinearLayout>
+
     <androidx.constraintlayout.widget.Guideline
         android:id="@+id/home_gl_hint"
         android:layout_width="wrap_content"

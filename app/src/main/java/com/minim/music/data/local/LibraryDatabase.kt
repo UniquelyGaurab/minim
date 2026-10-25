@@ -59,6 +59,7 @@ class LibraryDatabase(context: Context) :
         )
         createV2Tables(db)
         createV3Tables(db)
+        createV4Sync(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -66,6 +67,7 @@ class LibraryDatabase(context: Context) :
         // recents must survive every update.
         if (oldVersion < 2) createV2Tables(db)
         if (oldVersion < 3) createV3Tables(db)
+        if (oldVersion < 4) createV4Sync(db)
     }
 
     override fun onDowngrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -129,6 +131,149 @@ class LibraryDatabase(context: Context) :
         if (!hasTracked) db.execSQL("ALTER TABLE plays ADD COLUMN tracked INTEGER NOT NULL DEFAULT 0")
     }
 
+    // ---- v4 (Minim 5.0.0 part 2): cloud sync ---------------------------------------------------
+
+    private fun hasColumn(db: SQLiteDatabase, table: String, column: String): Boolean {
+        db.rawQuery("PRAGMA table_info($table)", null).use { c ->
+            val nameCol = c.getColumnIndex("name")
+            while (c.moveToNext()) if (c.getString(nameCol) == column) return true
+        }
+        return false
+    }
+
+    private fun addColumn(db: SQLiteDatabase, table: String, column: String, def: String) {
+        if (!hasColumn(db, table, column)) db.execSQL("ALTER TABLE $table ADD COLUMN $column $def")
+    }
+
+    /**
+     * v4 (Minim 5.0.0): what cloud sync needs. Only adds things, and is safe to run again (an
+     * older build may have opened the database in between):
+     * - tracks.like_changed_at: when the like last changed (liked or unliked), so the newest wins
+     * - playlists.uid (stable sync ID), changed_at, born; playlist_tracks.changed_at
+     * - playlist_removed / playlist_deleted: remembered removals, so they reach the other phones
+     * - plays.event_id: a stable ID per play, so merging never counts a play twice
+     * - listen_time.device: listening time is kept per phone ('' = this phone)
+     * - sync_outbox (what changed and still has to go up), sync_state (markers, account, device)
+     */
+    private fun createV4Sync(db: SQLiteDatabase) {
+        addColumn(db, "tracks", "like_changed_at", "INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("UPDATE tracks SET like_changed_at = liked_at WHERE is_liked = 1 AND like_changed_at = 0")
+
+        addColumn(db, "playlists", "uid", "TEXT")
+        addColumn(db, "playlists", "changed_at", "INTEGER NOT NULL DEFAULT 0")
+        addColumn(db, "playlists", "born", "INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("UPDATE playlists SET changed_at = created_at WHERE changed_at = 0")
+        val noUid = ArrayList<Pair<Long, String>>()
+        db.rawQuery("SELECT id, name FROM playlists WHERE uid IS NULL", null).use { c ->
+            while (c.moveToNext()) noUid.add(c.getLong(0) to c.getString(1))
+        }
+        for ((id, name) in noUid) {
+            db.execSQL("UPDATE playlists SET uid = ? WHERE id = ?", arrayOf<Any>(freePlaylistUid(db, name), id))
+        }
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_playlists_uid ON playlists(uid)")
+        addColumn(db, "playlist_tracks", "changed_at", "INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("UPDATE playlist_tracks SET changed_at = position WHERE changed_at = 0")
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS playlist_removed (
+                playlist_uid TEXT NOT NULL,
+                track_id TEXT NOT NULL,
+                at INTEGER NOT NULL,
+                PRIMARY KEY (playlist_uid, track_id)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS playlist_deleted (
+                uid TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT 0,
+                at INTEGER NOT NULL,
+                born INTEGER NOT NULL DEFAULT 0
+            )
+            """.trimIndent()
+        )
+
+        addColumn(db, "plays", "event_id", "TEXT")
+        val noEvent = ArrayList<Triple<Long, Long, String>>()
+        db.rawQuery("SELECT id, played_at, track_id FROM plays WHERE event_id IS NULL", null).use { c ->
+            while (c.moveToNext()) noEvent.add(Triple(c.getLong(0), c.getLong(1), c.getString(2)))
+        }
+        val used = HashSet<String>()
+        db.rawQuery("SELECT event_id FROM plays WHERE event_id IS NOT NULL", null).use { c ->
+            while (c.moveToNext()) used.add(c.getString(0))
+        }
+        for ((id, at, track) in noEvent) {
+            var eid = com.minim.music.data.sync.SyncIds.eventId(at, track)
+            if (!used.add(eid)) { eid = eid + "_" + id; used.add(eid) }
+            db.execSQL("UPDATE plays SET event_id = ? WHERE id = ?", arrayOf<Any>(eid, id))
+        }
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_plays_event ON plays(event_id)")
+
+        if (!hasColumn(db, "listen_time", "device")) {
+            db.execSQL(
+                """
+                CREATE TABLE listen_time_v4 (
+                    day INTEGER NOT NULL,
+                    hour INTEGER NOT NULL,
+                    track_id TEXT NOT NULL,
+                    title TEXT NOT NULL DEFAULT '',
+                    artist TEXT NOT NULL DEFAULT '',
+                    thumbnail_url TEXT NOT NULL DEFAULT '',
+                    ms INTEGER NOT NULL DEFAULT 0,
+                    device TEXT NOT NULL DEFAULT '',
+                    PRIMARY KEY (day, hour, track_id, device)
+                )
+                """.trimIndent()
+            )
+            db.execSQL(
+                """
+                INSERT INTO listen_time_v4 (day, hour, track_id, title, artist, thumbnail_url, ms, device)
+                SELECT day, hour, track_id, title, artist, thumbnail_url, ms, '' FROM listen_time
+                """.trimIndent()
+            )
+            db.execSQL("DROP TABLE listen_time")
+            db.execSQL("ALTER TABLE listen_time_v4 RENAME TO listen_time")
+        }
+
+        db.execSQL("CREATE TABLE IF NOT EXISTS sync_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, k TEXT NOT NULL UNIQUE)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS sync_state (k TEXT PRIMARY KEY, v TEXT NOT NULL)")
+    }
+
+    /** The playlist's stable sync ID, or (only on a clash with another playlist) a unique one. */
+    internal fun freePlaylistUid(db: SQLiteDatabase, name: String): String {
+        val base = com.minim.music.data.sync.SyncIds.playlistUid(name)
+        var taken = false
+        db.rawQuery("SELECT name FROM playlists WHERE uid = ?", arrayOf(base)).use { c ->
+            if (c.moveToFirst()) taken = c.getString(0) != name.trim()
+        }
+        return if (!taken) base else com.minim.music.data.sync.SyncIds.playlistUid(name + "#" + System.nanoTime())
+    }
+
+    /**
+     * Sync hooks. While the user is signed in, [syncTracking] is on and every change to likes,
+     * playlists, "not interested" and listening history puts a key in sync_outbox (in the same
+     * transaction as the change), then calls [onSyncChange]: urgent for likes/playlists (they go up
+     * within seconds), not urgent for listening (batched every few minutes).
+     */
+    @Volatile var syncTracking: Boolean = false
+    @Volatile var onSyncChange: ((urgent: Boolean) -> Unit)? = null
+
+    internal fun queueSync(db: SQLiteDatabase, key: String) {
+        if (!syncTracking) return
+        db.execSQL("INSERT OR REPLACE INTO sync_outbox (k) VALUES (?)", arrayOf<Any>(key))
+    }
+
+    private fun notifySync(urgent: Boolean) {
+        if (syncTracking) try { onSyncChange?.invoke(urgent) } catch (_: Exception) { }
+    }
+
+    private fun playlistUidOf(db: SQLiteDatabase, playlistId: Long): String? =
+        db.rawQuery("SELECT uid FROM playlists WHERE id = ?", arrayOf(playlistId.toString())).use { c ->
+            if (c.moveToFirst() && !c.isNull(0)) c.getString(0) else null
+        }
+
     suspend fun refreshLikedCache() = withContext(Dispatchers.IO) {
         val ids = HashSet<String>()
         readableDatabase.rawQuery("SELECT id FROM tracks WHERE is_liked = 1", null).use { cursor ->
@@ -145,11 +290,20 @@ class LibraryDatabase(context: Context) :
      */
     suspend fun recordPlayback(track: Track) = withContext(Dispatchers.IO) {
         val db = writableDatabase
-        upsertTrackInternal(db, track)
-        db.execSQL(
-            "UPDATE tracks SET last_played_at = ? WHERE id = ?",
-            arrayOf<Any>(System.currentTimeMillis(), track.id)
-        )
+        val now = System.currentTimeMillis()
+        db.beginTransaction()
+        try {
+            upsertTrackInternal(db, track)
+            db.execSQL(
+                "UPDATE tracks SET last_played_at = ? WHERE id = ?",
+                arrayOf<Any>(now, track.id)
+            )
+            queueSync(db, "M|${com.minim.music.data.stats.Days.keyOf(now)}|${track.id}")
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        notifySync(urgent = false)
     }
 
     /** v4.3: a play that counts (30+ seconds heard). Stored with its time; bumps count + Recents. */
@@ -169,12 +323,16 @@ class LibraryDatabase(context: Context) :
                 put("played_at", now)
                 put("listened_ms", listenedMs)
                 put("tracked", 1)
+                put("event_id", com.minim.music.data.sync.SyncIds.eventId(now, track.id))
             }
-            rowId = db.insert("plays", null, cv)
+            rowId = db.insertWithOnConflict("plays", null, cv, SQLiteDatabase.CONFLICT_IGNORE)
+            queueSync(db, "E|" + com.minim.music.data.sync.SyncIds.eventId(now, track.id))
+            queueSync(db, "M|${com.minim.music.data.stats.Days.keyOf(now)}|${track.id}")
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
         }
+        notifySync(urgent = false)
         rowId
     }
 
@@ -196,31 +354,39 @@ class LibraryDatabase(context: Context) :
                 for (a in adds) {
                     if (a.slice.ms <= 0L) continue
                     // Android 9 ships SQLite 3.22 (no upsert): insert the row if it's new, then add
+                    // v5.0.0: this phone's own listening is device '' (other phones' come from sync)
                     db.execSQL(
-                        "INSERT OR IGNORE INTO listen_time (day, hour, track_id, ms) VALUES (?, ?, ?, 0)",
+                        "INSERT OR IGNORE INTO listen_time (day, hour, track_id, ms, device) VALUES (?, ?, ?, 0, '')",
                         arrayOf<Any>(a.slice.day, a.slice.hour, a.track.id)
                     )
                     db.execSQL(
                         """
                         UPDATE listen_time SET ms = ms + ?, title = ?, artist = ?, thumbnail_url = ?
-                        WHERE day = ? AND hour = ? AND track_id = ?
+                        WHERE day = ? AND hour = ? AND track_id = ? AND device = ''
                         """.trimIndent(),
                         arrayOf<Any>(
                             a.slice.ms, a.track.title, a.track.artist, a.track.thumbnailUrl,
                             a.slice.day, a.slice.hour, a.track.id
                         )
                     )
+                    queueSync(db, "M|${a.slice.day}|${a.track.id}")
                 }
                 if (playRowId > 0L && playListenedMs > 0L) {
                     db.execSQL(
                         "UPDATE plays SET listened_ms = MAX(listened_ms, ?) WHERE id = ?",
                         arrayOf<Any>(playListenedMs, playRowId)
                     )
+                    if (syncTracking) {
+                        db.rawQuery("SELECT event_id FROM plays WHERE id = ?", arrayOf(playRowId.toString())).use { c ->
+                            if (c.moveToFirst() && !c.isNull(0)) queueSync(db, "E|" + c.getString(0))
+                        }
+                    }
                 }
                 db.setTransactionSuccessful()
             } finally {
                 db.endTransaction()
             }
+            notifySync(urgent = false)
         }
 
     /** Counted plays of one day (12:00 AM to 11:59 PM local), oldest first. */
@@ -253,7 +419,11 @@ class LibraryDatabase(context: Context) :
     suspend fun getDayListens(day: Int): List<com.minim.music.data.stats.ListenRow> = withContext(Dispatchers.IO) {
         val list = ArrayList<com.minim.music.data.stats.ListenRow>()
         readableDatabase.rawQuery(
-            "SELECT track_id, title, artist, thumbnail_url, hour, ms FROM listen_time WHERE day = ?",
+            // v5.0.0: one row per song and hour, summed over phones (synced listening is per phone)
+            """
+            SELECT track_id, MAX(title), MAX(artist), MAX(thumbnail_url), hour, SUM(ms)
+            FROM listen_time WHERE day = ? GROUP BY track_id, hour
+            """.trimIndent(),
             arrayOf(day.toString())
         ).use { c ->
             while (c.moveToNext()) {
@@ -537,27 +707,47 @@ class LibraryDatabase(context: Context) :
             put("artist", track.artist)
             put("added_at", System.currentTimeMillis())
         }
-        writableDatabase.insertWithOnConflict("not_interested", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.insertWithOnConflict("not_interested", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+            queueSync(db, "H|${track.id}")
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
         _notInterestedIds.value = _notInterestedIds.value + track.id
+        notifySync(urgent = true)
     }
 
     suspend fun toggleLike(track: Track): Boolean = withContext(Dispatchers.IO) {
         val db = writableDatabase
-        upsertTrackInternal(db, track)
-        var currentlyLiked = false
-        db.rawQuery("SELECT is_liked FROM tracks WHERE id = ?", arrayOf(track.id)).use { c ->
-            if (c.moveToFirst()) {
-                currentlyLiked = c.getInt(0) == 1
+        var newLiked = 0
+        db.beginTransaction()
+        try {
+            upsertTrackInternal(db, track)
+            var currentlyLiked = false
+            db.rawQuery("SELECT is_liked FROM tracks WHERE id = ?", arrayOf(track.id)).use { c ->
+                if (c.moveToFirst()) {
+                    currentlyLiked = c.getInt(0) == 1
+                }
             }
+            newLiked = if (currentlyLiked) 0 else 1
+            val changedAt = System.currentTimeMillis()
+            val cv = ContentValues().apply {
+                put("is_liked", newLiked)
+                put("liked_at", if (newLiked == 1) changedAt else 0L)
+                // v5.0.0: when it changed either way, so the newest change wins across phones
+                put("like_changed_at", changedAt)
+            }
+            db.update("tracks", cv, "id = ?", arrayOf(track.id))
+            queueSync(db, "L|${track.id}")
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
         }
-        val newLiked = if (currentlyLiked) 0 else 1
-        val now = if (newLiked == 1) System.currentTimeMillis() else 0L
-        val cv = ContentValues().apply {
-            put("is_liked", newLiked)
-            put("liked_at", now)
-        }
-        db.update("tracks", cv, "id = ?", arrayOf(track.id))
         refreshLikedCache()
+        notifySync(urgent = true)
         newLiked == 1
     }
 
@@ -578,17 +768,69 @@ class LibraryDatabase(context: Context) :
     suspend fun createPlaylist(name: String): Long = withContext(Dispatchers.IO) {
         val clean = name.trim()
         if (clean.isEmpty()) return@withContext -1L
-        val cv = ContentValues().apply {
-            put("name", clean)
-            put("created_at", System.currentTimeMillis())
+        val db = writableDatabase
+        val now = System.currentTimeMillis()
+        var id = -1L
+        db.beginTransaction()
+        try {
+            val uid = freePlaylistUid(db, clean)
+            // made again after a delete (here or on another phone): it starts empty
+            var born = 0L
+            db.rawQuery("SELECT at, born FROM playlist_deleted WHERE uid = ?", arrayOf(uid)).use { c ->
+                if (c.moveToFirst()) born = maxOf(c.getLong(0), c.getLong(1))
+            }
+            val cv = ContentValues().apply {
+                put("name", clean)
+                put("created_at", now)
+                put("uid", uid)
+                put("changed_at", now)
+                put("born", born)
+            }
+            id = db.insertWithOnConflict("playlists", null, cv, SQLiteDatabase.CONFLICT_IGNORE)
+            if (id != -1L) {
+                db.delete("playlist_deleted", "uid = ?", arrayOf(uid))
+                db.delete("playlist_removed", "playlist_uid = ?", arrayOf(uid))
+                queueSync(db, "P|$uid")
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
         }
-        writableDatabase.insertWithOnConflict("playlists", null, cv, SQLiteDatabase.CONFLICT_IGNORE)
+        if (id != -1L) notifySync(urgent = true)
+        id
     }
 
     suspend fun deletePlaylist(playlistId: Long) = withContext(Dispatchers.IO) {
         val db = writableDatabase
-        db.delete("playlist_tracks", "playlist_id = ?", arrayOf(playlistId.toString()))
-        db.delete("playlists", "id = ?", arrayOf(playlistId.toString()))
+        db.beginTransaction()
+        try {
+            // v5.0.0: remember the delete (with its time) so it reaches the other phones
+            db.rawQuery(
+                "SELECT uid, name, created_at, born FROM playlists WHERE id = ?",
+                arrayOf(playlistId.toString())
+            ).use { c ->
+                if (c.moveToFirst() && !c.isNull(0)) {
+                    val uid = c.getString(0)
+                    val cv = ContentValues().apply {
+                        put("uid", uid)
+                        put("name", c.getString(1))
+                        put("created_at", c.getLong(2))
+                        put("at", System.currentTimeMillis())
+                        put("born", c.getLong(3))
+                    }
+                    db.insertWithOnConflict("playlist_deleted", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+                    db.delete("playlist_removed", "playlist_uid = ?", arrayOf(uid))
+                    db.execSQL("DELETE FROM sync_outbox WHERE k LIKE ?", arrayOf<Any>("T|$uid|%"))
+                    queueSync(db, "P|$uid")
+                }
+            }
+            db.delete("playlist_tracks", "playlist_id = ?", arrayOf(playlistId.toString()))
+            db.delete("playlists", "id = ?", arrayOf(playlistId.toString()))
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        notifySync(urgent = true)
     }
 
     suspend fun getPlaylists(): List<Playlist> = withContext(Dispatchers.IO) {
@@ -616,13 +858,26 @@ class LibraryDatabase(context: Context) :
 
     suspend fun addTrackToPlaylist(playlistId: Long, track: Track) = withContext(Dispatchers.IO) {
         val db = writableDatabase
-        upsertTrackInternal(db, track)
-        val cv = ContentValues().apply {
-            put("playlist_id", playlistId)
-            put("track_id", track.id)
-            put("position", System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        db.beginTransaction()
+        try {
+            upsertTrackInternal(db, track)
+            val cv = ContentValues().apply {
+                put("playlist_id", playlistId)
+                put("track_id", track.id)
+                put("position", now)
+                put("changed_at", now)
+            }
+            db.insertWithOnConflict("playlist_tracks", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+            playlistUidOf(db, playlistId)?.let { uid ->
+                db.delete("playlist_removed", "playlist_uid = ? AND track_id = ?", arrayOf(uid, track.id))
+                queueSync(db, "T|$uid|${track.id}")
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
         }
-        db.insertWithOnConflict("playlist_tracks", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+        notifySync(urgent = true)
     }
 
     /** v4.8: which playlists already have this song (ticked in the Add to playlist sheet). */
@@ -638,11 +893,30 @@ class LibraryDatabase(context: Context) :
     }
 
     suspend fun removeTrackFromPlaylist(playlistId: Long, trackId: String) = withContext(Dispatchers.IO) {
-        writableDatabase.delete(
-            "playlist_tracks",
-            "playlist_id = ? AND track_id = ?",
-            arrayOf(playlistId.toString(), trackId)
-        )
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val n = db.delete(
+                "playlist_tracks",
+                "playlist_id = ? AND track_id = ?",
+                arrayOf(playlistId.toString(), trackId)
+            )
+            val uid = playlistUidOf(db, playlistId)
+            if (n > 0 && uid != null) {
+                // v5.0.0: remember the removal (with its time) so it reaches the other phones
+                val cv = ContentValues().apply {
+                    put("playlist_uid", uid)
+                    put("track_id", trackId)
+                    put("at", System.currentTimeMillis())
+                }
+                db.insertWithOnConflict("playlist_removed", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+                queueSync(db, "T|$uid|$trackId")
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        notifySync(urgent = true)
     }
 
     suspend fun getPlaylistTracks(playlistId: Long): List<Track> = withContext(Dispatchers.IO) {
@@ -666,7 +940,7 @@ class LibraryDatabase(context: Context) :
         writableDatabase.delete("tracks", "is_liked = 0 AND id NOT IN (SELECT track_id FROM playlist_tracks)", null)
     }
 
-    private fun upsertTrackInternal(db: SQLiteDatabase, track: Track) {
+    internal fun upsertTrackInternal(db: SQLiteDatabase, track: Track) {
         val cv = ContentValues().apply {
             put("id", track.id)
             put("title", track.title)
@@ -710,7 +984,7 @@ class LibraryDatabase(context: Context) :
     }
 
     companion object {
-        private const val DB_NAME = "minim_library.db"
-        private const val DB_VERSION = 3
+        const val DB_NAME = "minim_library.db"
+        private const val DB_VERSION = 4
     }
 }

@@ -2,7 +2,7 @@
 
 Minim is a lightweight, minimal YouTube Music client for Android. It keeps only what you need to listen: search, a clean player, your library and a few fun extras, with no clutter.
 
-It runs on Android 9 (API 28) and newer, and the app is about 7 MB.
+It runs on Android 9 (API 28) and newer, and the app is about 8.5 MB.
 
 ## Features
 
@@ -16,8 +16,15 @@ It runs on Android 9 (API 28) and newer, and the app is about 7 MB.
 - **Stats and daily recap:** today's listening time, songs, artists and your streak, plus a daily recap story with a card you can share or save.
 - **Volume boost:** Off, Normal or Loud, for songs that play too quietly.
 - **HD artwork:** covers load at the size each spot needs, up to full screen width.
+- **Optional Google sign-in (5.0):** Minim works fully without an account. Sign in from Settings if you want your music backed up and on more than one phone.
+- **Cloud sync (5.0):** while you're signed in, your likes, playlists, stats and play history sync, so Discover and your recommendations carry over to a new phone. The first sign-in merges what's on the phone with what's in your account, signing in with a different Google account asks whether to Merge or Start fresh, and changes made offline sync when you're back online. Settings stay on the phone.
+- **Festivals and announcements (5.0):** festival banners, colours and greetings, one-time announcements and feature switches can be set from a config document in Firestore, without a new build. See [FIREBASE_SETUP.md](FIREBASE_SETUP.md).
 - **Updates in the app:** when Minim opens or comes back after a few hours, it checks this repo's latest release and offers to download and install a newer version. You can also check any time in Settings.
 - **Library:** liked songs, playlists, recents and a song menu on long-press (play next, add to queue, add to playlist, go to artist, share).
+
+## Privacy
+
+Signing in is optional. Minim only gets your name, profile picture and email. It never sees your password and can't access your Gmail, Drive, contacts or anything else in your Google account. Sync stores only song IDs, song details (title, artist, cover link, length) and times under your own account, and **Delete account** in Settings removes all of it.
 
 ## Download
 
@@ -40,6 +47,10 @@ echo "sdk.dir=/path/to/your/Android/Sdk" > local.properties   # or set ANDROID_H
 ```
 
 The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. Run the unit tests with `./gradlew testDebugUnitTest`.
+
+### Firebase (optional)
+
+Sign-in, sync and the config document need your own Firebase project. Without it the app builds and runs the same, and the Account section in Settings stays hidden. To turn it on, follow [FIREBASE_SETUP.md](FIREBASE_SETUP.md): create a Firebase project, put its `google-services.json` in `app/` (see `app/google-services.json.example`; the real file is ignored by git and must never be committed), and publish the rules in [`firestore.rules`](firestore.rules).
 
 ### Signing
 
@@ -88,6 +99,7 @@ Rules that keep the file working: keep `"version": 1` at the top, put a comma be
 - [LRCLib](https://lrclib.net) for synced lyrics
 - [AndroidX Media3 / ExoPlayer](https://github.com/androidx/media) for playback
 - [OkHttp](https://github.com/square/okhttp) for networking
+- [Firebase](https://firebase.google.com) Authentication and Cloud Firestore for the optional sign-in and sync
 - [Poppins](https://fonts.google.com/specimen/Poppins) font (SIL Open Font License)
 
 From the app's own credits: designed by Gaurab, built by Charlie (Sesame AI), early code by Google Gemini.
