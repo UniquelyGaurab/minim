@@ -7,6 +7,9 @@ import android.animation.PropertyValuesHolder
 import android.animation.ValueAnimator
 import android.animation.LayoutTransition
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.res.ColorStateList
 import android.content.res.Resources
 import android.graphics.Outline
@@ -23,6 +26,8 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
+import android.view.WindowManager
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.LinearInterpolator
 import android.view.animation.OvershootInterpolator
@@ -119,6 +124,29 @@ class GeminiChatPanel(
     private var settle: ValueAnimator? = null
     private var sendFilled = false
 
+    // 5.2.1: open/close bookkeeping. Every morph gets a number; only the newest one may finish
+    // the close, and finishing the close never depends on an animation reaching its end.
+    private var morphGen = 0
+    private var pendingThen: (() -> Unit)? = null
+    private var closeChecks = 0
+    private val closeSafety = object : Runnable {
+        override fun run() {
+            if (isOpen || root.visibility != View.VISIBLE) return
+            if (morph?.isRunning == true && closeChecks++ < 12) root.postDelayed(this, CLOSE_SAFETY_MS)
+            else finishClosed()
+        }
+    }
+
+    // 5.2.1: keyboard bookkeeping. While the keyboard animates, its frames drive the input bar;
+    // once it stops, the bar is set from the keyboard's real final height.
+    private var imeAnimating = false
+    private val imeWatchdog = Runnable {
+        imeAnimating = false
+        syncIme()
+    }
+    private var savedSoftInput: Int? = null
+    private var startersAnim: ValueAnimator? = null
+
     /** item key -> its view, so streamed text finds its paragraph. */
     private val views = HashMap<Long, View>()
     private val fades = HashMap<Long, WordFade>()
@@ -148,6 +176,18 @@ class GeminiChatPanel(
             }
         }
         panel.clipToOutline = true
+        (root as? GeminiRootLayout)?.let { gate ->
+            // only an open chat takes touches; a closed one can never block the app underneath
+            gate.acceptsTouches = { isOpen }
+            gate.onStrayTouch = { if (!isOpen && morph?.isRunning != true) finishClosed() }
+            gate.onTap = { x, y -> tapOutsideInput(x, y) }
+        }
+        // the sheet keeps its size when the screen turns or the window changes size
+        root.addOnLayoutChangeListener { _, _, t, _, b, _, ot, _, ob ->
+            if (b - t != ob - ot && isOpen && settle?.isRunning != true && morph?.isRunning != true) {
+                root.post { if (isOpen) setPanelHeight(targetHeight(full)) }
+            }
+        }
         scrim.setOnClickListener { close() }
         setupDrag()
         setupInput()
@@ -161,6 +201,26 @@ class GeminiChatPanel(
         ViewCompat.setWindowInsetsAnimationCallback(
             panel,
             object : WindowInsetsAnimationCompat.Callback(DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+                private fun isIme(a: WindowInsetsAnimationCompat) =
+                    a.typeMask and WindowInsetsCompat.Type.ime() != 0
+
+                override fun onPrepare(animation: WindowInsetsAnimationCompat) {
+                    if (!isIme(animation)) return
+                    imeAnimating = true
+                    root.removeCallbacks(imeWatchdog)
+                    root.postDelayed(imeWatchdog, IME_WATCHDOG_MS)
+                }
+
+                override fun onEnd(animation: WindowInsetsAnimationCompat) {
+                    if (!isIme(animation)) return
+                    // 5.2.1: the last animation frame isn't always the keyboard's real end
+                    // (closing it with Back, or on some phones), which left the input bar
+                    // floating mid-sheet. Settle on the keyboard's actual final height.
+                    imeAnimating = false
+                    root.removeCallbacks(imeWatchdog)
+                    syncIme()
+                }
+
                 override fun onProgress(
                     insets: WindowInsetsCompat,
                     running: MutableList<WindowInsetsAnimationCompat>,
@@ -183,12 +243,66 @@ class GeminiChatPanel(
     fun applyInsets(statusBar: Int, navBar: Int, ime: Int, rootPadLeft: Int, rootPadRight: Int) {
         statusTop = statusBar
         navBottom = navBar
-        imeBottom = ime
+        // while the keyboard animates its own frames move the bar (see onProgress / onEnd)
+        if (!imeAnimating) imeBottom = ime
         (root.layoutParams as? ViewGroup.MarginLayoutParams)?.let { lp ->
-            lp.setMargins(-rootPadLeft, -statusBar, -rootPadRight, -navBar)
-            root.layoutParams = lp
+            if (lp.leftMargin != -rootPadLeft || lp.topMargin != -statusBar ||
+                lp.rightMargin != -rootPadRight || lp.bottomMargin != -navBar
+            ) {
+                lp.setMargins(-rootPadLeft, -statusBar, -rootPadRight, -navBar)
+                root.layoutParams = lp
+            }
         }
         applyBottom()
+    }
+
+    /** Sets the input bar from the keyboard's real current height (0 when it's closed). */
+    private fun syncIme() {
+        val ins = ViewCompat.getRootWindowInsets(root) ?: return
+        val type = WindowInsetsCompat.Type.ime()
+        imeBottom = if (ins.isVisible(type)) ins.getInsets(type).bottom else 0
+        applyBottom()
+    }
+
+    /**
+     * 5.2.1: while the chat is open the window stops panning for the keyboard (the app's
+     * default), because the chat moves its own input bar. Both at once pushed the bar around.
+     */
+    private fun keyboardResizeMode(on: Boolean) {
+        val window = activityOf(root.context)?.window ?: return
+        if (on) {
+            if (savedSoftInput != null) return
+            val mode = window.attributes.softInputMode
+            savedSoftInput = mode
+            window.setSoftInputMode(
+                (mode and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv()) or
+                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+            )
+        } else {
+            val mode = savedSoftInput ?: return
+            savedSoftInput = null
+            window.setSoftInputMode(mode)
+        }
+    }
+
+    private fun activityOf(c: Context?): Activity? {
+        var ctx = c
+        while (ctx is ContextWrapper) {
+            if (ctx is Activity) return ctx
+            ctx = ctx.baseContext
+        }
+        return null
+    }
+
+    /** A tap anywhere in the chat except the input bar puts the keyboard away. */
+    private fun tapOutsideInput(rawX: Float, rawY: Float) {
+        if (!isOpen || !input.hasFocus()) return
+        val bar = root.findViewById<View>(R.id.gemini_input_row) ?: return
+        val loc = IntArray(2)
+        bar.getLocationOnScreen(loc)
+        val inside = rawX >= loc[0] && rawX <= loc[0] + bar.width &&
+            rawY >= loc[1] && rawY <= loc[1] + bar.height
+        if (!inside) hideKeyboard()
     }
 
     private fun applyBottom() {
@@ -228,8 +342,13 @@ class GeminiChatPanel(
     fun open(from: View?, song: Track?) {
         if (isOpen) return
         isOpen = true
+        root.removeCallbacks(closeSafety)
+        // reopened before the close finished: whatever it was going to do afterwards is dropped
+        pendingThen = null
         anchor = from
         full = false
+        keyboardResizeMode(true)
+        if (!imeAnimating) syncIme()
         host.session().listener = this
         modelLabel.text = host.modelLabel()
         setFocus(song)
@@ -242,6 +361,9 @@ class GeminiChatPanel(
         contentAlpha(0f)
         panel.visibility = View.INVISIBLE
         root.post {
+            // 5.2.1: closed again before this ran (a quick Back or a second tap). 5.2.0 still
+            // grew the sheet here and left it up, "closed", catching every touch.
+            if (!isOpen) return@post
             panel.visibility = View.VISIBLE
             runMorph(opening = true)
             scrollToEnd(false)
@@ -254,14 +376,35 @@ class GeminiChatPanel(
             return
         }
         isOpen = false
+        pendingThen = then
         hideKeyboard()
         settle?.cancel()
-        runMorph(opening = false) {
-            root.visibility = View.GONE
-            stopThinking()
-            fades.values.forEach { it.finish() }
-            then?.invoke()
-        }
+        runMorph(opening = false)
+        // the close finishes even if its animation never reaches the end
+        closeChecks = 0
+        root.removeCallbacks(closeSafety)
+        root.postDelayed(closeSafety, CLOSE_SAFETY_MS)
+    }
+
+    /** Takes the closed chat off the screen. Safe to call more than once. */
+    private fun finishClosed() {
+        root.removeCallbacks(closeSafety)
+        if (isOpen) return
+        morphGen++ // whatever morph is still around can no longer finish anything
+        morph?.cancel()
+        morph = null
+        settle?.cancel()
+        clipping = false
+        panel.invalidateOutline()
+        panel.backgroundTintList = null
+        scrim.alpha = 0f
+        root.visibility = View.GONE
+        stopThinking()
+        fades.values.forEach { it.finish() }
+        keyboardResizeMode(false)
+        val then = pendingThen
+        pendingThen = null
+        then?.invoke()
     }
 
     /** Rect of the pill inside the panel, or a small pill at the bottom when it isn't on screen. */
@@ -291,7 +434,8 @@ class GeminiChatPanel(
         return if (a != null && a.id == R.id.np_gemini) p.fg else ColorUtils.blendARGB(p.bg, p.fg, 0.10f)
     }
 
-    private fun runMorph(opening: Boolean, end: (() -> Unit)? = null) {
+    private fun runMorph(opening: Boolean) {
+        val gen = ++morphGen
         morph?.cancel()
         val from = pillRect()
         val r28 = dp(28).toFloat()
@@ -321,17 +465,20 @@ class GeminiChatPanel(
                 top.translationY = (1f - c) * dp(10)
             }
             addListener(object : AnimatorListenerAdapter() {
-                private var cancelled = false
-                override fun onAnimationCancel(animation: Animator) {
-                    cancelled = true
-                }
-
                 override fun onAnimationEnd(animation: Animator) {
+                    // a newer morph took over: it owns the sheet now
+                    if (gen != morphGen) return
                     clipping = false
                     panel.invalidateOutline()
                     panel.backgroundTintList = null
                     Painter.paint(panel, host.palette())
-                    if (!cancelled) end?.invoke()
+                    if (isOpen) {
+                        contentAlpha(1f)
+                        top.translationY = 0f
+                        scrim.alpha = 1f
+                    } else {
+                        finishClosed()
+                    }
                 }
             })
         }
@@ -496,6 +643,8 @@ class GeminiChatPanel(
         val imm = root.context.getSystemService(InputMethodManager::class.java)
         imm?.hideSoftInputFromWindow(input.windowToken, 0)
         input.clearFocus()
+        // in case the keyboard went away without an animation, check once it's gone
+        root.postDelayed({ if (!imeAnimating) syncIme() }, 450)
     }
 
     // ------------------------------------------------------------------------------------------
@@ -546,6 +695,11 @@ class GeminiChatPanel(
 
     private fun rebuild() {
         val s = host.session()
+        // 5.2.1: the old thinking animation and fades are stopped, not just forgotten
+        stopThinking()
+        fades.values.forEach { it.finish() }
+        startersAnim?.cancel()
+        startersAnim = null
         list.removeAllViews()
         views.clear()
         fades.clear()
@@ -1131,7 +1285,10 @@ class GeminiChatPanel(
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 .apply { topMargin = dp(14) }
         }
-        val icon = sparkle(18)
+        // 5.2.1: sits exactly where the reply's sparkle will be, so the reply takes its place
+        val icon = sparkle(16).apply {
+            (layoutParams as LinearLayout.LayoutParams).apply { topMargin = dp(2) }
+        }
         row.addView(icon)
         thinkingRow = row
         list.addView(row)
@@ -1140,24 +1297,21 @@ class GeminiChatPanel(
             row.alpha = 0f
             row.animate().alpha(1f).setDuration(200).start()
         }
-        val spin = ObjectAnimator.ofFloat(icon, View.ROTATION, 0f, 360f).apply {
-            duration = 2400
-            repeatCount = ValueAnimator.INFINITE
-            interpolator = LinearInterpolator()
-        }
-        val pulse = ObjectAnimator.ofPropertyValuesHolder(
+        // 5.2.1: no more spinning. The sparkle breathes: it slowly grows a little and brightens,
+        // then settles back, like a soft inhale and exhale.
+        val breathe = ObjectAnimator.ofPropertyValuesHolder(
             icon,
-            PropertyValuesHolder.ofFloat(View.SCALE_X, 0.8f, 1.1f),
-            PropertyValuesHolder.ofFloat(View.SCALE_Y, 0.8f, 1.1f),
-            PropertyValuesHolder.ofFloat(View.ALPHA, 0.55f, 1f),
+            PropertyValuesHolder.ofFloat(View.SCALE_X, 0.78f, 1f),
+            PropertyValuesHolder.ofFloat(View.SCALE_Y, 0.78f, 1f),
+            PropertyValuesHolder.ofFloat(View.ALPHA, 0.35f, 1f),
         ).apply {
-            duration = 800
+            duration = 1100
             repeatCount = ValueAnimator.INFINITE
             repeatMode = ValueAnimator.REVERSE
+            interpolator = AccelerateDecelerateInterpolator()
         }
-        val set = android.animation.AnimatorSet().apply { playTogether(spin, pulse) }
-        thinkingAnim = set
-        set.start()
+        thinkingAnim = breathe
+        breathe.start()
         if (nearBottom()) scrollToEnd(true)
     }
 
@@ -1192,9 +1346,35 @@ class GeminiChatPanel(
         if (fade == null) {
             if (views[item.key] == null) addItemView(item, animate = true)
         } else {
-            fade.append(cleanText(delta))
+            syncReply(fade, item, final = false)
         }
         if (stick) scrollToEnd(true)
+    }
+
+    /**
+     * 5.2.1: the reply on screen always follows the reply's full text, not just the newest
+     * piece, so nothing goes missing even if a piece was skipped or a ** was split in two.
+     */
+    private fun syncReply(fade: WordFade, item: ChatItem.Assistant, final: Boolean) {
+        var clean = cleanText(item.text.toString())
+        // half of a ** may still be on its way; it shows when the reply ends
+        if (!final) clean = clean.trimEnd('*', '_')
+        val shown = fade.shown
+        if (clean == shown) return
+        if (clean.startsWith(shown)) fade.append(clean.substring(shown.length))
+        else fade.setInstant(clean)
+    }
+
+    /** When a turn ends: every reply complete, and every message on screen. */
+    private fun reconcile() {
+        val items = host.session().items
+        if (items.any { views[it.key] == null }) {
+            rebuild()
+            return
+        }
+        for (item in items) {
+            if (item is ChatItem.Assistant) fades[item.key]?.let { syncReply(it, item, final = true) }
+        }
     }
 
     override fun onThinking(thinking: Boolean) {
@@ -1205,10 +1385,13 @@ class GeminiChatPanel(
     override fun onBusy(busy: Boolean) {
         if (!isOpen) return
         updateSend()
+        if (!busy) reconcile()
     }
 
     override fun onOpenArtist(name: String) {
-        if (isOpen) close { host.openArtist(name) } else host.openArtist(name)
+        // 5.2.1: only while you're looking at the chat. A reply that lands after you closed it
+        // no longer yanks you out of Settings or whatever screen you went to.
+        if (isOpen) close { host.openArtist(name) }
     }
 
     override fun onCleared() {
@@ -1227,11 +1410,14 @@ class GeminiChatPanel(
         if (starters.visibility != View.VISIBLE) return
         val h = starters.height
         starters.animate().alpha(0f).setDuration(180).withEndAction {
+            // New chat was tapped meanwhile: the starters stay
+            if (host.session().isEmpty) return@withEndAction
             if (h <= 0) {
                 starters.visibility = View.GONE
                 return@withEndAction
             }
-            ValueAnimator.ofInt(h, 0).apply {
+            startersAnim?.cancel()
+            startersAnim = ValueAnimator.ofInt(h, 0).apply {
                 duration = 200
                 interpolator = emphasized
                 addUpdateListener {
@@ -1251,8 +1437,19 @@ class GeminiChatPanel(
     /** For MainActivity.onDestroy: stop listening (the session lives on in MinimApp). */
     fun detach() {
         if (host.session().listener === this) host.session().listener = null
+        morphGen++
+        root.removeCallbacks(closeSafety)
+        root.removeCallbacks(imeWatchdog)
         stopThinking()
         morph?.cancel()
         settle?.cancel()
+        startersAnim?.cancel()
+        fades.values.forEach { it.finish() }
+        keyboardResizeMode(false)
+    }
+
+    private companion object {
+        const val CLOSE_SAFETY_MS = 700L
+        const val IME_WATCHDOG_MS = 1200L
     }
 }

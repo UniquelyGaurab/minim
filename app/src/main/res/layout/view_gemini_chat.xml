@@ -4,7 +4,7 @@
   screen tall with the music still showing behind it; drag the top up for full screen.
   Every colour comes from the palette tags, so it follows the playing song's cover.
 -->
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<com.minim.music.ui.GeminiRootLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/gemini_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -285,4 +285,4 @@
             </FrameLayout>
         </LinearLayout>
     </LinearLayout>
-</FrameLayout>
+</com.minim.music.ui.GeminiRootLayout>

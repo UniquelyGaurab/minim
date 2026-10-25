@@ -65,7 +65,15 @@ class GeminiChatSession(
 
     val isEmpty: Boolean get() = items.isEmpty()
 
+    /**
+     * 5.2.1: each send gets a number. A turn that was replaced (New chat, or a new message
+     * right after it) can no longer add text, errors or state changes to the chat that
+     * replaced it.
+     */
+    private var turnId = 0
+
     fun clear() {
+        turnId++
         job?.cancel()
         job = null
         items.clear()
@@ -123,25 +131,32 @@ class GeminiChatSession(
         history += mapOf("role" to "user", "parts" to listOf(mapOf("text" to prefix + msg)))
         setBusy(true)
         setThinking(true)
+        val myTurn = ++turnId
         job = scope.launch {
             try {
                 val ep = endpoint()
-                runTurns(ep, actions, systemPrompt)
+                runTurns(ep, actions, systemPrompt, myTurn)
             } catch (e: CancellationException) {
-                rollback(snapshot)
+                if (turnId == myTurn) rollback(snapshot)
                 throw e
             } catch (e: GeminiException) {
-                rollback(snapshot)
-                add(ChatItem.Error(e.problem))
+                if (turnId == myTurn) {
+                    rollback(snapshot)
+                    add(ChatItem.Error(e.problem))
+                }
             } catch (t: Throwable) {
-                rollback(snapshot)
-                add(ChatItem.Error(GeminiProblem.Other(t.javaClass.simpleName)))
+                if (turnId == myTurn) {
+                    rollback(snapshot)
+                    add(ChatItem.Error(GeminiProblem.Other(t.javaClass.simpleName)))
+                }
             } finally {
-                currentAssistant?.done = true
-                currentAssistant = null
-                setThinking(false)
-                setBusy(false)
-                trimHistory()
+                if (turnId == myTurn) {
+                    currentAssistant?.done = true
+                    currentAssistant = null
+                    setThinking(false)
+                    setBusy(false)
+                    trimHistory()
+                }
             }
         }
         return true
@@ -176,7 +191,7 @@ class GeminiChatSession(
         )
     )
 
-    private suspend fun runTurns(ep: GeminiEndpoint, actions: MinimActions, systemPrompt: String) {
+    private suspend fun runTurns(ep: GeminiEndpoint, actions: MinimActions, systemPrompt: String, myTurn: Int) {
         val toolbox = ChatToolbox(actions, known)
         var round = 0
         while (true) {
@@ -184,7 +199,7 @@ class GeminiChatSession(
             setThinking(true)
             val turn = client.stream(ep, requestBody(systemPrompt)) { delta ->
                 post {
-                    if (job?.isActive != true) return@post
+                    if (turnId != myTurn || job?.isActive != true) return@post
                     setThinking(false)
                     val a = currentAssistant ?: ChatItem.Assistant().also {
                         add(it)
