@@ -21,8 +21,8 @@ android {
         applicationId = "com.minim.music"
         minSdk = 28
         targetSdk = 34
-        versionCode = 25
-        versionName = "4.9.9"
+        versionCode = 26
+        versionName = "4.9.10"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -73,6 +73,10 @@ android {
         jvmTarget = "17"
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     packaging {
         // Compress dex inside the APK to keep the download small
         dex {
@@ -121,4 +125,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     // v4.9.5: fake googlevideo server for the chunked reader tests
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    // hotfix 4.9.10: real Android views in JVM tests (the crash reproduction + crash catcher tests)
+    testImplementation("org.robolectric:robolectric:4.11.1")
+    testImplementation("androidx.test:core:1.5.0")
 }

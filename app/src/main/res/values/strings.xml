@@ -121,6 +121,12 @@
     <string name="settings_storage">Storage</string>
     <string name="clear_cache">Clear image cache</string>
     <string name="cache_cleared">Image cache cleared</string>
+    <!-- Hotfix 4.9.10: crash catcher card -->
+    <string name="crash_card_title">Minim crashed last time</string>
+    <string name="crash_card_body">Copy the report and send it over so it can be fixed.</string>
+    <string name="crash_card_copy">Copy</string>
+    <string name="crash_card_dismiss">Dismiss</string>
+    <string name="crash_card_copied">Crash report copied</string>
     <string name="settings_about">About</string>
     <string name="about_text">Minim %1$s (build %2$d)\nSearch by NewPipeExtractor. Lyrics from LrcLib.</string>
     <string name="about_credits">Designed by Gaurab\nBuilt by Charlie (Sesame AI)\nEarly code by Google Gemini</string>

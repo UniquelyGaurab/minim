@@ -61,9 +61,26 @@ class MinimApp : Application() {
      */
     val foreground = com.minim.music.util.AppForegroundTracker(clock = { android.os.SystemClock.elapsedRealtime() })
 
+    private fun installCrashReporter() {
+        try {
+            val version = try {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, 0).let { "${it.versionName} (${it.longVersionCode})" }
+            } catch (_: Throwable) {
+                "?"
+            }
+            val device = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, " +
+                "Android ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})"
+            com.minim.music.util.CrashReporter.install(filesDir, version, device)
+        } catch (_: Throwable) {
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // Hotfix 4.9.10: save any crash's stack trace; MainActivity shows it once on the next launch
+        installCrashReporter()
         registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) = foreground.onActivityStarted()
             override fun onActivityStopped(activity: android.app.Activity) =

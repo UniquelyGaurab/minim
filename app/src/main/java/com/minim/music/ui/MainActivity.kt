@@ -325,6 +325,8 @@ class MainActivity : AppCompatActivity() {
         if (!app.preferences.welcomeDone) showWelcome()
         else if (savedInstanceState == null) playStartupAnimation()
         observe()
+        // Hotfix 4.9.10: "Minim crashed last time" with a Copy button, once, after a crash
+        CrashCard.showIfPending(this, pal)
 
         lifecycleScope.launch {
             app.database.refreshLikedCache()

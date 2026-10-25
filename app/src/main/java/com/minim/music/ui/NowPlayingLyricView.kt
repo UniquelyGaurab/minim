@@ -49,8 +49,11 @@ class NowPlayingLyricView @JvmOverloads constructor(
             faint = value
             sizedOnce = true
             if (value) {
-                val sp = NowPlayingLyricSlot.UNAVAILABLE_TEXT_SP
-                TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(this, sp, sp, 1, TypedValue.COMPLEX_UNIT_SP)
+                // Hotfix 4.9.10: a fixed size, not auto-size with min == max. Android throws
+                // IllegalArgumentException ("Maximum auto-size text size ... is less or equal to
+                // minimum") for that, which crashed 4.9.9 on every song without lyrics.
+                TextViewCompat.setAutoSizeTextTypeWithDefaults(this, TextViewCompat.AUTO_SIZE_TEXT_TYPE_NONE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, NowPlayingLyricSlot.UNAVAILABLE_TEXT_SP.toFloat())
             } else {
                 TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(this, MIN_SP, MAX_SP, 1, TypedValue.COMPLEX_UNIT_SP)
             }
