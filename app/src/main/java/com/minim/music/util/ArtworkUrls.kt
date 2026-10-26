@@ -69,9 +69,9 @@ object ArtworkUrls {
         return GOOGLE_HOSTS.any { host == it || host.endsWith(".$it") }
     }
 
-    private val WH = Regex("""(^|-)w\d+-h\d+(?=-|$)""")
-    private val H_THEN_W = Regex("""(^|-)h\d+-w\d+(?=-|$)""")
-    private val S = Regex("""(^|-)s\d+(?=-|$)""")
+    private val WH = SafeRegex.of("""(^|-)w\d+-h\d+(?=-|$)""")
+    private val H_THEN_W = SafeRegex.of("""(^|-)h\d+-w\d+(?=-|$)""")
+    private val S = SafeRegex.of("""(^|-)s\d+(?=-|$)""")
 
     /**
      * [url] with its size option set to [size] x [size]. Only the options part after the last '=' in the
@@ -97,12 +97,12 @@ object ArtworkUrls {
 
     // ---- YouTube video thumbnails ----------------------------------------------------------------
 
-    private val VIDEO_ID = Regex("""^[A-Za-z0-9_-]{11}$""")
+    private val VIDEO_ID = SafeRegex.of("""^[A-Za-z0-9_-]{11}$""")
 
     /** The video id of an i.ytimg.com / img.youtube.com `/vi/<id>/...` thumbnail, or null. */
     fun videoThumbId(url: String): String? {
         val host = hostOf(url) ?: return null
-        if (host != "i.ytimg.com" && !host.matches(Regex("""i\d\.ytimg\.com""")) && host != "img.youtube.com") return null
+        if (host != "i.ytimg.com" && !host.matches(SafeRegex.of("""i\d\.ytimg\.com""")) && host != "img.youtube.com") return null
         val path = try {
             URI(url).rawPath
         } catch (e: Exception) {

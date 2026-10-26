@@ -1,5 +1,6 @@
 package com.minim.music.ui
 
+import com.minim.music.util.SafeRegex
 import com.minim.music.data.greetings.GreetingData
 import com.minim.music.data.greetings.GreetingTokens
 import com.minim.music.data.greetings.RemoteGreeting
@@ -195,9 +196,9 @@ object Greetings {
 
     // ---- Shortening long names ------------------------------------------------------------------
 
-    private val BRACKETS = Regex("\\s*[(\\[][^)\\]]*[)\\]]")
-    private val FEAT = Regex("\\s+(feat\\.?|ft\\.?|featuring)\\s+.*$", RegexOption.IGNORE_CASE)
-    private val SPACES = Regex("\\s+")
+    private val BRACKETS = SafeRegex.of("\\s*[(\\[][^)\\]]*[)\\]]")
+    private val FEAT = SafeRegex.of("\\s+(feat\\.?|ft\\.?|featuring)\\s+.*$", RegexOption.IGNORE_CASE)
+    private val SPACES = SafeRegex.of("\\s+")
 
     /**
      * A song title as people say it: no "(Official Video)", "[NCS Release]" or "feat. ...", no
@@ -241,7 +242,7 @@ object Greetings {
     /** Names up to this many characters stay whole in greetings. */
     const val GREETING_ARTIST_MAX = 12
 
-    private val DOTTED_INITIALS = Regex("^(\\p{L}\\.)+\\p{L}?\\.?$")
+    private val DOTTED_INITIALS = SafeRegex.of("^(\\p{L}\\.)+\\p{L}?\\.?$")
 
     /** "A.R.", "J.", "A", "SP": dotted initials, a single letter, or 2-3 capitals before the surname. */
     private fun isInitials(word: String): Boolean =

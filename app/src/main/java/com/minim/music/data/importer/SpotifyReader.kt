@@ -1,5 +1,6 @@
 package com.minim.music.data.importer
 
+import com.minim.music.util.SafeRegex
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -35,7 +36,7 @@ class SpotifyReader(private val http: OkHttpClient) {
                 if (final.contains("open.spotify.com")) return@withContext final
                 // app.link pages put the real link in the page instead of redirecting
                 val body = resp.body?.string().orEmpty()
-                Regex("""https://open\.spotify\.com/(?:playlist|album)/[A-Za-z0-9]+""").find(body)?.value
+                SafeRegex.of("""https://open\.spotify\.com/(?:playlist|album)/[A-Za-z0-9]+""").find(body)?.value
             }
         } catch (_: Exception) {
             null

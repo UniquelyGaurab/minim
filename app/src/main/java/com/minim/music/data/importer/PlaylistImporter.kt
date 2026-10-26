@@ -10,6 +10,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -108,14 +109,33 @@ class PlaylistImporter(
             try {
                 _state.value = run(input, origin)
             } catch (e: CancellationException) {
-                throw e
+                // The user's ✕ (or a newer import) cancels the job: stop quietly. A timeout or other
+                // CancellationException from inside the work, while the job itself is still active,
+                // is a failed import, not a card stuck on "Importing".
+                if (!isActive) throw e
+                fail(firstName, ImportMessages.UNEXPECTED, e)
             } catch (e: ImportFailure) {
-                _state.value = ImportState.Failed(_state.value?.name ?: firstName, e.message ?: "Couldn't import")
-            } catch (e: Exception) {
-                _state.value = ImportState.Failed(_state.value?.name ?: firstName, "Couldn't import this playlist. Try again.")
+                fail(firstName, e.message ?: ImportMessages.UNEXPECTED, null)
+            } catch (t: Throwable) {
+                // 5.3.1: Throwable, not Exception. 5.3.0's crash was an ExceptionInInitializerError
+                // (an Error) from a class that failed to load, which slipped past `catch (Exception)`
+                // and took the whole app down. Nothing in an import may crash the app: whatever goes
+                // wrong ends as a failed import on the Library card ("tap to see why").
+                fail(firstName, ImportMessages.UNEXPECTED, t)
             }
         }
         return true
+    }
+
+    private fun fail(firstName: String, message: String, cause: Throwable?) {
+        if (cause != null) {
+            try {
+                android.util.Log.e("Minim", "Import failed", cause)
+            } catch (_: Throwable) {
+                // no Android Log in plain unit tests
+            }
+        }
+        _state.value = ImportState.Failed(_state.value?.name ?: firstName, message)
     }
 
     fun cancel() {
@@ -287,6 +307,8 @@ object ImportMessages {
         "Minim can't read this Spotify playlist. Only public playlists work: make it public in Spotify and try again."
     const val OFFLINE = "Couldn't reach Spotify. Check your connection and try again."
     const val SEARCH_FAILED = "Couldn't search YouTube for these songs. Check your connection and try again."
+    /** Anything unexpected (a bug, not the network): the card shows this instead of the app crashing. */
+    const val UNEXPECTED = "Couldn't import this playlist. Try again."
 
     fun unsupported(why: ImportInput.Why): String = when (why) {
         ImportInput.Why.SPOTIFY_NOT_PLAYLIST -> "That Spotify link isn't a playlist or an album."

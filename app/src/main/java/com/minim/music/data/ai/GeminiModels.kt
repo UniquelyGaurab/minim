@@ -1,5 +1,7 @@
 package com.minim.music.data.ai
 
+import com.minim.music.util.SafeRegex
+
 /**
  * v5.2.0: the models the Settings dropdown offers. Taken from Google's Gemini API
  * model list (ai.google.dev/gemini-api/docs/models, October 2026): the current
@@ -17,7 +19,7 @@ object GeminiModels {
     /** The newest Flash-Lite model. */
     val DEFAULT: String = PRESETS.first().id
 
-    private val ID = Regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+    private val ID = SafeRegex.of("^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 
     /** Trims what you paste from AI Studio: spaces, quotes and a leading "models/". */
     fun normalize(raw: String?): String {

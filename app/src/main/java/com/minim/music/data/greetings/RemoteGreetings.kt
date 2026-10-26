@@ -1,5 +1,6 @@
 package com.minim.music.data.greetings
 
+import com.minim.music.util.SafeRegex
 import java.util.Calendar
 
 /**
@@ -108,7 +109,7 @@ object GreetingTokens {
     const val PLAYING = "playing"
     const val SONG_LIKED = "songliked"
 
-    val TOKEN = Regex("\\{([A-Za-z_]+)\\}")
+    val TOKEN = SafeRegex.of("\\{([A-Za-z_]+)\\}")
 
     fun tokensIn(text: String): Set<String> {
         if (text.indexOf('{') < 0) return emptySet()
@@ -284,8 +285,8 @@ object RemoteGreetingsParser {
     const val MIN_YEAR = 2000
     const val MAX_YEAR = 2200
 
-    private val DATE = Regex("^\\s*(\\d{1,2})\\s*[-/]\\s*(\\d{1,2})\\s*$")
-    private val SPACES = Regex("[ \\t\\u00A0]+")
+    private val DATE = SafeRegex.of("^\\s*(\\d{1,2})\\s*[-/]\\s*(\\d{1,2})\\s*$")
+    private val SPACES = SafeRegex.of("[ \\t\\u00A0]+")
 
     fun parse(text: String?): RemoteGreetingFile? {
         if (text.isNullOrBlank()) return null
@@ -389,7 +390,7 @@ object RemoteGreetingsParser {
         "wed" to Calendar.WEDNESDAY, "thu" to Calendar.THURSDAY, "fri" to Calendar.FRIDAY,
         "sat" to Calendar.SATURDAY
     )
-    private val HOURS = Regex("^\\s*(\\d{1,2})\\s*-\\s*(\\d{1,2})\\s*$")
+    private val HOURS = SafeRegex.of("^\\s*(\\d{1,2})\\s*-\\s*(\\d{1,2})\\s*$")
 
     /**
      * 5.1.0: an entry's conditions ("min", "max", "needs", "hours", "days", "playing", "liked"), or

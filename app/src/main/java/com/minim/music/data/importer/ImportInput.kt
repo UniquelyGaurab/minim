@@ -1,5 +1,6 @@
 package com.minim.music.data.importer
 
+import com.minim.music.util.SafeRegex
 import java.util.Locale
 
 /**
@@ -52,10 +53,10 @@ object ImportDetect {
 
     const val MAX_LINES = 1000
 
-    private val URL = Regex("""(?i)\b(?:https?://|www\.|open\.spotify\.com/|music\.youtube\.com/|youtube\.com/|m\.youtube\.com/|youtu\.be/|spotify\.link/|spoti\.fi/)\S+""")
-    private val SPOTIFY_URI = Regex("""(?i)\bspotify:(playlist|album|track|artist|episode|show|user):([A-Za-z0-9]+)""")
-    private val SPOTIFY_PATH = Regex("""(?i)^/(?:intl-[a-z_-]+/|embed/)?(playlist|album|track|artist|episode|show|user)/([A-Za-z0-9]+)""")
-    private val LIST_PARAM = Regex("""[?&]list=([A-Za-z0-9_-]+)""")
+    private val URL = SafeRegex.of("""(?i)\b(?:https?://|www\.|open\.spotify\.com/|music\.youtube\.com/|youtube\.com/|m\.youtube\.com/|youtu\.be/|spotify\.link/|spoti\.fi/)\S+""")
+    private val SPOTIFY_URI = SafeRegex.of("""(?i)\bspotify:(playlist|album|track|artist|episode|show|user):([A-Za-z0-9]+)""")
+    private val SPOTIFY_PATH = SafeRegex.of("""(?i)^/(?:intl-[a-z_-]+/|embed/)?(playlist|album|track|artist|episode|show|user)/([A-Za-z0-9]+)""")
+    private val LIST_PARAM = SafeRegex.of("""[?&]list=([A-Za-z0-9_-]+)""")
 
     fun detect(raw: String): ImportInput {
         val text = raw.trim()
@@ -106,10 +107,10 @@ object ImportDetect {
 
     // ---- plain text ------------------------------------------------------------------------------
 
-    private val NUMBERING = Regex("""^\s*(?:\d{1,4}\s*[.):\]-]\s+|[-*•·▪►]\s*)""")
-    private val TRAILING_TIME = Regex("""\s*[\[(]?\b\d{1,2}:\d{2}(?::\d{2})?\b[\])]?\s*$""")
-    private val DASH = Regex("""\s+[-–—]\s+|\s*[–—]\s*""")
-    private val BY = Regex("""\s+by\s+""", RegexOption.IGNORE_CASE)
+    private val NUMBERING = SafeRegex.of("""^\s*(?:\d{1,4}\s*[.):\]-]\s+|[-*•·▪►]\s*)""")
+    private val TRAILING_TIME = SafeRegex.of("""\s*[\[(]?\b\d{1,2}:\d{2}(?::\d{2})?\b[\])]?\s*$""")
+    private val DASH = SafeRegex.of("""\s+[-–—]\s+|\s*[–—]\s*""")
+    private val BY = SafeRegex.of("""\s+by\s+""", RegexOption.IGNORE_CASE)
 
     /** One song per line. Numbering, bullets and times are dropped; repeats are removed. */
     fun lines(text: String): ImportInput {
@@ -136,7 +137,7 @@ object ImportDetect {
         return SourceSong(line, emptyList(), line = line)
     }
 
-    private val ARTIST_SPLIT = Regex("""\s*(?:,|&|\bfeat\.?|\bft\.?|\bfeaturing\b)\s*""", RegexOption.IGNORE_CASE)
+    private val ARTIST_SPLIT = SafeRegex.of("""\s*(?:,|&|\bfeat\.?|\bft\.?|\bfeaturing\b)\s*""", RegexOption.IGNORE_CASE)
 
     fun splitArtists(s: String): List<String> =
         s.split(ARTIST_SPLIT).map { it.trim() }.filter { it.isNotEmpty() }

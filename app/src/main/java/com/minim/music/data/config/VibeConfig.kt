@@ -1,5 +1,6 @@
 package com.minim.music.data.config
 
+import com.minim.music.util.SafeRegex
 import com.minim.music.data.greetings.DateRange
 import com.minim.music.data.greetings.RemoteGreeting
 import com.minim.music.data.greetings.RemoteGreetingFile
@@ -154,9 +155,9 @@ object VibeConfigParser {
     const val MAX_BUTTON = 24
     const val MAX_LINK = 500
 
-    private val FULL_DATE = Regex("^\\s*(\\d{4})\\s*-\\s*(\\d{1,2})\\s*-\\s*(\\d{1,2})\\s*$")
-    private val HEX = Regex("^#?([0-9a-fA-F]{6})$")
-    private val ID = Regex("^[A-Za-z0-9_.-]{1,$MAX_ID}$")
+    private val FULL_DATE = SafeRegex.of("^\\s*(\\d{4})\\s*-\\s*(\\d{1,2})\\s*-\\s*(\\d{1,2})\\s*$")
+    private val HEX = SafeRegex.of("^#?([0-9a-fA-F]{6})$")
+    private val ID = SafeRegex.of("^[A-Za-z0-9_.-]{1,$MAX_ID}$")
 
     fun parse(data: Map<*, *>?): VibeConfig {
         if (data == null) return VibeConfig.DEFAULT
@@ -341,7 +342,7 @@ object VibeConfigParser {
 
     private fun slug(name: String): String? =
         name.lowercase().map { if (it.isLetterOrDigit() && it.code < 128) it else '-' }.joinToString("")
-            .trim('-').replace(Regex("-+"), "-").take(MAX_ID).takeIf { it.isNotEmpty() }
+            .trim('-').replace(SafeRegex.of("-+"), "-").take(MAX_ID).takeIf { it.isNotEmpty() }
 
     /**
      * Trimmed text without control characters, or null when empty or longer than [max].
@@ -357,8 +358,8 @@ object VibeConfigParser {
                 else -> out.append(c)
             }
         }
-        var t = out.toString().split('\n').joinToString("\n") { it.replace(Regex("[ \\t\\u00A0]+"), " ").trim() }
-        t = t.replace(Regex("\n{3,}"), "\n\n").trim()
+        var t = out.toString().split('\n').joinToString("\n") { it.replace(SafeRegex.of("[ \\t\\u00A0]+"), " ").trim() }
+        t = t.replace(SafeRegex.of("\n{3,}"), "\n\n").trim()
         if (t.isEmpty() || t.length > max) return null
         return t
     }

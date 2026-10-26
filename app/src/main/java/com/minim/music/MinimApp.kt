@@ -60,7 +60,17 @@ class MinimApp : Application() {
     val importer: com.minim.music.data.importer.PlaylistImporter by lazy {
         com.minim.music.data.importer.PlaylistImporter(
             com.minim.music.data.importer.AppImportBackend(sourceAdapter, okHttpClient),
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob())
+            // 5.3.1: the importer turns every error into a failed import itself; this handler is the
+            // last line of defence so nothing thrown on the import's threads can ever crash the app.
+            kotlinx.coroutines.CoroutineScope(
+                kotlinx.coroutines.SupervisorJob() +
+                    kotlinx.coroutines.CoroutineExceptionHandler { _, t ->
+                        try {
+                            android.util.Log.e("Minim", "Import error", t)
+                        } catch (_: Throwable) {
+                        }
+                    }
+            )
         )
     }
 

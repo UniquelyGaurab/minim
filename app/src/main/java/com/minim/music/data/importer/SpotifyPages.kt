@@ -1,5 +1,6 @@
 package com.minim.music.data.importer
 
+import com.minim.music.util.SafeRegex
 import com.minim.music.data.greetings.MiniJson
 
 /**
@@ -28,7 +29,7 @@ object SpotifyPages {
 
     data class Page(val songs: List<SourceSong>, val total: Int)
 
-    private val NEXT_DATA = Regex("""<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>""", RegexOption.DOT_MATCHES_ALL)
+    private val NEXT_DATA = SafeRegex.of("""<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>""", RegexOption.DOT_MATCHES_ALL)
 
     /** Null when the page has no playlist in it (private, deleted, or not a real ID). */
     fun parseEmbed(html: String): Embed? {
@@ -81,8 +82,8 @@ object SpotifyPages {
         return Page(songs, total)
     }
 
-    private val INITIAL_STATE = Regex("""<script[^>]*id="initialState"[^>]*>(.*?)</script>""", RegexOption.DOT_MATCHES_ALL)
-    private val TOTAL = Regex(""""totalCount"\s*:\s*(\d+)""")
+    private val INITIAL_STATE = SafeRegex.of("""<script[^>]*id="initialState"[^>]*>(.*?)</script>""", RegexOption.DOT_MATCHES_ALL)
+    private val TOTAL = SafeRegex.of(""""totalCount"\s*:\s*(\d+)""")
 
     /**
      * How many songs the playlist has, from the regular open.spotify.com/playlist/ID page (its

@@ -93,7 +93,7 @@ object CrashReporter {
         val traceStart = lines.indexOfFirst { it.startsWith("Thread: ") }
         val first = lines.drop(if (traceStart >= 0) traceStart + 1 else 0).firstOrNull { it.isNotBlank() }
             ?: return ""
-        val short = first.trim().replace(Regex("^(?:[a-z0-9_]+\\.)+"), "")
+        val short = first.trim().replace(SafeRegex.of("^(?:[a-z0-9_]+\\.)+"), "")
         return if (short.length > 140) short.take(140) + "…" else short
     }
 }

@@ -1,5 +1,6 @@
 package com.minim.music.data.update
 
+import com.minim.music.util.SafeRegex
 import com.minim.music.data.greetings.MiniJson
 
 /** v4.9.6: one downloadable file of a GitHub Release. */
@@ -193,25 +194,25 @@ object UpdateRules {
         return installed != null && v <= installed
     }
 
-    private val linkRegex = Regex("""!?\[([^\]]*)]\([^)]*\)""")
-    private val htmlTagRegex = Regex("""<[^>]{1,200}>""")
+    private val linkRegex = SafeRegex.of("""!?\[([^\]]*)\]\([^)]*\)""")
+    private val htmlTagRegex = SafeRegex.of("""<[^>]{1,200}>""")
 
     private fun cleanLine(raw: String): String {
         var s = raw.trim()
         if (s.isEmpty()) return ""
-        if (s.matches(Regex("""^([-*_]\s*){3,}$"""))) return "" // horizontal rule
+        if (s.matches(SafeRegex.of("""^([-*_]\s*){3,}$"""))) return "" // horizontal rule
         if (s.startsWith("```")) return ""
-        s = s.replace(Regex("""^#{1,6}\s*"""), "")
-        s = s.replace(Regex("""^>\s?"""), "")
+        s = s.replace(SafeRegex.of("""^#{1,6}\s*"""), "")
+        s = s.replace(SafeRegex.of("""^>\s?"""), "")
         var bullet = false
-        Regex("""^([-*+]|\d{1,3}[.)])\s+""").find(s)?.let {
+        SafeRegex.of("""^([-*+]|\d{1,3}[.)])\s+""").find(s)?.let {
             s = s.substring(it.range.last + 1)
             bullet = true
         }
         s = linkRegex.replace(s) { it.groupValues[1] }
         s = htmlTagRegex.replace(s, "")
         s = s.replace("**", "").replace("__", "").replace("`", "")
-        s = s.replace(Regex("""\s+"""), " ").trim()
+        s = s.replace(SafeRegex.of("""\s+"""), " ").trim()
         if (s.isEmpty()) return ""
         return if (bullet) "• $s" else s
     }

@@ -1,5 +1,6 @@
 package com.minim.music.data.importer
 
+import com.minim.music.util.SafeRegex
 import com.minim.music.data.model.Track
 import java.text.Normalizer
 import java.util.Locale
@@ -29,7 +30,7 @@ object SongMatcher {
 
     /** Lower case, accents dropped, letters and digits (any script) separated by single spaces. */
     fun norm(s: String): String {
-        val d = Normalizer.normalize(s, Normalizer.Form.NFKD).replace(Regex("\\p{Mn}+"), "")
+        val d = Normalizer.normalize(s, Normalizer.Form.NFKD).replace(SafeRegex.of("\\p{Mn}+"), "")
         val sb = StringBuilder(d.length)
         var space = true
         for (c in d.lowercase(Locale.ROOT)) {
@@ -44,17 +45,17 @@ object SongMatcher {
         return sb.toString().trim()
     }
 
-    private val BRACKETS = Regex("""\([^)]*\)|\[[^]]*]|\{[^}]*}|（[^）]*）|【[^】]*】""")
-    private val FEAT = Regex("""(?i)\s(?:feat\.?|ft\.?|featuring)\s.*$""")
-    private val SUFFIX_WORDS = Regex("""(?i)remaster|version|edit|mix|live|from|mono|stereo|radio|bonus|demo|acoustic|session|recorded|soundtrack|ost""")
-    private val VIDEO_WORDS = Regex(
+    private val BRACKETS = SafeRegex.of("""\([^)]*\)|\[[^\]]*\]|\{[^\}]*\}|（[^）]*）|【[^】]*】""")
+    private val FEAT = SafeRegex.of("""(?i)\s(?:feat\.?|ft\.?|featuring)\s.*$""")
+    private val SUFFIX_WORDS = SafeRegex.of("""(?i)remaster|version|edit|mix|live|from|mono|stereo|radio|bonus|demo|acoustic|session|recorded|soundtrack|ost""")
+    private val VIDEO_WORDS = SafeRegex.of(
         """(?i)\b(?:official\s+(?:music\s+)?(?:video|audio|lyric\s+video|lyrics?\s+video|visuali[sz]er)|official|lyrics?\s+video|lyrical(?:\s+video)?|lyrics?|full\s+(?:video|song|audio)|video\s+song|audio\s+song|hd|4k|hq|mv|m/v)\b"""
     )
 
     /** The title without brackets, "feat." parts, " - Remastered 2011" style endings and video words. */
     fun core(title: String): String {
         var t = BRACKETS.replace(title, " ")
-        val dash = Regex("""\s[-–—]\s""").find(t)
+        val dash = SafeRegex.of("""\s[-–—]\s""").find(t)
         if (dash != null) {
             val after = t.substring(dash.range.last + 1)
             if (SUFFIX_WORDS.containsMatchIn(after)) t = t.substring(0, dash.range.first)

@@ -5552,7 +5552,12 @@ class MainActivity : AppCompatActivity() {
                 if (animationsOn()) go.animate().alpha(a).setDuration(180L).start() else go.alpha = a
             }
             fun onText(text: String) {
-                found = com.minim.music.data.importer.ImportDetect.detect(text)
+                // 5.3.1: reading the box can never crash the app; if it fails, Import stays greyed out
+                found = try {
+                    com.minim.music.data.importer.ImportDetect.detect(text)
+                } catch (t: Throwable) {
+                    com.minim.music.data.importer.ImportInput.Empty
+                }
                 val line = importDetectedLine(found)
                 if (line == null) {
                     detected.visibility = View.GONE

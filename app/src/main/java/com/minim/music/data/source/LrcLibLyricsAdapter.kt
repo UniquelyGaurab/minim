@@ -1,5 +1,6 @@
 package com.minim.music.data.source
 
+import com.minim.music.util.SafeRegex
 import android.net.Uri
 import android.util.LruCache
 import com.minim.music.data.model.LyricsData
@@ -12,7 +13,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.regex.Pattern
 
 /**
  * Timed & plain lyrics adapter behind LyricsProvider abstraction, backed by the public LrcLib API.
@@ -233,16 +233,16 @@ class LrcLibLyricsAdapter(
 
     private fun cleanQueryMetadata(rawTitle: String): String {
         return rawTitle
-            .replace(Regex("\\s*\\((Official|Lyric|Audio|Video|Visualizer|HD|4K)[^)]*\\)", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("\\s*\\[(Official|Lyric|Audio|Video|Visualizer|HD|4K)[^]]*\\]", RegexOption.IGNORE_CASE), "")
+            .replace(SafeRegex.of("\\s*\\((Official|Lyric|Audio|Video|Visualizer|HD|4K)[^)]*\\)", RegexOption.IGNORE_CASE), "")
+            .replace(SafeRegex.of("\\s*\\[(Official|Lyric|Audio|Video|Visualizer|HD|4K)[^\\]]*\\]", RegexOption.IGNORE_CASE), "")
             .trim()
     }
 
     companion object {
-        private val LRC_LINE_PATTERN = Pattern.compile("^\\[(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?]")
+        private val LRC_LINE_PATTERN = SafeRegex.pattern("^\\[(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?\\]")
         private val ENHANCED_WORD_PATTERN =
-            Pattern.compile("<(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?>\\s*([^<]+)")
-        private val INLINE_TAG_CLEANER = Regex("<[^>]+>")
-        private val LRC_OFFSET_PATTERN = Regex("^\\[offset:\\s*([+-]?\\d+)\\s*]", RegexOption.IGNORE_CASE)
+            SafeRegex.pattern("<(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?>\\s*([^<]+)")
+        private val INLINE_TAG_CLEANER = SafeRegex.of("<[^>]+>")
+        private val LRC_OFFSET_PATTERN = SafeRegex.of("^\\[offset:\\s*([+-]?\\d+)\\s*\\]", RegexOption.IGNORE_CASE)
     }
 }

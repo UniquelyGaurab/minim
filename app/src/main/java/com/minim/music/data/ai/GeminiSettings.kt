@@ -1,5 +1,6 @@
 package com.minim.music.data.ai
 
+import com.minim.music.util.SafeRegex
 import android.content.Context
 import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
@@ -103,7 +104,7 @@ class GeminiSettings(context: Context) {
         fun cleanKey(raw: String): String = raw.trim().trim('"', '\'', '`').filterNot { it.isWhitespace() }
 
         /** AI Studio keys look like "AIza" + 35 characters. Only a hint; Google decides. */
-        fun looksLikeKey(raw: String): Boolean = Regex("^AIza[0-9A-Za-z_\\-]{30,}$").matches(cleanKey(raw))
+        fun looksLikeKey(raw: String): Boolean = SafeRegex.of("^AIza[0-9A-Za-z_\\-]{30,}$").matches(cleanKey(raw))
 
         /** "AIza…x9Qk" for showing which key is saved without showing it. */
         fun masked(key: String): String = if (key.length <= 8) "••••" else key.take(4) + "…" + key.takeLast(4)

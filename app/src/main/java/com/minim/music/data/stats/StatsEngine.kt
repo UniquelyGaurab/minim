@@ -1,5 +1,6 @@
 package com.minim.music.data.stats
 
+import com.minim.music.util.SafeRegex
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -161,7 +162,7 @@ object StatsEngine {
     fun primaryArtist(line: String): String {
         val t = line.trim()
         if (t.isEmpty() || t.equals("Unknown Artist", ignoreCase = true)) return ""
-        val first = t.split(Regex("""\s*(,|&|\bfeat\.?\s|\bft\.?\s|•)\s*""", RegexOption.IGNORE_CASE))
+        val first = t.split(SafeRegex.of("""\s*(,|&|\bfeat\.?\s|\bft\.?\s|•)\s*""", RegexOption.IGNORE_CASE))
             .firstOrNull { it.isNotBlank() }?.trim().orEmpty()
         return first.removeSuffix(" - Topic").trim()
     }

@@ -1,5 +1,6 @@
 package com.minim.music.data.source
 
+import com.minim.music.util.SafeRegex
 import android.util.LruCache
 import com.minim.music.data.model.Album
 import com.minim.music.data.model.ArtistCountKind
@@ -590,7 +591,7 @@ class MusicSourceAdapter(okHttpClient: OkHttpClient) {
         fun firstArtistName(line: String): String {
             val t = line.trim()
             if (t.isEmpty() || t.equals("Unknown Artist", ignoreCase = true)) return ""
-            return t.split(Regex("""\s*(,|&|\bfeat\.?\s|\bft\.?\s|•)\s*""", RegexOption.IGNORE_CASE))
+            return t.split(SafeRegex.of("""\s*(,|&|\bfeat\.?\s|\bft\.?\s|•)\s*""", RegexOption.IGNORE_CASE))
                 .firstOrNull { it.isNotBlank() }?.trim().orEmpty()
         }
 
@@ -604,8 +605,8 @@ class MusicSourceAdapter(okHttpClient: OkHttpClient) {
             if (url.isBlank()) return url
             if (!url.contains("ggpht.com") && !url.contains("googleusercontent.com")) return url
             return url
-                .replace(Regex("""=s\d+"""), "=s$size")
-                .replace(Regex("""=w\d+-h\d+"""), "=w$size-h$size")
+                .replace(SafeRegex.of("""=s\d+"""), "=s$size")
+                .replace(SafeRegex.of("""=w\d+-h\d+"""), "=w$size-h$size")
         }
 
         private const val MIX_CACHE_MS = 30L * 60L * 1000L
