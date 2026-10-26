@@ -17,8 +17,9 @@ object MiniJson {
 
     class MiniJsonException(message: String) : Exception(message)
 
-    fun parse(text: String): Any? {
-        if (text.length > MAX_CHARS) throw MiniJsonException("too long")
+    /** 5.3.0: [maxChars] lets the playlist import read bigger pages (Spotify) with the same reader. */
+    fun parse(text: String, maxChars: Int = MAX_CHARS): Any? {
+        if (text.length > maxChars) throw MiniJsonException("too long")
         val p = Parser(text)
         p.skipWs()
         val v = p.value(0)

@@ -48,6 +48,9 @@
 
     <include layout="@layout/view_list" />
 
+    <!-- 5.3.0: import review, above the playlist screen -->
+    <include layout="@layout/view_import_review" />
+
     <include layout="@layout/view_search" />
 
     <include

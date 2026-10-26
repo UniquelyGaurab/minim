@@ -386,6 +386,11 @@ class GridTileAdapter(
                 }
                 is GridTile.PlaylistTile -> {
                     title.text = tile.playlist.name
+                    // 5.3.0: an imported playlist says where it came from under its name
+                    com.minim.music.data.importer.ImportOrigin.fromCode(tile.playlist.source)?.let {
+                        subtitle.text = it.label
+                        subtitle.visibility = View.VISIBLE
+                    }
                     // Filled square; shows the first song's cover when the playlist has songs.
                     artwork.loadInto(art, tile.coverUrl, artPx)
                     box.contentDescription = tile.playlist.name
@@ -398,13 +403,14 @@ class GridTileAdapter(
                     box.contentDescription = "${tile.album.title}, ${tile.album.subtitle}"
                 }
                 is GridTile.NewPlaylist -> {
-                    title.setText(R.string.new_playlist)
+                    // 5.3.0: the "+" now offers New Playlist and Import Playlist
+                    title.setText(R.string.library_add_tile)
                     artwork.loadInto(art, null, artPx)
                     art.visibility = View.INVISIBLE // keeps the square size for the outline
                     outline.visibility = View.VISIBLE
                     icon.setImageResource(R.drawable.ic_add)
                     icon.visibility = View.VISIBLE
-                    box.contentDescription = res.getString(R.string.new_playlist)
+                    box.contentDescription = res.getString(R.string.library_add_tile)
                 }
             }
             Painter.paint(itemView, pal)
@@ -527,6 +533,90 @@ class QueueAdapter(
             down.isEnabled = position < size - 1
             artwork.loadInto(art, track.thumbnailUrl, dp(44))
             Painter.paint(itemView, pal)
+        }
+    }
+}
+
+// =============================================================================================
+// 5.3.0 import review: playlist song rows with a tick (saved) or a plus (left out). A doubtful
+// match says why under its name ("Check: remix?"); a song that wasn't found says so.
+// Tapping a doubtful or missing row opens its other options; tapping the mark ticks / unticks.
+// =============================================================================================
+
+class ImportReviewAdapter(
+    private val artwork: ArtworkPipeline,
+    private val onRow: (Int) -> Unit,
+    private val onMark: (Int) -> Unit
+) : RecyclerView.Adapter<ImportReviewAdapter.Holder>() {
+
+    private var items: List<com.minim.music.data.importer.ReviewItem> = emptyList()
+    private var pal: Pal = DEFAULT_PAL
+
+    fun submit(list: List<com.minim.music.data.importer.ReviewItem>) {
+        val old = items
+        items = list
+        if (old.size == list.size) {
+            for (i in list.indices) if (old[i] != list[i]) notifyItemChanged(i)
+        } else {
+            notifyDataSetChanged()
+        }
+    }
+
+    fun setPalette(p: Pal) {
+        pal = p
+        notifyDataSetChanged()
+    }
+
+    override fun getItemCount(): Int = items.size
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = Holder(inflate(parent, R.layout.item_import_row))
+
+    override fun onBindViewHolder(holder: Holder, position: Int) {
+        holder.bind(items[position], artwork, pal)
+        holder.card.setOnClickListener { holder.bindingAdapterPosition.takeIf { it >= 0 }?.let(onRow) }
+        holder.mark.setOnClickListener { holder.bindingAdapterPosition.takeIf { it >= 0 }?.let(onMark) }
+    }
+
+    class Holder(view: View) : RecyclerView.ViewHolder(view) {
+        val card: View = view.findViewById<View>(R.id.track_card).apply { clipToOutline = true }
+        val mark: ImageView = view.findViewById(R.id.import_mark)
+        private val art: ImageView = view.findViewById<ImageView>(R.id.track_art).apply { clipToOutline = true }
+        private val title: TextView = view.findViewById(R.id.track_title)
+        private val artist: TextView = view.findViewById(R.id.track_artist)
+
+        fun bind(item: com.minim.music.data.importer.ReviewItem, artwork: ArtworkPipeline, pal: Pal) {
+            val res = itemView.resources
+            val chosen = item.chosen
+            title.text = chosen?.title ?: item.source?.title.orEmpty()
+            artist.text = when {
+                chosen == null -> res.getString(R.string.import_not_found)
+                item.confidence == com.minim.music.data.importer.Confidence.DOUBTFUL ->
+                    res.getString(R.string.import_check, flagWords(res, item.flags)) + " · " + chosen.artist
+                else -> chosen.artist
+            }
+            styleSongRow(card, art, listOf(title, artist), false)
+            artwork.loadInto(art, chosen?.thumbnailUrl, dp(44))
+            val on = item.included && chosen != null
+            mark.setImageResource(if (on) R.drawable.ic_check else R.drawable.ic_add)
+            mark.contentDescription = res.getString(if (on) R.string.import_mark_tick else R.string.import_mark_add)
+            mark.visibility = if (chosen == null) View.INVISIBLE else View.VISIBLE
+            Painter.paint(itemView, pal)
+            // left-out songs fade back so the ticked ones read as the playlist
+            card.alpha = if (on) 1f else 0.5f
+        }
+
+        private fun flagWords(res: android.content.res.Resources, flags: Set<com.minim.music.data.importer.MatchFlag>): String {
+            val order = listOf(
+                com.minim.music.data.importer.MatchFlag.REMIX to R.string.import_flag_remix,
+                com.minim.music.data.importer.MatchFlag.COVER to R.string.import_flag_cover,
+                com.minim.music.data.importer.MatchFlag.LIVE to R.string.import_flag_live,
+                com.minim.music.data.importer.MatchFlag.VERSION to R.string.import_flag_version,
+                com.minim.music.data.importer.MatchFlag.OTHER_ARTIST to R.string.import_flag_artist,
+                com.minim.music.data.importer.MatchFlag.LENGTH to R.string.import_flag_length,
+                com.minim.music.data.importer.MatchFlag.WEAK to R.string.import_flag_weak
+            )
+            return order.firstOrNull { it.first in flags }?.let { res.getString(it.second) }
+                ?: res.getString(R.string.import_flag_weak)
         }
     }
 }

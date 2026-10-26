@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 5.3.0 import review: the playlist screen's title, subtitle and song rows, with a tick on each
+     song that will be saved and a Save pill at the bottom. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/screen_import"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clickable="true"
+    android:tag="bg"
+    android:visibility="gone">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/import_title"
+            style="@style/MinimText.Bold"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="36dp"
+            android:layout_marginTop="30dp"
+            android:layout_marginEnd="36dp"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:tag="text:fg"
+            android:textSize="22sp" />
+
+        <TextView
+            android:id="@+id/import_subtitle"
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="36dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginEnd="36dp"
+            android:tag="text:fg"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/import_note"
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="36dp"
+            android:layout_marginTop="10dp"
+            android:layout_marginEnd="36dp"
+            android:alpha="0.7"
+            android:tag="text:fg"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/import_tracks"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:overScrollMode="never"
+            android:paddingTop="22dp"
+            android:paddingBottom="120dp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/import_save"
+        style="@style/MinimText.Semi"
+        android:layout_width="wrap_content"
+        android:layout_height="48dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="32dp"
+        android:background="@drawable/shape_pill"
+        android:elevation="6dp"
+        android:gravity="center"
+        android:paddingStart="40dp"
+        android:paddingEnd="40dp"
+        android:tag="fill:fg text:bg"
+        android:textSize="15sp" />
+</FrameLayout>

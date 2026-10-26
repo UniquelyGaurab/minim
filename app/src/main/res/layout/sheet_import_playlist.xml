@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 5.3.0 Import Playlist: one paste box. Minim works out by itself whether it's a YouTube /
+     YouTube Music link, a Spotify link or plain "song – artist" lines; the line under the box says
+     what it found. Same box and pill as New playlist. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <EditText
+        android:id="@+id/import_input"
+        style="@style/MinimText.Semi"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/shape_box_outline"
+        android:gravity="top|start"
+        android:hint="@string/import_hint"
+        android:importantForAutofill="no"
+        android:inputType="textMultiLine|textNoSuggestions"
+        android:maxHeight="220dp"
+        android:minHeight="120dp"
+        android:paddingStart="20dp"
+        android:paddingTop="16dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="16dp"
+        android:scrollbars="vertical"
+        android:tag="text:fg fill:fg"
+        android:textSize="15sp" />
+
+    <TextView
+        android:id="@+id/import_detected"
+        style="@style/MinimText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:alpha="0.7"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:tag="text:fg"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/import_go"
+        style="@style/MinimText.Semi"
+        android:layout_width="wrap_content"
+        android:layout_height="44dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="18dp"
+        android:alpha="0.35"
+        android:background="@drawable/shape_pill"
+        android:enabled="false"
+        android:gravity="center"
+        android:paddingStart="36dp"
+        android:paddingEnd="36dp"
+        android:tag="fill:fg text:bg"
+        android:text="@string/import_go"
+        android:textSize="15sp" />
+</LinearLayout>

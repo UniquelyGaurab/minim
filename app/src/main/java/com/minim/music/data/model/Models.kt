@@ -63,7 +63,9 @@ data class Track(
 data class Playlist(
     val id: Long,
     val name: String,
-    val trackCount: Int
+    val trackCount: Int,
+    /** 5.3.0: "spotify" / "youtube" / "text" for an imported playlist, else null. */
+    val source: String? = null
 )
 
 data class LyricsWord(

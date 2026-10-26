@@ -88,6 +88,23 @@ class MusicSourceAdapter(okHttpClient: OkHttpClient) {
             }
         }
 
+    /**
+     * 5.3.0 import: one kind of search, songs (YouTube Music) or videos. Null when it failed, so
+     * the importer can tell "nothing found" from "couldn't search".
+     */
+    suspend fun searchForImport(query: String, videos: Boolean): List<Track>? = withContext(Dispatchers.IO) {
+        val q = query.trim()
+        if (q.isEmpty()) return@withContext emptyList()
+        try {
+            val filter = if (videos) YoutubeSearchQueryHandlerFactory.VIDEOS else YoutubeSearchQueryHandlerFactory.MUSIC_SONGS
+            executeSearchFilter(ServiceList.YouTube.searchQHFactory.fromQuery(q, listOf(filter), ""))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun executeSearchFilter(
         queryHandler: org.schabi.newpipe.extractor.linkhandler.SearchQueryHandler
     ): List<Track> {
@@ -476,6 +493,54 @@ class MusicSourceAdapter(okHttpClient: OkHttpClient) {
             SourceResult.Error("Couldn't load this album", e)
         }
     }
+
+    /**
+     * 5.3.0 import: every song of a YouTube / YouTube Music playlist, read straight through
+     * NewPipe (exact, nothing to match). Pages of about 100 until the end or [max] songs.
+     * [onProgress] gets the count read so far. Repeats inside the playlist are dropped.
+     */
+    suspend fun fetchPlaylistForImport(
+        url: String,
+        max: Int,
+        onProgress: (Int) -> Unit
+    ): SourceResult<ImportedYouTubeList> = withContext(Dispatchers.IO) {
+        try {
+            val extractor = ServiceList.YouTube.getPlaylistExtractor(url)
+            extractor.fetchPage()
+            val name = try { extractor.name } catch (_: Exception) { null }.orEmpty()
+            val total = try { extractor.streamCount } catch (_: Exception) { -1L }
+            val tracks = ArrayList<Track>()
+            var page = extractor.initialPage
+            page.items.mapNotNullTo(tracks) { toTrack(it) }
+            onProgress(tracks.size)
+            var pages = 1
+            while (page.hasNextPage() && tracks.size < max && pages < 200) {
+                kotlinx.coroutines.yield()
+                page = extractor.getPage(page.nextPage)
+                page.items.mapNotNullTo(tracks) { toTrack(it) }
+                pages++
+                onProgress(tracks.size)
+            }
+            val more = page.hasNextPage() && tracks.size >= max
+            val clean = tracks.distinctBy { it.id }.take(max)
+            SourceResult.Success(ImportedYouTubeList(name, clean, total, more))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            SourceResult.Error("Network unavailable or timed out. Check connection.", e)
+        } catch (e: Exception) {
+            SourceResult.Error("Couldn't read this playlist", e)
+        }
+    }
+
+    data class ImportedYouTubeList(
+        val name: String,
+        val tracks: List<Track>,
+        /** What YouTube says the playlist holds, -1 when unknown. */
+        val total: Long,
+        /** True when the playlist had more than the import limit. */
+        val cutAtLimit: Boolean
+    )
 
     private fun tabItems(channel: ChannelInfo, filter: String): List<InfoItem> {
         val tab = channel.tabs.firstOrNull { it.contentFilters.contains(filter) } ?: return emptyList()

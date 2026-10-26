@@ -56,6 +56,14 @@ class MinimApp : Application() {
     /** v4.9.8: when the quiet update check runs (cold start, then every few hours on coming back). */
     val updateSchedule = com.minim.music.data.update.UpdateCheckSchedule()
 
+    /** 5.3.0: background playlist import (YouTube, Spotify, plain lists); one at a time. */
+    val importer: com.minim.music.data.importer.PlaylistImporter by lazy {
+        com.minim.music.data.importer.PlaylistImporter(
+            com.minim.music.data.importer.AppImportBackend(sourceAdapter, okHttpClient),
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob())
+        )
+    }
+
     /** v5.0: the optional Google account (Firebase Auth). Created on first use, never throws. */
     val account: com.minim.music.data.account.MinimAccount by lazy {
         com.minim.music.data.account.MinimAccount(this)

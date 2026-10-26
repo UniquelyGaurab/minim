@@ -60,6 +60,7 @@ class LibraryDatabase(context: Context) :
         createV2Tables(db)
         createV3Tables(db)
         createV4Sync(db)
+        createV5Import(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -68,6 +69,12 @@ class LibraryDatabase(context: Context) :
         if (oldVersion < 2) createV2Tables(db)
         if (oldVersion < 3) createV3Tables(db)
         if (oldVersion < 4) createV4Sync(db)
+        if (oldVersion < 5) createV5Import(db)
+    }
+
+    /** 5.3.0: playlists.source = where an imported playlist came from ("spotify", "youtube", "text"). */
+    private fun createV5Import(db: SQLiteDatabase) {
+        addColumn(db, "playlists", "source", "TEXT")
     }
 
     override fun onDowngrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -773,7 +780,8 @@ class LibraryDatabase(context: Context) :
         )
     }
 
-    suspend fun createPlaylist(name: String): Long = withContext(Dispatchers.IO) {
+    /** [source] (5.3.0): set for an imported playlist, shown as "from Spotify" under its name. */
+    suspend fun createPlaylist(name: String, source: String? = null): Long = withContext(Dispatchers.IO) {
         val clean = name.trim()
         if (clean.isEmpty()) return@withContext -1L
         val db = writableDatabase
@@ -793,6 +801,7 @@ class LibraryDatabase(context: Context) :
                 put("uid", uid)
                 put("changed_at", now)
                 put("born", born)
+                if (source != null) put("source", source)
             }
             id = db.insertWithOnConflict("playlists", null, cv, SQLiteDatabase.CONFLICT_IGNORE)
             if (id != -1L) {
@@ -844,7 +853,7 @@ class LibraryDatabase(context: Context) :
     suspend fun getPlaylists(): List<Playlist> = withContext(Dispatchers.IO) {
         val result = ArrayList<Playlist>()
         val sql = """
-            SELECT p.id, p.name, COUNT(pt.track_id) AS cnt
+            SELECT p.id, p.name, COUNT(pt.track_id) AS cnt, p.source
             FROM playlists p
             LEFT JOIN playlist_tracks pt ON p.id = pt.playlist_id
             GROUP BY p.id
@@ -856,7 +865,8 @@ class LibraryDatabase(context: Context) :
                     Playlist(
                         id = c.getLong(0),
                         name = c.getString(1),
-                        trackCount = c.getInt(2)
+                        trackCount = c.getInt(2),
+                        source = if (c.isNull(3)) null else c.getString(3)
                     )
                 )
             }
@@ -880,6 +890,38 @@ class LibraryDatabase(context: Context) :
             playlistUidOf(db, playlistId)?.let { uid ->
                 db.delete("playlist_removed", "playlist_uid = ? AND track_id = ?", arrayOf(uid, track.id))
                 queueSync(db, "T|$uid|${track.id}")
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        notifySync(urgent = true)
+    }
+
+    /**
+     * 5.3.0 import: adds [tracks] in this order in one go (positions count up from now, so the
+     * playlist keeps the imported order). A song already in this playlist just stays once.
+     */
+    suspend fun addTracksToPlaylist(playlistId: Long, tracks: List<Track>) = withContext(Dispatchers.IO) {
+        if (tracks.isEmpty()) return@withContext
+        val db = writableDatabase
+        val now = System.currentTimeMillis()
+        db.beginTransaction()
+        try {
+            val uid = playlistUidOf(db, playlistId)
+            tracks.forEachIndexed { i, track ->
+                upsertTrackInternal(db, track)
+                val cv = ContentValues().apply {
+                    put("playlist_id", playlistId)
+                    put("track_id", track.id)
+                    put("position", now + i)
+                    put("changed_at", now + i)
+                }
+                db.insertWithOnConflict("playlist_tracks", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+                if (uid != null) {
+                    db.delete("playlist_removed", "playlist_uid = ? AND track_id = ?", arrayOf(uid, track.id))
+                    queueSync(db, "T|$uid|${track.id}")
+                }
             }
             db.setTransactionSuccessful()
         } finally {
@@ -993,6 +1035,6 @@ class LibraryDatabase(context: Context) :
 
     companion object {
         const val DB_NAME = "minim_library.db"
-        private const val DB_VERSION = 4
+        private const val DB_VERSION = 5
     }
 }

@@ -15,6 +15,61 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="14dp" />
 
+    <!-- 5.3.0: slim card while a playlist imports ("Importing Chill Mix · 84/200"); the soft bar
+         behind the text fills up as songs are found. Tap it when it's done to review. -->
+    <FrameLayout
+        android:id="@+id/library_import_card"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_marginStart="36dp"
+        android:layout_marginTop="22dp"
+        android:layout_marginEnd="36dp"
+        android:background="@drawable/shape_pill"
+        android:clickable="true"
+        android:focusable="true"
+        android:foreground="?attr/selectableItemBackground"
+        android:tag="fill:soft"
+        android:visibility="gone">
+
+        <View
+            android:id="@+id/library_import_fill"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:alpha="0.16"
+            android:background="@drawable/shape_pill"
+            android:tag="fill:fg" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="20dp"
+            android:paddingEnd="6dp">
+
+            <TextView
+                android:id="@+id/library_import_text"
+                style="@style/MinimText.Semi"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:tag="text:fg"
+                android:textSize="13sp" />
+
+            <ImageView
+                android:id="@+id/library_import_close"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/import_dismiss"
+                android:padding="10dp"
+                android:src="@drawable/ic_close"
+                android:tag="tint:fg" />
+        </LinearLayout>
+    </FrameLayout>
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/library_grid"
         android:layout_width="match_parent"

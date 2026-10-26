@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 5.3.0 import review row: the playlist song row (item_track) with a tick / plus at the end.
+     Ticked songs get saved; a doubtful one says why under its name. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingStart="36dp"
+    android:paddingEnd="36dp"
+    android:paddingBottom="8dp">
+
+    <LinearLayout
+        android:id="@+id/track_card"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/shape_card"
+        android:clickable="true"
+        android:focusable="true"
+        android:foreground="?attr/selectableItemBackground"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="10dp"
+        android:tag="fill:soft">
+
+        <ImageView
+            android:id="@+id/track_art"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="@drawable/shape_art_small"
+            android:importantForAccessibility="no"
+            android:scaleType="centerCrop"
+            android:tag="fill:fg" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/track_title"
+                style="@style/MinimText.Semi"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:tag="text:fg"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/track_artist"
+                style="@style/MinimText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:alpha="0.7"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:tag="text:fg"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/import_mark"
+            android:contentDescription="@string/import_mark_tick"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="9dp"
+            android:scaleType="fitCenter"
+            android:tag="tint:fg" />
+    </LinearLayout>
+</FrameLayout>

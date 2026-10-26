@@ -270,6 +270,8 @@ class MainActivity : AppCompatActivity() {
     /** null = list closed, -1 = Liked Songs, otherwise a playlist id. */
     private var openListId: Long? = null
     private var openListName = ""
+    /** 5.3.0: "spotify" / "youtube" / "text" for the open playlist, null when it wasn't imported. */
+    private var openListSource: String? = null
     private var recentTracks: List<Track> = emptyList()
     private var refreshJob: Job? = null
 
@@ -328,6 +330,7 @@ class MainActivity : AppCompatActivity() {
         setupDiscover()
         setupArtist()
         setupSheets()
+        setupImport()
         setupWindowInsets()
         setupMiniPlayers()
         setupNowPlaying()
@@ -351,6 +354,8 @@ class MainActivity : AppCompatActivity() {
         if (!app.preferences.welcomeDone) showWelcome()
         else if (savedInstanceState == null) playStartupAnimation()
         observe()
+        // 5.3.0: Share -> Minim opened the app (a cold start); onNewIntent covers a running one
+        if (savedInstanceState == null) handleImportIntent(intent)
         // Hotfix 4.9.10: "Minim crashed last time" with a Copy button, once, after a crash
         CrashCard.showIfPending(this, pal)
 
@@ -833,7 +838,8 @@ class MainActivity : AppCompatActivity() {
     /** Shows the floating mini player only where it belongs (Search, Library, Recents, lists). */
     private fun updateChrome() {
         val hasTrack = app.playbackController.uiState.value.currentTrack != null
-        val coveredByPlayer = isNowPlayingOpen || isLyricsOpen || isQueueOpen || isSettingsOpen
+        // 5.3.0: the import review hides it too (its Save pill sits where the mini player would)
+        val coveredByPlayer = isNowPlayingOpen || isLyricsOpen || isQueueOpen || isSettingsOpen || isImportReviewOpen
         val onScreenThatFloats = isSearchOpen || isListOpen || isShelfOpen || isArtistOpen || tab != Tab.HOME
         // Pop in when playback starts and out when it stops; other changes (navigation) are instant
         val playbackChanged = lastHasTrack != null && lastHasTrack != hasTrack
@@ -909,6 +915,7 @@ class MainActivity : AppCompatActivity() {
                     isQueueOpen -> closeQueue()
                     isLyricsOpen -> closeLyrics()
                     isNowPlayingOpen -> collapseNowPlaying()
+                    isImportReviewOpen -> closeImportReview()
                     isSearchOpen -> closeSearch()
                     isListOpen -> closeList()
                     isShelfOpen -> closeShelf()
@@ -1067,6 +1074,8 @@ class MainActivity : AppCompatActivity() {
             updateSystemBars()
             updateChrome()
             requestNotificationPermissionIfNeeded()
+            // 5.3.0: a link shared while the welcome screens were up
+            pendingImportText?.let { text -> pendingImportText = null; showImportSheet(text) }
         }
         if (animationsOn()) {
             screenWelcome.animate().alpha(0f).setStartDelay(0L).setDuration(300L)
@@ -1129,6 +1138,8 @@ class MainActivity : AppCompatActivity() {
                 val isSwipeUp = dy < -dp(70f) && abs(dy) > abs(dx) * 1.5f && abs(velocityY) > 500f
                 if (!isSwipeUp) return false
                 if (isWelcomeOpen) return false
+                // 5.3.0: a swipe on the Gemini chat only moves the chat, open or still closing
+                if (!discoverSwipeGate.allows(isGeminiShowing)) return false
                 if (recapStory != null || recapStoryOpening) return false
                 if (::sheetRoot.isInitialized && sheetRoot.visibility == View.VISIBLE) return false
                 when {
@@ -1143,6 +1154,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) discoverSwipeGate.onDown(isGeminiShowing)
         screenGestures?.onTouchEvent(ev)
         // v4.9.3: a drag or scroll mid-takeover fades it out early
         if (isTakeoverActive) {
@@ -1744,8 +1756,8 @@ class MainActivity : AppCompatActivity() {
                 when (tile) {
                     is GridTile.Liked -> openList(LIKED_LIST, getString(R.string.liked_songs))
                     is GridTile.RecentsTile -> openList(RECENTS_LIST, getString(R.string.recents))
-                    is GridTile.PlaylistTile -> openList(tile.playlist.id, tile.playlist.name)
-                    is GridTile.NewPlaylist -> showCreatePlaylistSheet(null)
+                    is GridTile.PlaylistTile -> openList(tile.playlist.id, tile.playlist.name, tile.playlist.source)
+                    is GridTile.NewPlaylist -> showAddPlaylistSheet()
                     is GridTile.Song, is GridTile.AlbumTile -> Unit
                 }
             },
@@ -1966,7 +1978,8 @@ class MainActivity : AppCompatActivity() {
         val search: Boolean,
         val listId: Long?,
         val listName: String,
-        val shelf: com.minim.music.data.discover.Shelf?
+        val shelf: com.minim.music.data.discover.Shelf?,
+        val listSource: String? = null
     )
 
     private lateinit var artistHeader: SquareFrameLayout
@@ -2603,6 +2616,7 @@ class MainActivity : AppCompatActivity() {
                 search = fromSearch || isSearchOpen,
                 listId = if (isListOpen) openListId else null,
                 listName = openListName,
+                listSource = openListSource,
                 shelf = if (isShelfOpen) openShelf?.takeIf { !it.key.startsWith(ARTIST_SHELF) } else null
             )
         }
@@ -2636,7 +2650,7 @@ class MainActivity : AppCompatActivity() {
         }
         if (back != null) {
             back.shelf?.let { openShelfPage(it) }
-            back.listId?.let { openList(it, back.listName) }
+            back.listId?.let { openList(it, back.listName, back.listSource) }
             if (back.search) screenSearch.visibility = View.VISIBLE
         }
         updateChrome()
@@ -2696,7 +2710,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun openList(id: Long, name: String) {
+    private fun openList(id: Long, name: String, source: String? = null) {
+        openListSource = source
         openAlbum = null
         albumJob?.cancel()
         openListId = id
@@ -2730,7 +2745,12 @@ class MainActivity : AppCompatActivity() {
         listAdapter.submitList(tracks)
         // v4.9.9: rises in on opening; later refreshes (a like, a play) just update
         listEntrance.loaded(tracks.size)
-        listSubtitle.text = songCount(tracks.size)
+        // 5.3.0: "from Spotify · 84 songs" for an imported playlist
+        listSubtitle.text = listOfNotNull(
+            com.minim.music.data.importer.ImportOrigin.fromCode(openListSource)?.label
+                ?.takeIf { id != LIKED_LIST && id != RECENTS_LIST },
+            songCount(tracks.size)
+        ).joinToString(" · ")
         listEmpty.text = getString(
             when (id) {
                 LIKED_LIST -> R.string.liked_empty
@@ -3333,6 +3353,8 @@ class MainActivity : AppCompatActivity() {
                 // v4.9.6: update download progress / done / failed
                 launch { app.updates.state.collect { onUpdateFlowState(it) } }
                 launch { app.database.likedIds.collect { renderLikes(it); greetingFactsAt = 0L } }
+                // 5.3.0: the background playlist import's card and review screen
+                launch { app.importer.state.collect { renderImportState(it) } }
                 // v4.3: a counted play (30+ s) can add a song to Recents
                 launch {
                     app.playbackController.playsVersion.collect {
@@ -4887,6 +4909,7 @@ class MainActivity : AppCompatActivity() {
             discoverRefresh.setProgressBackgroundColorSchemeColor(p.bg)
             libraryAdapter.setPalette(p)
             listAdapter.setPalette(p)
+            if (::importAdapter.isInitialized) importAdapter.setPalette(p)
             searchAdapter.setPalette(p)
             queueAdapter.setPalette(p)
         }
@@ -5452,6 +5475,402 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ==========================================================================================
+    // 5.3.0: playlist import. The "+" tile offers New Playlist and Import Playlist; the import
+    // runs in the background (app.importer) with a slim card on Library, then a review screen.
+    // ==========================================================================================
+
+    private lateinit var screenImport: View
+    private lateinit var importTitle: TextView
+    private lateinit var importSubtitle: TextView
+    private lateinit var importNote: TextView
+    private lateinit var importSave: TextView
+    private lateinit var importAdapter: com.minim.music.ui.adapter.ImportReviewAdapter
+    private lateinit var importCard: View
+    private lateinit var importCardFill: View
+    private lateinit var importCardText: TextView
+    private var importSaving = false
+    /** A shared link that arrived while the welcome screens were up; opened once they're done. */
+    private var pendingImportText: String? = null
+    private val isImportReviewOpen get() = ::screenImport.isInitialized && screenImport.visibility == View.VISIBLE
+
+    private fun setupImport() {
+        screenImport = findViewById(R.id.screen_import)
+        importTitle = findViewById(R.id.import_title)
+        importSubtitle = findViewById(R.id.import_subtitle)
+        importNote = findViewById(R.id.import_note)
+        importSave = findViewById(R.id.import_save)
+        importCard = findViewById(R.id.library_import_card)
+        importCardFill = findViewById(R.id.library_import_fill)
+        importCardText = findViewById(R.id.library_import_text)
+        importAdapter = com.minim.music.ui.adapter.ImportReviewAdapter(
+            artwork = app.artworkPipeline,
+            onRow = { i -> onImportRowTapped(i) },
+            onMark = { i -> haptic(importSave, HapticFeedbackConstants.CLOCK_TICK); app.importer.toggle(i) }
+        )
+        findViewById<RecyclerView>(R.id.import_tracks).apply {
+            layoutManager = LinearLayoutManager(this@MainActivity)
+            adapter = importAdapter
+            itemAnimator = null // a tick changes in place, no flashing row
+        }
+        importSave.setOnClickListener { saveImport() }
+        importCard.setOnClickListener { onImportCardTapped() }
+        findViewById<View>(R.id.library_import_close).setOnClickListener {
+            haptic(it)
+            val wasBusy = app.importer.isBusy
+            if (wasBusy) app.importer.cancel() else app.importer.clear()
+            if (isImportReviewOpen) closeImportReview()
+            if (wasBusy) showNote(getString(R.string.import_cancelled))
+        }
+    }
+
+    /** The "+" tile: New Playlist or Import Playlist. */
+    private fun showAddPlaylistSheet() {
+        openSheet { box ->
+            sheetHeading(box, getString(R.string.sheet_add_playlist))
+            sheetAction(box, R.drawable.ic_add, getString(R.string.new_playlist)) { showCreatePlaylistSheet(null) }
+            sheetAction(box, R.drawable.ic_import, getString(R.string.sheet_import_playlist)) { showImportSheet(null) }
+        }
+    }
+
+    /** One paste box; the line under it says what Minim found. [prefill] comes from Share. */
+    private fun showImportSheet(prefill: String?) {
+        if (isLockSheetOpen) return
+        if (isWelcomeOpen) { pendingImportText = prefill; return }
+        openSheet { box ->
+            sheetHeading(box, getString(R.string.sheet_import_playlist), getString(R.string.sheet_import_playlist_sub))
+            val v = layoutInflater.inflate(R.layout.sheet_import_playlist, box, false)
+            val input = v.findViewById<EditText>(R.id.import_input)
+            val detected = v.findViewById<TextView>(R.id.import_detected)
+            val go = v.findViewById<TextView>(R.id.import_go)
+            var found: com.minim.music.data.importer.ImportInput = com.minim.music.data.importer.ImportInput.Empty
+            var ready = false
+            fun setReady(on: Boolean) {
+                if (on == ready) return
+                ready = on
+                go.isEnabled = on
+                val a = if (on) 1f else 0.35f
+                if (animationsOn()) go.animate().alpha(a).setDuration(180L).start() else go.alpha = a
+            }
+            fun onText(text: String) {
+                found = com.minim.music.data.importer.ImportDetect.detect(text)
+                val line = importDetectedLine(found)
+                if (line == null) {
+                    detected.visibility = View.GONE
+                } else {
+                    detected.text = line
+                    detected.visibility = View.VISIBLE
+                }
+                setReady(found !is com.minim.music.data.importer.ImportInput.Empty &&
+                    found !is com.minim.music.data.importer.ImportInput.Unsupported)
+            }
+            input.addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) = onText(s?.toString().orEmpty())
+            })
+            go.setOnClickListener {
+                if (!ready || sheetClosing) return@setOnClickListener
+                haptic(it)
+                startImport(found)
+            }
+            box.addView(v)
+            if (!prefill.isNullOrBlank()) {
+                input.setText(prefill)
+                input.setSelection(input.text.length)
+            } else {
+                input.requestFocus()
+                showKeyboard(input)
+            }
+        }
+    }
+
+    /** "Spotify playlist", "List of 12 songs", a friendly no, or null for an empty box. */
+    private fun importDetectedLine(found: com.minim.music.data.importer.ImportInput): String? = when (found) {
+        is com.minim.music.data.importer.ImportInput.YouTube ->
+            when (com.minim.music.data.importer.ImportNames.youTubeKind(found.listId)) {
+                "album" -> getString(R.string.import_detect_youtube_album)
+                "mix" -> getString(R.string.import_detect_youtube_mix)
+                else -> getString(R.string.import_detect_youtube)
+            }
+        is com.minim.music.data.importer.ImportInput.Spotify -> getString(
+            if (found.kind == "album") R.string.import_detect_spotify_album else R.string.import_detect_spotify
+        )
+        is com.minim.music.data.importer.ImportInput.SpotifyShort -> getString(R.string.import_detect_short)
+        is com.minim.music.data.importer.ImportInput.Lines -> getString(R.string.import_detect_lines, songCount(found.songs.size))
+        is com.minim.music.data.importer.ImportInput.Unsupported -> com.minim.music.data.importer.ImportMessages.unsupported(found.why)
+        com.minim.music.data.importer.ImportInput.Empty -> null
+    }
+
+    private fun startImport(found: com.minim.music.data.importer.ImportInput) {
+        if (app.importer.isBusy) {
+            showNote(getString(R.string.import_busy))
+            return
+        }
+        if (isImportReviewOpen) closeImportReview()
+        if (!app.importer.start(found)) {
+            showNote(getString(R.string.import_busy))
+            return
+        }
+        closeSheet {
+            showLibraryForImport()
+            showNote(getString(R.string.import_started))
+        }
+    }
+
+    /** Brings Library (where the progress card is) to the front, unless the player covers the app. */
+    private fun showLibraryForImport() {
+        if (isNowPlayingOpen || isLyricsOpen || isQueueOpen || isSettingsOpen) return
+        if (isSearchOpen) closeSearch()
+        if (isListOpen) closeList()
+        if (isShelfOpen) closeShelf()
+        if (isArtistOpen) {
+            artistReturn = null
+            closeArtist()
+        }
+        if (tab != Tab.LIBRARY) showTab(Tab.LIBRARY)
+    }
+
+    /** The slim card on Library: reading, "Importing Chill Mix · 84/200", ready or failed. */
+    private fun renderImportState(state: com.minim.music.data.importer.ImportState?) {
+        if (!::importCard.isInitialized) return
+        val fraction: Float
+        when (state) {
+            null -> {
+                importCard.visibility = View.GONE
+                if (isImportReviewOpen) closeImportReview()
+                return
+            }
+            is com.minim.music.data.importer.ImportState.Reading -> {
+                importCardText.text = if (state.read <= 0) getString(R.string.import_reading, state.name)
+                else getString(R.string.import_reading_count, state.name, state.read)
+                fraction = 0f
+            }
+            is com.minim.music.data.importer.ImportState.Matching -> {
+                importCardText.text = getString(R.string.import_progress, state.name, state.done, state.total)
+                fraction = if (state.total > 0) state.done.toFloat() / state.total else 0f
+            }
+            is com.minim.music.data.importer.ImportState.Ready -> {
+                importCardText.text = getString(R.string.import_ready, state.name)
+                fraction = 1f
+                if (isImportReviewOpen) renderImportReview(state)
+            }
+            is com.minim.music.data.importer.ImportState.Failed -> {
+                importCardText.text = getString(R.string.import_failed, state.name)
+                fraction = 0f
+                if (isImportReviewOpen) closeImportReview()
+            }
+        }
+        importCard.contentDescription = importCardText.text
+        if (importCard.visibility != View.VISIBLE) {
+            importCard.visibility = View.VISIBLE
+            Painter.paint(importCard, pal)
+        }
+        setImportFill(fraction)
+    }
+
+    private fun setImportFill(fraction: Float) {
+        val w = importCard.width
+        if (w <= 0) {
+            importCard.post { if (importCard.width > 0) setImportFill(fraction) }
+            return
+        }
+        val target = (w * fraction.coerceIn(0f, 1f)).toInt()
+        val lp = importCardFill.layoutParams
+        if (lp.width != target) {
+            lp.width = target
+            importCardFill.layoutParams = lp
+        }
+    }
+
+    private fun onImportCardTapped() {
+        when (val s = app.importer.state.value) {
+            is com.minim.music.data.importer.ImportState.Ready -> openImportReview()
+            is com.minim.music.data.importer.ImportState.Failed -> showImportFailure(s)
+            null -> Unit
+            else -> showNote(getString(R.string.import_still))
+        }
+    }
+
+    private fun showImportFailure(s: com.minim.music.data.importer.ImportState.Failed) {
+        openSheet { box ->
+            sheetHeading(box, getString(R.string.import_failed_title, s.name), s.message, wrapSub = true)
+            sheetAction(box, R.drawable.ic_import, getString(R.string.import_try_again)) {
+                app.importer.clear()
+                showImportSheet(null)
+            }
+        }
+    }
+
+    private fun openImportReview() {
+        val ready = app.importer.state.value as? com.minim.music.data.importer.ImportState.Ready ?: return
+        importSaving = false
+        importAdapter.setPalette(pal)
+        renderImportReview(ready)
+        findViewById<RecyclerView>(R.id.import_tracks).scrollToPosition(0)
+        screenImport.animate().cancel()
+        screenImport.visibility = View.VISIBLE
+        Painter.paint(screenImport, pal)
+        if (animationsOn()) {
+            screenImport.alpha = 0f
+            screenImport.translationY = dp(24f)
+            screenImport.animate().alpha(1f).translationY(0f).setDuration(240L)
+                .setInterpolator(DecelerateInterpolator(2f)).start()
+        } else {
+            screenImport.alpha = 1f
+            screenImport.translationY = 0f
+        }
+        // the mini player hides while the review is open
+        updateChrome()
+    }
+
+    private fun closeImportReview() {
+        if (!::screenImport.isInitialized || screenImport.visibility != View.VISIBLE) return
+        screenImport.animate().cancel()
+        screenImport.alpha = 1f
+        screenImport.translationY = 0f
+        screenImport.visibility = View.GONE
+        updateChrome()
+    }
+
+    private fun renderImportReview(ready: com.minim.music.data.importer.ImportState.Ready) {
+        importTitle.text = ready.name
+        importSubtitle.text = listOfNotNull(
+            ready.origin.label,
+            songCount(ready.items.size),
+            if (ready.doubtful > 0) getString(R.string.import_to_check, ready.doubtful) else null
+        ).joinToString(" · ")
+        if (ready.note.isNullOrBlank()) {
+            importNote.visibility = View.GONE
+        } else {
+            importNote.text = ready.note
+            importNote.visibility = View.VISIBLE
+        }
+        importAdapter.submit(ready.items)
+        val n = ready.included
+        importSave.text = getString(R.string.import_save, n)
+        importSave.alpha = if (n > 0) 1f else 0.35f
+    }
+
+    /** A doubtful or missing song opens its other choices; a sure one just ticks / unticks. */
+    private fun onImportRowTapped(index: Int) {
+        val ready = app.importer.state.value as? com.minim.music.data.importer.ImportState.Ready ?: return
+        val item = ready.items.getOrNull(index) ?: return
+        if (item.source == null || (item.confidence == com.minim.music.data.importer.Confidence.SURE && item.chosen != null)) {
+            haptic(importSave, HapticFeedbackConstants.CLOCK_TICK)
+            app.importer.toggle(index)
+        } else {
+            showImportOptions(index, ready)
+        }
+    }
+
+    private fun showImportOptions(index: Int, ready: com.minim.music.data.importer.ImportState.Ready) {
+        val item = ready.items.getOrNull(index) ?: return
+        val src = item.source ?: return
+        val where = when (ready.origin) {
+            com.minim.music.data.importer.ImportOrigin.SPOTIFY -> getString(R.string.import_source_spotify)
+            com.minim.music.data.importer.ImportOrigin.YOUTUBE -> "YouTube"
+            com.minim.music.data.importer.ImportOrigin.TEXT -> getString(R.string.import_source_list)
+        }
+        val was = listOf(src.title, src.artists.joinToString(", ")).filter { it.isNotBlank() }.joinToString(" – ")
+        openSheet { box ->
+            val sub = getString(R.string.import_options_was, where, was) +
+                if (item.options.isEmpty()) "\n" + getString(R.string.import_none_found) else ""
+            sheetHeading(box, getString(R.string.import_options_title), sub, wrapSub = true)
+            for (opt in item.options) {
+                val t = opt.track
+                val row = layoutInflater.inflate(R.layout.item_import_row, box, false)
+                row.setPadding(0, 0, 0, row.paddingBottom)
+                val card = row.findViewById<View>(R.id.track_card).apply { clipToOutline = true }
+                val art = row.findViewById<ImageView>(R.id.track_art).apply { clipToOutline = true }
+                row.findViewById<TextView>(R.id.track_title).text = t.title
+                row.findViewById<TextView>(R.id.track_artist).text =
+                    listOf(t.artist, com.minim.music.data.importer.ImportNames.length(t.durationSec))
+                        .filter { it.isNotBlank() }.joinToString(" · ")
+                val mark = row.findViewById<ImageView>(R.id.import_mark)
+                val isChosen = t.id == item.chosen?.id && item.included
+                mark.setImageResource(R.drawable.ic_check)
+                mark.visibility = if (isChosen) View.VISIBLE else View.INVISIBLE
+                mark.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                app.artworkPipeline.loadInto(art, t.thumbnailUrl, dp(44f).toInt())
+                card.setOnClickListener { v ->
+                    if (sheetClosing) return@setOnClickListener
+                    haptic(v)
+                    app.importer.choose(index, t)
+                    closeSheet()
+                }
+                box.addView(row)
+            }
+            if (item.included && item.chosen != null) {
+                sheetAction(box, R.drawable.ic_close, getString(R.string.import_remove), outlined = true) {
+                    app.importer.remove(index)
+                    closeSheet()
+                }
+            } else if (item.chosen != null) {
+                sheetAction(box, R.drawable.ic_check, getString(R.string.import_keep), outlined = true) {
+                    app.importer.toggle(index)
+                    closeSheet()
+                }
+            }
+        }
+    }
+
+    /** Saves the ticked songs as a normal playlist (with "from Spotify" under its name) and opens it. */
+    private fun saveImport() {
+        if (importSaving) return
+        val ready = app.importer.state.value as? com.minim.music.data.importer.ImportState.Ready ?: return
+        val tracks = app.importer.tracksToSave()
+        if (tracks.isEmpty()) {
+            showNote(getString(R.string.import_nothing))
+            return
+        }
+        importSaving = true
+        haptic(importSave)
+        lifecycleScope.launch {
+            try {
+                var id = -1L
+                var name = ready.name
+                for (n in 1..50) {
+                    name = com.minim.music.data.importer.ImportNames.candidate(ready.name, n)
+                    id = app.database.createPlaylist(name, ready.origin.code)
+                    if (id != -1L) break
+                }
+                if (id == -1L) {
+                    showNote(getString(R.string.import_failed, ready.name))
+                    return@launch
+                }
+                app.database.addTracksToPlaylist(id, tracks)
+                app.importer.clear()
+                closeImportReview()
+                refreshData()
+                openList(id, name, ready.origin.code)
+                showNote(getString(R.string.import_saved, name))
+            } finally {
+                importSaving = false
+            }
+        }
+    }
+
+    /** Share -> Minim (ShareImportActivity): the Import sheet with the link filled in. */
+    private fun handleImportIntent(intent: Intent?) {
+        if (intent?.action != ShareImportActivity.ACTION_IMPORT) return
+        val text = intent.getStringExtra(ShareImportActivity.EXTRA_IMPORT_TEXT)
+        // handled once: a rotation or a return from the background doesn't open it again
+        intent.action = null
+        intent.removeExtra(ShareImportActivity.EXTRA_IMPORT_TEXT)
+        if (text.isNullOrBlank()) return
+        root.post {
+            if (isGeminiOpen) geminiChat.close()
+            showImportSheet(text)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleImportIntent(intent)
+    }
+
+    // ==========================================================================================
     // v5.0: Account (optional Google sign-in). Minim works fully without it.
     // ==========================================================================================
 
@@ -5952,6 +6371,9 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var geminiChat: GeminiChatPanel
     private val isGeminiOpen get() = ::geminiChat.isInitialized && geminiChat.isOpen
+    /** 5.3.0: open, or closed but its closing animation still on screen. */
+    private val isGeminiShowing get() = ::geminiChat.isInitialized && geminiChat.isShowing
+    private val discoverSwipeGate = DiscoverSwipeGate()
 
     private fun setupGemini() {
         geminiChat = GeminiChatPanel(findViewById(R.id.gemini_root), geminiHost)

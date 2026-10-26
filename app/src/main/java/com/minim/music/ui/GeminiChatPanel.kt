@@ -114,6 +114,8 @@ class GeminiChatPanel(
 
     var isOpen = false
         private set
+    /** 5.3.0: open, or still closing (the sheet is on screen until finishClosed). */
+    val isShowing: Boolean get() = isOpen || root.visibility == View.VISIBLE
     private var anchor: View? = null
     private var focus: Track? = null
     private var full = false

@@ -115,7 +115,9 @@ class LibrarySyncDbTest {
         val t0 = createV3Database()
         val l = open()
         val db = l.writableDatabase
-        assertEquals(4, db.version)
+        // 5.3.0 bumped the library to version 5 (playlists.source for imports)
+        assertEquals(5, db.version)
+        assertEquals(1, count(db, "SELECT 1 FROM pragma_table_info('playlists') WHERE name = 'source'"))
 
         // likes
         val liked = l.getLikedTracks()
