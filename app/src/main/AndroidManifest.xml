@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- 5.4.0: Save offline and the update download keep going in the background (and on mobile data) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- v4.4 volume boost: LoudnessEnhancer on the app's own audio session (normal permission, no prompt) -->
@@ -66,6 +68,12 @@
         </activity>
 
         <!-- Single authoritative Media3 playback service -->
+        <!-- 5.4.0: runs only while songs are saving offline or an update is downloading -->
+        <service
+            android:name=".playback.TransferService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <service
             android:name=".playback.PlaybackService"
             android:exported="true"

@@ -1767,13 +1767,19 @@ class MainActivity : AppCompatActivity() {
                 when (tile) {
                     is GridTile.Liked -> openList(LIKED_LIST, getString(R.string.liked_songs))
                     is GridTile.RecentsTile -> openList(RECENTS_LIST, getString(R.string.recents))
+                    is GridTile.OfflineTile -> openList(OFFLINE_LIST, getString(R.string.offline_title))
                     is GridTile.PlaylistTile -> openList(tile.playlist.id, tile.playlist.name, tile.playlist.source)
                     is GridTile.NewPlaylist -> showAddPlaylistSheet()
                     is GridTile.Song, is GridTile.AlbumTile -> Unit
                 }
             },
             onLongClick = { _, tile ->
-                if (tile is GridTile.PlaylistTile) confirmDeletePlaylist(tile.playlist)
+                // 5.4.0: a small menu (Save offline / Remove from offline, Delete) instead of straight to delete
+                when (tile) {
+                    is GridTile.PlaylistTile -> showPlaylistOptions(tile.playlist)
+                    is GridTile.Liked -> showLikedOptions()
+                    else -> Unit
+                }
             }
         )
         findViewById<RecyclerView>(R.id.library_grid).apply {
@@ -2790,16 +2796,15 @@ class MainActivity : AppCompatActivity() {
 
     /** "from [logo] · 25 songs" (Spotify, YouTube Music, YouTube), else "from a list · …" or just the count. */
     private fun showListSubtitle(origin: com.minim.music.data.importer.ImportOrigin?, count: String) {
-        val logo = origin?.let { sourceLogo(it) }
+        val logo = SourceLogos.wordmark(origin)
         if (logo != null) {
-            listSourceLogo.setImageResource(logo)
-            // About the height of the letters, so it sits in the line like a word
-            val size = (listSubtitle.textSize * 1.15f).toInt().coerceAtLeast(dp(10f).toInt())
-            listSourceLogo.layoutParams = listSourceLogo.layoutParams.apply { width = size; height = size }
+            // 5.4.0: the full logo (icon + name), a little taller than the letters so its name reads
+            val size = (listSubtitle.textSize * 1.4f).toInt().coerceAtLeast(dp(12f).toInt())
+            SourceLogos.show(listSourceLogo, logo, size)
             listSourceFrom.visibility = View.VISIBLE
             listSourceLogo.visibility = View.VISIBLE
             listSubtitle.text = "· $count"
-            val name = sourceName(origin)
+            val name = sourceName(origin!!)
             listSourceLogo.contentDescription = name
             // TalkBack reads the line as one: "from Spotify, 25 songs"
             listSubtitleRow.contentDescription = getString(R.string.list_from_desc, name, count)
@@ -2815,13 +2820,6 @@ class MainActivity : AppCompatActivity() {
         }
         // Tinted with the app colour right away (and on every colour change after)
         Painter.paint(listSubtitleRow, pal)
-    }
-
-    private fun sourceLogo(o: com.minim.music.data.importer.ImportOrigin): Int? = when (o) {
-        com.minim.music.data.importer.ImportOrigin.SPOTIFY -> R.drawable.ic_logo_spotify
-        com.minim.music.data.importer.ImportOrigin.YOUTUBE_MUSIC -> R.drawable.ic_logo_youtube_music
-        com.minim.music.data.importer.ImportOrigin.YOUTUBE -> R.drawable.ic_logo_youtube
-        com.minim.music.data.importer.ImportOrigin.TEXT -> null
     }
 
     private fun sourceName(o: com.minim.music.data.importer.ImportOrigin): String = when (o) {
@@ -3039,6 +3037,7 @@ class MainActivity : AppCompatActivity() {
         val tracks = when (id) {
             LIKED_LIST -> app.database.getLikedTracks()
             RECENTS_LIST -> app.database.getRecentTracks(50)
+            OFFLINE_LIST -> app.offlineStore.saved.value.map { it.track }
             else -> app.database.getPlaylistTracks(id)
         }
         if (openListId != id) return
@@ -3048,12 +3047,13 @@ class MainActivity : AppCompatActivity() {
         // 5.3.0: "from Spotify · 84 songs" for an imported playlist
         // 5.3.2: "from [logo] · 84 songs", the logo tinted with the app colour; a pasted list keeps words
         val origin = com.minim.music.data.importer.ImportOrigin.fromCode(openListSource)
-            ?.takeIf { id != LIKED_LIST && id != RECENTS_LIST }
+            ?.takeIf { id >= 0L }
         showListSubtitle(origin, songCount(tracks.size))
         listEmpty.text = getString(
             when (id) {
                 LIKED_LIST -> R.string.liked_empty
                 RECENTS_LIST -> R.string.recents_empty
+                OFFLINE_LIST -> R.string.offline_empty
                 else -> R.string.playlist_empty
             }
         )
@@ -3074,6 +3074,8 @@ class MainActivity : AppCompatActivity() {
         // Design order: Liked Songs, Recents (v4.9, was a tab), New Playlist, then your playlists.
         tiles.add(GridTile.Liked(liked.size, liked.firstOrNull()?.thumbnailUrl))
         tiles.add(GridTile.RecentsTile(recent.size))
+        // 5.4.0: pinned after Recents: the songs saved offline
+        tiles.add(GridTile.OfflineTile(app.offlineStore.saved.value.size))
         tiles.add(GridTile.NewPlaylist)
         for (p in playlists) {
             val cover = app.database.getPlaylistTracks(p.id).firstOrNull()?.thumbnailUrl
@@ -3485,6 +3487,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        findViewById<View>(R.id.set_offline_remove_all).setOnClickListener { confirmRemoveAllOffline() }
+
         findViewById<View>(R.id.set_clear_cache).setOnClickListener {
             app.artworkPipeline.clearAllCaches()
             app.lyricsProvider.clearCache()
@@ -3622,6 +3626,7 @@ class MainActivity : AppCompatActivity() {
     private fun openSettings() {
         settingsName.setText(app.preferences.userName)
         renderSettingsOptions()
+        renderOfflineStorage()
         screenSettings.visibility = View.VISIBLE
         updateChrome()
     }
@@ -3654,6 +3659,33 @@ class MainActivity : AppCompatActivity() {
                 launch { app.database.likedIds.collect { renderLikes(it); greetingFactsAt = 0L } }
                 // 5.3.0: the background playlist import's card and review screen
                 launch { app.importer.state.collect { renderImportState(it) } }
+                // 5.4.0: Save offline: faint marks and rings on rows, rings on tiles, messages
+                launch {
+                    kotlinx.coroutines.flow.combine(app.offlineStore.saved, app.offline.progress) { saved, progress ->
+                        com.minim.music.ui.adapter.OfflineMarks(saved.mapTo(HashSet()) { it.track.id }, progress)
+                    }.collect { listAdapter.setOffline(it) }
+                }
+                launch {
+                    kotlinx.coroutines.flow.combine(
+                        app.offline.groups, app.offline.progress, app.offline.session
+                    ) { groups, progress, session ->
+                        val rings = HashMap<String, Float>()
+                        groups.forEach { (k, g) -> rings[k] = com.minim.music.data.offline.OfflineRings.group(g, progress) }
+                        com.minim.music.data.offline.OfflineRings.session(session, progress)?.let { rings["offline"] = it }
+                        rings as Map<String, Float>
+                    }.collect { libraryAdapter.setSaving(it) }
+                }
+                launch {
+                    var last = -1
+                    app.offlineStore.saved.collect { list ->
+                        if (last != -1 && list.size != last) {
+                            scheduleRefresh(150L)
+                            if (isSettingsOpen) renderOfflineStorage()
+                        }
+                        last = list.size
+                    }
+                }
+                launch { app.offline.events.collect { onOfflineEvent(it) } }
                 // v4.3: a counted play (30+ s) can add a song to Recents
                 launch {
                     app.playbackController.playsVersion.collect {
@@ -4729,7 +4761,7 @@ class MainActivity : AppCompatActivity() {
             views.primary.setOnClickListener { p ->
                 if (sheetClosing) return@setOnClickListener
                 haptic(p)
-                onUpdatePrimary(p.tag as? UpdatePrimary ?: UpdatePrimary.DOWNLOAD)
+                onUpdatePrimary(p.getTag(R.id.update_primary) as? UpdatePrimary ?: UpdatePrimary.DOWNLOAD)
             }
             views.secondary.setOnClickListener { s ->
                 if (sheetClosing) return@setOnClickListener
@@ -4758,6 +4790,8 @@ class MainActivity : AppCompatActivity() {
                     else -> {
                         app.updates.reset()
                         app.updates.startDownload(update)
+                        // 5.4.0: keeps the download going on mobile data when Minim is in the background
+                        com.minim.music.playback.TransferService.ensureRunning(this)
                     }
                 }
             }
@@ -4796,7 +4830,10 @@ class MainActivity : AppCompatActivity() {
         }
         fun buttons(primary: Int, tag: UpdatePrimary, secondary: Int) {
             v.primary.setText(primary)
-            v.primary.tag = tag
+            // 5.4.0: what the button does lives under its own key. Until 5.3.2 it replaced the
+            // view's colour tag ("fill:fg text:bg"), so the button was never coloured and
+            // stayed a plain white pill that was hard to see on light themes.
+            v.primary.setTag(R.id.update_primary, tag)
             v.secondary.setText(secondary)
         }
         when {
@@ -4838,13 +4875,28 @@ class MainActivity : AppCompatActivity() {
         }
         // 5.0.0 part 3: the locked pop-up has no Later and no Hide (Cancel while downloading stays)
         if (lockUpdate != null && update == lockUpdate) {
-            v.primary.visibility = if (v.primary.tag == UpdatePrimary.HIDE) View.GONE else View.VISIBLE
+            v.primary.visibility = if (v.primary.getTag(R.id.update_primary) == UpdatePrimary.HIDE) View.GONE else View.VISIBLE
             v.secondary.visibility = if (mine && st is UpdateFlowState.Downloading) View.VISIBLE else View.GONE
         } else {
             v.primary.visibility = View.VISIBLE
             v.secondary.visibility = View.VISIBLE
         }
         Painter.paint(v.root, pal)
+        styleUpdatePrimary(v.primary)
+    }
+
+    /**
+     * 5.4.0: the main button of the update pop-up (Download now, Install now, Try again...) is a
+     * solid pill in the theme's text colour with the background colour on it, bold, so it stands
+     * out on any album-art colour (the two colours are always far apart, see [Pal]).
+     */
+    private fun styleUpdatePrimary(b: TextView) {
+        b.tag = "fill:fg text:bg"
+        b.background = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.shape_pill)?.mutate()
+        b.backgroundTintList = android.content.res.ColorStateList.valueOf(pal.fg)
+        b.setTextColor(pal.bg)
+        b.alpha = 1f
+        b.typeface = android.graphics.Typeface.create(b.typeface, android.graphics.Typeface.BOLD)
     }
 
     private fun mb(bytes: Long): String {
@@ -4897,6 +4949,8 @@ class MainActivity : AppCompatActivity() {
             updateSavedApk = null
             app.updates.reset()
             app.updates.startDownload(update)
+            // 5.4.0: keeps the download going on mobile data when Minim is in the background
+            com.minim.music.playback.TransferService.ensureRunning(this)
             return
         }
         if (!app.updates.canInstall()) {
@@ -5493,6 +5547,16 @@ class MainActivity : AppCompatActivity() {
             sheetAction(box, R.drawable.ic_playlist_add, getString(R.string.add_to_playlist)) {
                 showAddToPlaylistSheet(track)
             }
+            // 5.4.0: Save offline / Remove from offline (also stops a save that's running)
+            val offlineOn = app.offlineStore.isSaved(track.id) || app.offline.isSaving(track.id)
+            sheetAction(
+                box,
+                if (offlineOn) R.drawable.ic_offline_filled else R.drawable.ic_offline,
+                getString(if (offlineOn) R.string.offline_remove else R.string.offline_save)
+            ) {
+                closeSheet()
+                if (offlineOn) removeOffline(listOf(track.id)) else saveOffline(listOf(track))
+            }
             sheetAction(
                 box,
                 if (liked) R.drawable.ic_heart_filled else R.drawable.ic_heart_outline,
@@ -5754,6 +5818,149 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Delete a playlist (long-press it in Library): same sheet style, "delete" and "cancel" pills. */
+    // ==========================================================================================
+    // 5.4.0: Save offline. app.offline saves 3 songs at a time (each in 4 ranged parts) into the
+    // app's private files folder; the rows get a faint mark, the tiles a ring while saving.
+    // ==========================================================================================
+
+    /** Queues [tracks] (ones not saved yet) and keeps the save going in the background. */
+    private fun saveOffline(tracks: List<Track>, groupKey: String? = null, groupName: String = "") {
+        if (tracks.isEmpty()) {
+            showNote(getString(R.string.offline_nothing_to_save))
+            return
+        }
+        val queued = app.offline.save(tracks, groupKey, groupName)
+        if (queued == 0) {
+            // Everything was saved already, or is saving right now
+            if (tracks.all { app.offlineStore.isSaved(it.id) }) showNote(getString(R.string.offline_note_already))
+            return
+        }
+        com.minim.music.playback.TransferService.ensureRunning(this)
+        showNote(
+            if (queued == 1) getString(R.string.offline_note_saving_one)
+            else getString(R.string.offline_note_saving, queued)
+        )
+    }
+
+    /** Stops any save of these songs and deletes their saved files. */
+    private fun removeOffline(ids: Collection<String>) {
+        val n = ids.distinct().count { app.offlineStore.isSaved(it) || app.offline.isSaving(it) }
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) { app.offline.remove(ids.distinct()) }
+            showNote(
+                if (n <= 1) getString(R.string.offline_note_removed_one)
+                else getString(R.string.offline_note_removed, n)
+            )
+        }
+    }
+
+    /** Save offline (with "12 left" when some are saved already) and Remove from offline. */
+    private fun offlineGroupActions(box: android.widget.LinearLayout, tracks: List<Track>, key: String, name: String) {
+        val ids = tracks.map { it.id }.distinct()
+        val on = ids.count { app.offlineStore.isSaved(it) || app.offline.isSaving(it) }
+        val left = ids.size - on
+        if (left > 0 || ids.isEmpty()) {
+            sheetAction(
+                box, R.drawable.ic_offline, getString(R.string.offline_save),
+                trailing = if (on > 0) getString(R.string.offline_left, left) else null
+            ) {
+                closeSheet()
+                saveOffline(tracks, key, name)
+            }
+        }
+        if (on > 0) {
+            sheetAction(box, R.drawable.ic_offline_filled, getString(R.string.offline_remove)) {
+                closeSheet()
+                removeOffline(ids)
+            }
+        }
+    }
+
+    /** Long-press on a playlist tile: Save offline / Remove from offline, then Delete playlist. */
+    private fun showPlaylistOptions(playlist: Playlist) {
+        lifecycleScope.launch {
+            val tracks = app.database.getPlaylistTracks(playlist.id)
+            openSheet { box ->
+                sheetHeading(box, playlist.name, songCount(tracks.size))
+                offlineGroupActions(box, tracks, "pl:${playlist.id}", playlist.name)
+                // Delete keeps its own "Are you sure?" step
+                sheetAction(box, R.drawable.ic_delete, getString(R.string.delete_playlist)) {
+                    confirmDeletePlaylist(playlist)
+                }
+            }
+        }
+    }
+
+    /** Long-press on Liked Songs: Save offline / Remove from offline. */
+    private fun showLikedOptions() {
+        lifecycleScope.launch {
+            val tracks = app.database.getLikedTracks()
+            val name = getString(R.string.liked_songs)
+            openSheet { box ->
+                sheetHeading(box, name, songCount(tracks.size))
+                offlineGroupActions(box, tracks, "liked", name)
+            }
+        }
+    }
+
+    /** Short messages when a playlist finishes saving, or a song on its own fails. */
+    private fun onOfflineEvent(e: com.minim.music.data.offline.OfflineEvent) {
+        when (e) {
+            is com.minim.music.data.offline.OfflineEvent.GroupFinished -> showNote(
+                when {
+                    e.failed == 0 -> getString(R.string.offline_group_done, e.name)
+                    e.saved == 0 -> getString(R.string.offline_group_failed, e.name)
+                    else -> getString(R.string.offline_group_done_some, e.name, e.failed)
+                }
+            )
+            is com.minim.music.data.offline.OfflineEvent.SongFailed ->
+                if (!e.inGroup) showNote(getString(R.string.offline_song_failed, e.track.title))
+        }
+    }
+
+    /** Settings: "Offline songs · 412 MB" and Remove all (hidden when nothing is saved). */
+    private fun renderOfflineStorage() {
+        if (!::screenSettings.isInitialized) return
+        val label = findViewById<TextView>(R.id.set_offline_storage)
+        val removeAll = findViewById<View>(R.id.set_offline_remove_all)
+        lifecycleScope.launch {
+            val bytes = withContext(Dispatchers.IO) { app.offlineStore.bytesUsed() }
+            val any = app.offlineStore.saved.value.isNotEmpty() || app.offline.busy
+            label.text = if (app.offlineStore.saved.value.isEmpty()) getString(R.string.offline_storage_none)
+            else getString(R.string.offline_storage, android.text.format.Formatter.formatShortFileSize(this@MainActivity, bytes))
+            removeAll.visibility = if (any) View.VISIBLE else View.GONE
+        }
+    }
+
+    private fun confirmRemoveAllOffline() {
+        lifecycleScope.launch {
+            val bytes = withContext(Dispatchers.IO) { app.offlineStore.bytesUsed() }
+            openSheet { box ->
+                sheetHeading(
+                    box, getString(R.string.offline_remove_all_title),
+                    getString(R.string.offline_remove_all_sub, android.text.format.Formatter.formatShortFileSize(this@MainActivity, bytes)),
+                    wrapSub = true
+                )
+                val v = layoutInflater.inflate(R.layout.sheet_confirm, box, false)
+                v.findViewById<TextView>(R.id.sheet_confirm_cancel).setOnClickListener { closeSheet() }
+                v.findViewById<TextView>(R.id.sheet_confirm_ok).apply {
+                    setText(R.string.offline_remove_all_ok)
+                    setOnClickListener {
+                        if (sheetClosing) return@setOnClickListener
+                        haptic(it)
+                        closeSheet()
+                        lifecycleScope.launch {
+                            withContext(Dispatchers.IO) { app.offline.removeAll() }
+                            renderOfflineStorage()
+                            showNote(getString(R.string.offline_note_removed_all))
+                        }
+                    }
+                }
+                box.addView(v)
+            }
+        }
+    }
+
     private fun confirmDeletePlaylist(playlist: Playlist) {
         openSheet { box ->
             sheetHeading(box, getString(R.string.delete_playlist_title, playlist.name), getString(R.string.sheet_delete_sub))
@@ -6038,11 +6245,27 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderImportReview(ready: com.minim.music.data.importer.ImportState.Ready) {
         importTitle.text = ready.name
-        importSubtitle.text = listOfNotNull(
-            ready.origin.label,
+        // 5.4.0: the full logo where the playlist came from (pasted lists keep their words)
+        val mark = SourceLogos.wordmark(ready.origin)
+        val from = screenImport.findViewById<TextView>(R.id.import_from)
+        val logo = screenImport.findViewById<ImageView>(R.id.import_source_logo)
+        val rest = listOfNotNull(
             songCount(ready.items.size),
             if (ready.doubtful > 0) getString(R.string.import_to_check, ready.doubtful) else null
-        ).joinToString(" · ")
+        )
+        if (mark != null) {
+            from.visibility = View.VISIBLE
+            logo.visibility = View.VISIBLE
+            SourceLogos.show(logo, mark, (importSubtitle.textSize * 1.4f).toInt())
+            importSubtitle.text = rest.joinToString(" · ", prefix = "· ")
+            importSubtitle.contentDescription =
+                (listOf(getString(R.string.list_from_desc_prefix, SourceLogos.name(ready.origin))) + rest).joinToString(", ")
+        } else {
+            from.visibility = View.GONE
+            logo.visibility = View.GONE
+            importSubtitle.text = (listOf(ready.origin.label) + rest).joinToString(" · ")
+            importSubtitle.contentDescription = null
+        }
         if (ready.note.isNullOrBlank()) {
             importNote.visibility = View.GONE
         } else {
@@ -7103,6 +7326,8 @@ class MainActivity : AppCompatActivity() {
         private const val LIKED_LIST = -1L
         /** v4.9: Recents opens in the song list screen from Library. */
         private const val RECENTS_LIST = -2L
+        /** 5.4.0: the songs saved offline (the "Offline" tile in Library). */
+        private const val OFFLINE_LIST = -3L
         /** v4.9.2: most rows in today's songs / artists sheets. */
         private const val TODAY_SHEET_MAX = 100
 

@@ -46,6 +46,15 @@ private fun styleSongRow(card: View, art: ImageView, texts: List<TextView>, acti
     texts.forEach { it.tag = "text:$on" }
 }
 
+/** 5.4.0: songs saved offline, and songs saving now with how far along (0..1). */
+data class OfflineMarks(val saved: Set<String>, val saving: Map<String, Float>) {
+    companion object {
+        val NONE = OfflineMarks(emptySet(), emptyMap())
+    }
+}
+
+private const val PAYLOAD_OFFLINE = "offline"
+
 // =============================================================================================
 // Song cards (Liked Songs / a playlist)
 // =============================================================================================
@@ -59,10 +68,22 @@ class TrackAdapter(
     private var tracks: List<Track> = emptyList()
     private var activeId: String? = null
     private var pal: Pal = DEFAULT_PAL
+    private var offline: OfflineMarks = OfflineMarks.NONE
 
     fun submitList(tracks: List<Track>) {
         this.tracks = tracks.toList()
         notifyDataSetChanged()
+    }
+
+    /** 5.4.0: which songs are saved offline or saving; only the rows that changed redraw. */
+    fun setOffline(marks: OfflineMarks) {
+        val old = offline
+        offline = marks
+        tracks.forEachIndexed { i, t ->
+            if (old.saved.contains(t.id) != marks.saved.contains(t.id) || old.saving[t.id] != marks.saving[t.id]) {
+                notifyItemChanged(i, PAYLOAD_OFFLINE)
+            }
+        }
     }
 
     fun setActiveTrack(id: String?) {
@@ -83,8 +104,18 @@ class TrackAdapter(
     override fun onBindViewHolder(holder: Holder, position: Int) {
         val track = tracks[position]
         holder.bind(track, track.id == activeId, artwork, pal)
+        holder.bindOffline(track.id, offline)
         holder.card.setOnClickListener { onClick(track, tracks) }
         holder.card.setOnLongClickListener { onLongClick(it, track); true }
+    }
+
+    override fun onBindViewHolder(holder: Holder, position: Int, payloads: MutableList<Any>) {
+        if (payloads.isNotEmpty() && payloads.all { it == PAYLOAD_OFFLINE }) {
+            holder.bindOffline(tracks[position].id, offline)
+            Painter.paint(holder.itemView, pal)
+            return
+        }
+        onBindViewHolder(holder, position)
     }
 
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
@@ -93,11 +124,26 @@ class TrackAdapter(
         private val art: ImageView = view.findViewById<ImageView>(R.id.track_art).apply { clipToOutline = true }
         private val title: TextView = view.findViewById(R.id.track_title)
         private val artist: TextView = view.findViewById(R.id.track_artist)
+        private val offlineBox: View = view.findViewById(R.id.track_offline_box)
+        private val offlineMark: ImageView = view.findViewById(R.id.track_offline)
+        private val ring: com.minim.music.ui.ProgressRing = view.findViewById(R.id.track_ring)
+
+        fun bindOffline(id: String, marks: OfflineMarks) {
+            val saving = marks.saving[id]
+            val saved = marks.saved.contains(id)
+            offlineBox.visibility = if (saving != null || saved) View.VISIBLE else View.GONE
+            ring.visibility = if (saving != null) View.VISIBLE else View.GONE
+            offlineMark.visibility = if (saving == null && saved) View.VISIBLE else View.GONE
+            if (saving != null) ring.setProgress(saving)
+        }
 
         fun bind(track: Track, active: Boolean, artwork: ArtworkPipeline, pal: Pal) {
             title.text = track.title
             artist.text = track.artist
             styleSongRow(card, art, listOf(title, artist), active)
+            val on = if (active) "bg" else "fg"
+            offlineMark.tag = "tint:$on"
+            ring.tag = "tint:$on"
             artwork.loadInto(art, track.thumbnailUrl, dp(44))
             Painter.paint(itemView, pal)
         }
@@ -309,10 +355,24 @@ class GridTileAdapter(
     private var tiles: List<GridTile> = emptyList()
     private var activeId: String? = null
     private var pal: Pal = DEFAULT_PAL
+    private var saving: Map<String, Float> = emptyMap()
 
     fun submit(tiles: List<GridTile>) {
         this.tiles = tiles.toList()
         notifyDataSetChanged()
+    }
+
+    /**
+     * 5.4.0: playlists saving offline, by tile key ("liked", "pl:<id>"), 0..1 done. Only the
+     * tiles whose ring changed redraw.
+     */
+    fun setSaving(map: Map<String, Float>) {
+        val old = saving
+        saving = map
+        tiles.forEachIndexed { i, t ->
+            val k = savingKey(t) ?: return@forEachIndexed
+            if (old[k] != map[k]) notifyItemChanged(i, PAYLOAD_OFFLINE)
+        }
     }
 
     fun setActiveTrack(id: String?) {
@@ -333,11 +393,34 @@ class GridTileAdapter(
     override fun onBindViewHolder(holder: Holder, position: Int) {
         val tile = tiles[position]
         holder.bind(tile, activeId, artwork, pal)
+        holder.bindRing(savingKey(tile)?.let { saving[it] }, pal)
         holder.box.setOnClickListener { onClick(tile) }
         holder.box.setOnLongClickListener { onLongClick(it, tile); true }
     }
 
+    override fun onBindViewHolder(holder: Holder, position: Int, payloads: MutableList<Any>) {
+        if (payloads.isNotEmpty() && payloads.all { it == PAYLOAD_OFFLINE }) {
+            holder.bindRing(savingKey(tiles[position])?.let { saving[it] }, pal)
+            return
+        }
+        onBindViewHolder(holder, position)
+    }
+
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
+        private val ringBox: View = view.findViewById(R.id.tile_ring_box)
+        private val ring: com.minim.music.ui.ProgressRing = view.findViewById(R.id.tile_ring)
+        private val fromRow: View = view.findViewById(R.id.tile_from_row)
+        private val logo: ImageView = view.findViewById(R.id.tile_logo)
+
+        /** 5.4.0: the corner ring while this playlist saves offline (null = not saving). */
+        fun bindRing(f: Float?, pal: Pal) {
+            ringBox.visibility = if (f != null) View.VISIBLE else View.GONE
+            if (f != null) {
+                ring.setProgress(f)
+                Painter.paint(ringBox, pal)
+            }
+        }
+
         val box: View = view.findViewById(R.id.tile_box)
         private val art: ImageView = view.findViewById<ImageView>(R.id.tile_art).apply { clipToOutline = true }
         private val outline: View = view.findViewById(R.id.tile_outline)
@@ -350,6 +433,7 @@ class GridTileAdapter(
             // Half the screen is plenty for a 2-column grid; the pipeline downsamples to this.
             val artPx = (res.displayMetrics.widthPixels / 2).coerceAtMost(dp(220))
             subtitle.visibility = View.GONE
+            fromRow.visibility = View.GONE
             outline.visibility = View.GONE
             icon.visibility = View.GONE
             art.visibility = View.VISIBLE
@@ -384,16 +468,35 @@ class GridTileAdapter(
                     icon.visibility = View.VISIBLE
                     box.contentDescription = res.getString(R.string.recents)
                 }
+                is GridTile.OfflineTile -> {
+                    // 5.4.0: same filled square, with the offline arrow
+                    title.setText(R.string.offline_title)
+                    artwork.loadInto(art, null, artPx)
+                    icon.setImageResource(R.drawable.ic_offline)
+                    icon.tag = "tint:bg"
+                    icon.visibility = View.VISIBLE
+                    box.contentDescription = res.getString(R.string.offline_title)
+                }
                 is GridTile.PlaylistTile -> {
                     title.text = tile.playlist.name
+                    box.contentDescription = tile.playlist.name
                     // 5.3.0: an imported playlist says where it came from under its name
+                    // 5.4.0: "from" + the full logo (Spotify, YouTube Music, YouTube)
                     com.minim.music.data.importer.ImportOrigin.fromCode(tile.playlist.source)?.let {
-                        subtitle.text = it.label
-                        subtitle.visibility = View.VISIBLE
+                        val mark = com.minim.music.ui.SourceLogos.wordmark(it)
+                        if (mark != null) {
+                            com.minim.music.ui.SourceLogos.show(logo, mark, dp(13))
+                            fromRow.visibility = View.VISIBLE
+                            box.contentDescription = res.getString(
+                                R.string.tile_from_desc, tile.playlist.name, com.minim.music.ui.SourceLogos.name(it)
+                            )
+                        } else {
+                            subtitle.text = it.label
+                            subtitle.visibility = View.VISIBLE
+                        }
                     }
                     // Filled square; shows the first song's cover when the playlist has songs.
                     artwork.loadInto(art, tile.coverUrl, artPx)
-                    box.contentDescription = tile.playlist.name
                 }
                 is GridTile.AlbumTile -> {
                     title.text = tile.album.title
@@ -416,6 +519,15 @@ class GridTileAdapter(
             Painter.paint(itemView, pal)
         }
     }
+}
+
+/** 5.4.0: which tiles can show the saving ring. */
+private fun savingKey(t: GridTile): String? = when (t) {
+    is GridTile.Liked -> "liked"
+    is GridTile.PlaylistTile -> "pl:${t.playlist.id}"
+    // 5.4.0: everything saving right now, on the Offline tile
+    is GridTile.OfflineTile -> "offline"
+    else -> null
 }
 
 // =============================================================================================

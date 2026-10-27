@@ -232,6 +232,19 @@ class MusicSourceAdapter(okHttpClient: OkHttpClient) {
         throw IOException("No compatible audio stream available for this track.")
     }
 
+    /**
+     * 5.4.0: every audio format YouTube offers for this song, for saving offline (the best one is
+     * picked by [StreamSelection.bestForSaving]). [forceFresh] asks YouTube again for new links.
+     */
+    @Throws(IOException::class)
+    fun audioOptionsBlocking(videoIdOrUrl: String, forceFresh: Boolean = false): List<StreamOption> {
+        val videoId = extractVideoId(videoIdOrUrl) ?: videoIdOrUrl
+        val now = System.currentTimeMillis()
+        val cached = if (forceFresh) null else streamCache.get(videoId)?.takeIf { it.expiresAtMs > now }
+        val entry = cached ?: fetchStreams(videoId, videoIdOrUrl, now).also { streamCache.put(videoId, it) }
+        return entry.options
+    }
+
     /** Old entry point, kept for anything that only needs a URL. */
     @Throws(IOException::class)
     fun resolveAudioStreamUrlBlocking(videoIdOrUrl: String): String =

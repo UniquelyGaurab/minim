@@ -169,6 +169,13 @@ class ArtworkPipeline(
      * centred square without their black bars.
      */
     private fun fetchAndDecodeDownsampled(url: String, reqSizePx: Int): Bitmap? {
+        // 5.4.0: a song saved offline has its cover saved too, so it shows with no signal
+        try {
+            offlineArt?.invoke(url)?.let { (file, frame) ->
+                decodeFile(file, reqSizePx, frame)?.let { return it }
+            }
+        } catch (_: Exception) {
+        }
         for (candidate in ArtworkUrls.candidates(url, reqSizePx)) {
             if (isKnownMissing(candidate)) continue
             val file = fetchToDisk(candidate) ?: continue
@@ -176,6 +183,26 @@ class ArtworkPipeline(
             if (bmp != null) return bmp
             // A file that won't decode: drop it so the next load downloads it again
             file.delete()
+        }
+        return null
+    }
+
+    /**
+     * 5.4.0: the saved cover for a thumbnail URL, (file, is a video frame), or null. Set by the
+     * app to the offline store's lookup.
+     */
+    @Volatile var offlineArt: ((String) -> Pair<File, Boolean>?)? = null
+
+    /**
+     * 5.4.0: the best cover file for saving a song offline: (file, is a video frame), or null.
+     * Blocking; call off the main thread.
+     */
+    fun fileForSaving(url: String, sizePx: Int = 720): Pair<File, Boolean>? {
+        if (url.isBlank()) return null
+        for (candidate in ArtworkUrls.candidates(url, sizePx)) {
+            if (isKnownMissing(candidate)) continue
+            val file = fetchToDisk(candidate) ?: continue
+            return file to ArtworkUrls.isVideoThumb(candidate)
         }
         return null
     }

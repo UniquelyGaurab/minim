@@ -46,6 +46,14 @@ class MinimApp : Application() {
     lateinit var sleepTimerManager: SleepTimerManager
         private set
 
+    /** 5.4.0: songs saved offline (app's private files folder, not the cache). */
+    lateinit var offlineStore: com.minim.music.data.offline.OfflineStore
+        private set
+
+    /** 5.4.0: the "Save offline" queue (3 songs at a time, each in parallel ranged parts). */
+    lateinit var offline: com.minim.music.data.offline.OfflineManager
+        private set
+
     /** v4.9.6: update checker / downloader for GitHub Releases. */
     lateinit var updates: com.minim.music.data.update.AppUpdates
         private set
@@ -145,6 +153,7 @@ class MinimApp : Application() {
         sourceAdapter = MusicSourceAdapter(okHttpClient)
         lyricsProvider = LrcLibLyricsAdapter(okHttpClient)
         artworkPipeline = ArtworkPipeline(this, okHttpClient)
+        setUpOffline()
         playbackController = PlaybackController(this, database, preferences, artworkPipeline)
         discoverEngine = com.minim.music.data.discover.DiscoverEngine(this, database, sourceAdapter)
         sleepTimerManager = SleepTimerManager(playbackController)
@@ -277,5 +286,34 @@ class MinimApp : Application() {
         @Volatile
         lateinit var instance: MinimApp
             private set
+    }
+
+    /**
+     * 5.4.0: Save offline. The store lives in files/offline (so clearing the cache keeps it);
+     * playback, lyrics and covers look there first. Saving runs in a foreground service so it
+     * keeps going on mobile data with the screen off.
+     */
+    private fun setUpOffline() {
+        val store = com.minim.music.data.offline.OfflineStore(com.minim.music.data.offline.OfflineStore.folderIn(filesDir))
+        store.cleanPartials()
+        offlineStore = store
+        (lyricsProvider as? LrcLibLyricsAdapter)?.offlineLyrics = { id -> store.lyricsFor(id) }
+        artworkPipeline.offlineArt = { url -> store.artFor(url) }
+        val saveClient = okHttpClient.newBuilder()
+            .cache(null)
+            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+        val saver = com.minim.music.data.offline.YoutubeSongSaver(
+            store = store,
+            options = { id, fresh -> sourceAdapter.audioOptionsBlocking(id, fresh) },
+            fetcher = com.minim.music.data.offline.ParallelFetcher(saveClient),
+            lyrics = { track -> (lyricsProvider as? LrcLibLyricsAdapter)?.fetchRaw(track) },
+            art = { url -> artworkPipeline.fileForSaving(url) }
+        )
+        offline = com.minim.music.data.offline.OfflineManager(
+            store, saver,
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+        )
     }
 }

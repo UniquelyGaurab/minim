@@ -207,7 +207,7 @@ class UpdateNetworkTest {
             MockResponse().setBody(Buffer().write(bytes(200_000)))
                 .setSocketPolicy(SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY)
         )
-        val dropped = ApkDownloader(client).download(url, dir, "a.apk", 200_000)
+        val dropped = ApkDownloader(client, retryWaitsMs = emptyList()).download(url, dir, "a.apk", 200_000)
         assertTrue(dropped.toString(), dropped is DownloadResult.Failed)
         assertFalse(java.io.File(dir, "a.apk").exists())
         assertFalse(java.io.File(dir, "a.apk.part").exists())
@@ -226,5 +226,58 @@ class UpdateNetworkTest {
         assertEquals(DownloadResult.Cancelled, r)
         assertFalse(java.io.File(dir, "a.apk").exists())
         assertFalse(java.io.File(dir, "a.apk.part").exists())
+    }
+
+    /** 5.4.0: a drop mid-download (mobile data) picks up where it stopped with a Range request. */
+    @Test
+    fun dropMidDownloadResumesWithRange() {
+        val data = bytes(400_000)
+        val dir = tmp.newFolder("u4")
+        val url = server.url("/a.apk").toString().replace("localhost", "127.0.0.1")
+        val waits = mutableListOf<Long>()
+        val d = ApkDownloader(client, retryWaitsMs = listOf(10L, 10L, 10L), sleeper = { waits += it })
+        // The second response is decided once the first request shows how far it got
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            var n = 0
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
+                n++
+                if (n == 1) {
+                    return MockResponse().setBody(Buffer().write(data))
+                        .setSocketPolicy(SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY)
+                }
+                val range = request.getHeader("Range") ?: return MockResponse().setResponseCode(500)
+                val from = range.removePrefix("bytes=").removeSuffix("-").toInt()
+                return MockResponse().setResponseCode(206)
+                    .setHeader("Content-Range", "bytes $from-${data.size - 1}/${data.size}")
+                    .setBody(Buffer().write(data.copyOfRange(from, data.size)))
+            }
+        }
+        val progress = mutableListOf<Long>()
+        val r = d.download(url, dir, "a.apk", data.size.toLong()) { done, _ -> progress += done }
+        assertTrue(r.toString(), r is DownloadResult.Done)
+        assertTrue((r as DownloadResult.Done).file.readBytes().contentEquals(data))
+        assertTrue(waits.isNotEmpty())
+        assertEquals(data.size.toLong(), progress.last())
+        assertFalse(java.io.File(dir, "a.apk.part").exists())
+    }
+
+    /** 5.4.0: a server that ignores Range starts the file over instead of corrupting it. */
+    @Test
+    fun serverIgnoringRangeStartsOver() {
+        val data = bytes(300_000)
+        val dir = tmp.newFolder("u5")
+        val url = server.url("/a.apk").toString().replace("localhost", "127.0.0.1")
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            var n = 0
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
+                n++
+                return if (n == 1) MockResponse().setBody(Buffer().write(data))
+                    .setSocketPolicy(SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY)
+                else MockResponse().setBody(Buffer().write(data))
+            }
+        }
+        val r = ApkDownloader(client, retryWaitsMs = listOf(1L, 1L), sleeper = {}).download(url, dir, "a.apk", data.size.toLong())
+        assertTrue(r.toString(), r is DownloadResult.Done)
+        assertTrue((r as DownloadResult.Done).file.readBytes().contentEquals(data))
     }
 }

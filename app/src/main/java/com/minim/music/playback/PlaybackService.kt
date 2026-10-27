@@ -58,7 +58,9 @@ class PlaybackService : MediaSessionService() {
             { videoId, excluded, preferItag, fresh ->
                 app.sourceAdapter.resolveStreamBlocking(videoId, excluded, preferItag, fresh)
             },
-            okHttpDataSourceFactory
+            okHttpDataSourceFactory,
+            // 5.4.0: songs saved offline play from the phone
+            { videoId -> app.offlineStore.audioFor(videoId) }
         )
 
         // Bounded audio buffer sizes tailored for 2 GB RAM devices

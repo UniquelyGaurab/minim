@@ -114,7 +114,8 @@ object Painter {
                     if (it is EditText) it.setHintTextColor(ColorUtils.setAlphaComponent(c, 0x88))
                 }
                 token.startsWith("tint:") ->
-                    (view as? ImageView)?.imageTintList = ColorStateList.valueOf(pick(token.substring(5), p))
+                    if (view is ProgressRing) view.setColor(pick(token.substring(5), p))
+                    else (view as? ImageView)?.imageTintList = ColorStateList.valueOf(pick(token.substring(5), p))
             }
         }
     }

@@ -25,18 +25,45 @@ class LrcLibLyricsAdapter(
 
     private val memoryCache = LruCache<String, LyricsData>(40)
 
+    /**
+     * 5.4.0: lyrics saved with an offline song, by song id (null = not saved). Checked before
+     * LrcLib so a saved song shows its lyrics with no signal.
+     */
+    @Volatile var offlineLyrics: ((String) -> RawLyrics?)? = null
+
     override suspend fun getLyrics(track: Track): LyricsData? = withContext(Dispatchers.IO) {
         memoryCache.get(track.id)?.let { return@withContext it }
 
-        val cleanTitle = cleanQueryMetadata(track.title)
-        val cleanArtist = track.artist.removeSuffix(" - Topic").trim()
-
-        // LrcLib public timed-lyrics API
-        fetchFromLrcLib(track.id, cleanTitle, cleanArtist, track.durationSec)?.let { data ->
-            memoryCache.put(track.id, data)
-            return@withContext data
+        val saved = try { offlineLyrics?.invoke(track.id) } catch (_: Exception) { null }
+        if (saved != null) {
+            fromRaw(track.id, saved)?.let { data ->
+                memoryCache.put(track.id, data)
+                return@withContext data
+            }
         }
 
+        // LrcLib public timed-lyrics API
+        fetchRaw(track)?.let { raw ->
+            fromRaw(track.id, raw)?.let { data ->
+                memoryCache.put(track.id, data)
+                return@withContext data
+            }
+        }
+
+        null
+    }
+
+    /** 5.4.0: the lyrics text exactly as LrcLib sends it (synced LRC, or plain), for saving offline. */
+    fun fetchRaw(track: Track): RawLyrics? {
+        val cleanTitle = cleanQueryMetadata(track.title)
+        val cleanArtist = track.artist.removeSuffix(" - Topic").trim()
+        return fetchFromLrcLib(cleanTitle, cleanArtist, track.durationSec)
+    }
+
+    /** 5.4.0: turns saved or fetched lyrics text into lines. */
+    fun fromRaw(trackId: String, raw: RawLyrics): LyricsData? = try {
+        if (raw.synced) parseLrcText(trackId, raw.text, "LrcLib") else parsePlainText(trackId, raw.text, "LrcLib")
+    } catch (_: Exception) {
         null
     }
 
@@ -45,11 +72,10 @@ class LrcLibLyricsAdapter(
     }
 
     private fun fetchFromLrcLib(
-        trackId: String,
         title: String,
         artist: String,
         durationSec: Long
-    ): LyricsData? {
+    ): RawLyrics? {
         return try {
             val url = "https://lrclib.net/api/search?track_name=${Uri.encode(title)}&artist_name=${Uri.encode(artist)}"
             val req = Request.Builder()
@@ -83,11 +109,11 @@ class LrcLibLyricsAdapter(
 
                 val syncedLrc = bestObj.optString("syncedLyrics", "").trim()
                 if (syncedLrc.isNotEmpty() && syncedLrc != "null") {
-                    parseLrcText(trackId, syncedLrc, "LrcLib")
+                    RawLyrics(synced = true, text = syncedLrc)
                 } else {
                     val plain = bestObj.optString("plainLyrics", "").trim()
                     if (plain.isNotEmpty() && plain != "null") {
-                        parsePlainText(trackId, plain, "LrcLib")
+                        RawLyrics(synced = false, text = plain)
                     } else {
                         null
                     }
@@ -246,3 +272,6 @@ class LrcLibLyricsAdapter(
         private val LRC_OFFSET_PATTERN = SafeRegex.of("^\\[offset:\\s*([+-]?\\d+)\\s*\\]", RegexOption.IGNORE_CASE)
     }
 }
+
+/** 5.4.0: lyrics as text, synced (LRC with timestamps) or plain, as saved with an offline song. */
+data class RawLyrics(val synced: Boolean, val text: String)

@@ -15,6 +15,8 @@ sealed class GridTile {
     data class Liked(val count: Int, val coverUrl: String?) : GridTile()
     /** v4.9: "Recents" tile in Library, next to Liked Songs (the last 50 songs played). */
     data class RecentsTile(val count: Int) : GridTile()
+    /** 5.4.0: "Offline" tile in Library, pinned after Recents: the songs saved offline. */
+    data class OfflineTile(val count: Int) : GridTile()
     data class PlaylistTile(val playlist: Playlist, val coverUrl: String?) : GridTile()
     object NewPlaylist : GridTile()
     /** v4.6: an album on the Artist page's "Albums" grid. */

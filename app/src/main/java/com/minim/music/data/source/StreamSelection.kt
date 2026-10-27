@@ -34,6 +34,29 @@ data class ResolvedStream(
  */
 object StreamSelection {
 
+    /**
+     * 5.4.0: the format to save offline: the best quality, not the 128 kbps playback pick.
+     * Only whole files with a known size on a videoplayback link qualify (so they can be pulled
+     * in ranged pieces). Highest bitrate first (Opus ~160 kbps, itag 251, usually), and on a tie
+     * Opus/WEBM before M4A since it sounds better at the same bitrate.
+     */
+    fun bestForSaving(options: List<StreamOption>, excludedItags: Set<Int> = emptySet()): StreamOption? =
+        options
+            .filter {
+                it.url.isNotBlank() && it.progressive && it.contentLength > 0 &&
+                    it.itag !in excludedItags && YoutubeStreamRequest.isVideoPlaybackUrl(it.url)
+            }
+            .sortedWith(
+                compareByDescending<StreamOption> { it.bitrate }
+                    .thenBy { if (it.formatName.contains("WEBM", ignoreCase = true)) 0 else 1 }
+            )
+            .firstOrNull()
+
+    /** 5.4.0: file extension for a saved format, exactly what YouTube sent. */
+    fun fileFormat(option: StreamOption): String =
+        if (option.formatName.contains("WEBM", ignoreCase = true) || option.itag in setOf(249, 250, 251, 774)) "webm" else "m4a"
+
+
     fun order(options: List<StreamOption>): List<StreamOption> =
         options
             .filter { it.url.isNotBlank() && it.progressive }

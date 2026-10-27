@@ -61,5 +61,31 @@
                 android:tag="text:fg"
                 android:textSize="13sp" />
         </LinearLayout>
+
+        <!-- 5.4.0: a faint mark when the song is saved offline, a ring while it saves -->
+        <FrameLayout
+            android:id="@+id/track_offline_box"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginEnd="4dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:id="@+id/track_offline"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:alpha="0.45"
+                android:contentDescription="@string/offline_saved_cd"
+                android:src="@drawable/ic_offline_filled"
+                android:tag="tint:fg" />
+
+            <com.minim.music.ui.ProgressRing
+                android:id="@+id/track_ring"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:contentDescription="@string/offline_saving_cd"
+                android:tag="tint:fg"
+                android:visibility="gone" />
+        </FrameLayout>
     </LinearLayout>
 </FrameLayout>

@@ -54,6 +54,27 @@
             app:layout_constraintEnd_toEndOf="@id/tile_art"
             app:layout_constraintStart_toStartOf="@id/tile_art"
             app:layout_constraintTop_toTopOf="@id/tile_art" />
+
+        <!-- 5.4.0: a ring in the corner while the playlist saves offline -->
+        <FrameLayout
+            android:id="@+id/tile_ring_box"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_margin="8dp"
+            android:background="@drawable/shape_circle"
+            android:padding="6dp"
+            android:tag="fill:bg"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="@id/tile_art"
+            app:layout_constraintEnd_toEndOf="@id/tile_art">
+
+            <com.minim.music.ui.ProgressRing
+                android:id="@+id/tile_ring"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:contentDescription="@string/offline_saving_cd"
+                android:tag="tint:fg" />
+        </FrameLayout>
     </androidx.constraintlayout.widget.ConstraintLayout>
 
     <TextView
@@ -80,4 +101,36 @@
         android:tag="text:fg"
         android:textSize="10sp"
         android:visibility="gone" />
+
+    <!-- 5.4.0: "from [full logo]" under an imported playlist's name -->
+    <LinearLayout
+        android:id="@+id/tile_from_row"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="3dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tile_from"
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="4dp"
+            android:importantForAccessibility="no"
+            android:tag="text:fg"
+            android:text="@string/list_from"
+            android:textSize="10sp" />
+
+        <ImageView
+            android:id="@+id/tile_logo"
+            android:layout_width="wrap_content"
+            android:layout_height="12dp"
+            android:adjustViewBounds="true"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter"
+            android:tag="tint:fg" />
+    </LinearLayout>
 </LinearLayout>

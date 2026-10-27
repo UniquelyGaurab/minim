@@ -470,4 +470,38 @@
     <string name="import_none_found">Minim couldn\'t find this one on YouTube.</string>
     <string name="import_source_spotify">Spotify</string>
     <string name="import_source_list">your list</string>
+
+    <!-- 5.4.0: full logos, background downloads, Save offline -->
+    <string name="list_from_desc_prefix">from %1$s</string>
+    <string name="tile_from_desc">%1$s, from %2$s</string>
+    <string name="transfer_channel">Downloads</string>
+    <string name="transfer_starting">Starting download…</string>
+    <string name="transfer_update">Downloading the update</string>
+    <string name="transfer_update_pct">Downloading the update · %1$d%%</string>
+    <string name="transfer_saving">Saving offline · %1$d of %2$d</string>
+    <string name="offline_title">Offline</string>
+    <string name="offline_saved_cd">Saved offline</string>
+    <string name="offline_saving_cd">Saving offline</string>
+    <string name="offline_save">Save offline</string>
+    <string name="offline_remove">Remove from offline</string>
+    <string name="offline_left">%1$d left</string>
+    <string name="offline_empty">Nothing saved yet. Long-press a song, a playlist or Liked Songs and tap Save offline.</string>
+    <string name="offline_nothing_to_save">There are no songs to save here yet.</string>
+    <string name="offline_note_already">Already saved offline</string>
+    <string name="offline_note_saving_one">Saving offline</string>
+    <string name="offline_note_saving">Saving %1$d songs offline</string>
+    <string name="offline_note_removed_one">Removed from offline</string>
+    <string name="offline_note_removed">Removed %1$d songs from offline</string>
+    <string name="offline_group_done">%1$s is saved offline</string>
+    <string name="offline_group_done_some">%1$s is saved offline, but %2$d couldn\'t be saved</string>
+    <string name="offline_group_failed">Couldn\'t save %1$s offline. Check your connection and try again.</string>
+    <string name="offline_song_failed">Couldn\'t save %1$s offline</string>
+    <string name="offline_storage">Offline songs · %1$s</string>
+    <string name="offline_storage_none">Offline songs · none saved</string>
+    <string name="offline_remove_all">Remove all</string>
+    <string name="offline_remove_all_title">Remove all offline songs?</string>
+    <string name="offline_remove_all_sub">%1$s will be freed. The songs stay in your library and play online.</string>
+    <string name="offline_remove_all_ok">Remove all</string>
+    <string name="offline_note_removed_all">Offline songs removed</string>
+    <string name="delete_playlist">Delete playlist</string>
 </resources>

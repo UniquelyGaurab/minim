@@ -45,16 +45,19 @@ class YoutubeChunkedDataSource(
     client: OkHttpClient,
     private val resolver: StreamResolver,
     private val plainFactory: DataSource.Factory,
-    chunkBytes: Long = YoutubeStreamRequest.DEFAULT_CHUNK_BYTES
+    chunkBytes: Long = YoutubeStreamRequest.DEFAULT_CHUNK_BYTES,
+    /** 5.4.0: the saved file of a song saved offline, or null. Played instead of streaming. */
+    private val localFile: (String) -> java.io.File? = { null }
 ) : DataSource {
 
     class Factory(
         private val client: OkHttpClient,
         private val resolver: StreamResolver,
-        private val plainFactory: DataSource.Factory
+        private val plainFactory: DataSource.Factory,
+        private val localFile: (String) -> java.io.File? = { null }
     ) : DataSource.Factory {
         override fun createDataSource(): DataSource =
-            YoutubeChunkedDataSource(client, resolver, plainFactory)
+            YoutubeChunkedDataSource(client, resolver, plainFactory, YoutubeStreamRequest.DEFAULT_CHUNK_BYTES, localFile)
     }
 
     private val reader = ChunkedStreamReader(client, resolver, chunkBytes)
@@ -75,6 +78,15 @@ class YoutubeChunkedDataSource(
         }
         val videoId = uri.lastPathSegment?.takeIf { it.isNotBlank() }
             ?: throw IOException("Missing song id")
+
+        // 5.4.0: saved offline: play the file on the phone (no signal or data needed)
+        val saved = try { localFile(videoId) } catch (_: Exception) { null }
+        if (saved != null) {
+            val source = androidx.media3.datasource.FileDataSource()
+            listeners.forEach { source.addTransferListener(it) }
+            plain = source
+            return source.open(dataSpec.buildUpon().setUri(Uri.fromFile(saved)).build())
+        }
 
         val resolved: ResolvedStream =
             resolver.resolve(videoId, StreamRecovery.excludedItags(videoId), null, false)
