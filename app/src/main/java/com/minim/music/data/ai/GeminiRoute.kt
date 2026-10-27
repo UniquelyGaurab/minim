@@ -18,21 +18,44 @@ object GeminiRoute {
 
     fun hasBuiltIn(context: Context): Boolean = firebaseOptions(context) != null
 
-    fun endpoint(context: Context, settings: GeminiSettings): GeminiEndpoint {
+    /** v5.3.2: swaps this phone's App Check debug token for App Check tokens. Set up on first use. */
+    @Volatile private var exchanger: AppCheckExchanger? = null
+
+    private fun exchanger(): AppCheckExchanger = exchanger ?: synchronized(this) {
+        exchanger ?: AppCheckExchanger(
+            runCatching { com.minim.music.MinimApp.instance.okHttpClient }.getOrElse { okhttp3.OkHttpClient() }
+        ).also { exchanger = it }
+    }
+
+    /** v5.3.2: Gemini refused the App Check token; get a fresh one next time. */
+    fun appCheckRejected() {
+        exchanger?.invalidate()
+    }
+
+    suspend fun endpoint(context: Context, settings: GeminiSettings): GeminiEndpoint {
         val model = settings.model
         settings.apiKey()?.takeIf { it.isNotBlank() }?.let { return GeminiEndpoint.direct(model, it) }
         val o = firebaseOptions(context) ?: throw GeminiException(GeminiProblem.DefaultUnavailable)
+        val cert = certSha1(context)
+        // v5.3.2: App Check is enforced on Minim's project, so the built-in route needs a token.
+        val appCheck = if (!o.appId.isNullOrBlank() && !o.projectNumber.isNullOrBlank()) {
+            exchanger().token(
+                AppCheckApp(o.projectNumber, o.appId, o.apiKey, context.packageName, cert),
+                AppCheckDebugToken.get(context),
+            )
+        } else null
         return GeminiEndpoint.firebase(
             model = model,
             projectId = o.projectId,
             apiKey = o.apiKey,
             appId = o.appId,
             packageName = context.packageName,
-            certSha1 = certSha1(context),
+            certSha1 = cert,
+            appCheckToken = appCheck,
         )
     }
 
-    private class Opts(val projectId: String, val apiKey: String, val appId: String?)
+    private class Opts(val projectId: String, val apiKey: String, val appId: String?, val projectNumber: String?)
 
     private fun firebaseOptions(context: Context): Opts? = try {
         val apps = com.google.firebase.FirebaseApp.getApps(context)
@@ -40,7 +63,8 @@ object GeminiRoute {
         val o = app?.options
         val pid = o?.projectId
         val key = o?.apiKey
-        if (pid.isNullOrBlank() || key.isNullOrBlank()) null else Opts(pid, key, o.applicationId)
+        // The sender ID in the Firebase file is the project number App Check wants
+        if (pid.isNullOrBlank() || key.isNullOrBlank()) null else Opts(pid, key, o.applicationId, o.gcmSenderId)
     } catch (_: Throwable) {
         null
     }

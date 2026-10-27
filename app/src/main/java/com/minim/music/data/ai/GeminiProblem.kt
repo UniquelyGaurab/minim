@@ -12,6 +12,8 @@ sealed class GeminiProblem {
     data class UnknownModel(val model: String) : GeminiProblem()
     /** Minim's built-in Gemini isn't switched on (or this copy has no Firebase file). */
     object DefaultUnavailable : GeminiProblem()
+    /** v5.3.2: App Check refused this phone: its debug token isn't added in the Firebase console yet. */
+    object DeviceNotApproved : GeminiProblem()
     /** No internet. */
     object Offline : GeminiProblem()
     /** Gemini wouldn't answer this one (safety block). */
@@ -46,7 +48,13 @@ object GeminiErrors {
         val serviceOff = reasons.any { it == "SERVICE_DISABLED" || it == "ACCESS_TOKEN_SCOPE_INSUFFICIENT" } ||
             msg.contains("has not been used in project") || msg.contains("is disabled")
 
+        // v5.3.2: the built-in route refused the App Check token (or got none)
+        val appCheck = msg.contains("app check") || msg.contains("appcheck") || msg.contains("attestation")
+
         return when {
+            !ownKey && appCheck && (httpCode == 401 || httpCode == 403 ||
+                status == "UNAUTHENTICATED" || status == "PERMISSION_DENIED") ->
+                GeminiProblem.DeviceNotApproved.also { GeminiRoute.appCheckRejected() }
             httpCode == 429 || status == "RESOURCE_EXHAUSTED" -> GeminiProblem.Quota
             msg.contains("location is not supported") -> GeminiProblem.Region
             keyProblem || serviceOff || httpCode == 401 || httpCode == 403 ||

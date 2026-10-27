@@ -93,6 +93,7 @@ import com.minim.music.data.ai.ChatTools
 import com.minim.music.data.ai.GeminiChatSession
 import com.minim.music.data.ai.GeminiModels
 import com.minim.music.data.ai.GeminiRoute
+import com.minim.music.data.ai.AppCheckDebugToken
 import com.minim.music.data.ai.GeminiSettings
 import com.minim.music.data.ai.MinimActions
 import kotlin.math.abs
@@ -213,6 +214,13 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var listTitle: TextView
     private lateinit var listSubtitle: TextView
+    // 5.3.2: rename box, "+ Add songs" pill and the "from [logo]" row
+    private lateinit var listTitleEdit: EditText
+    private lateinit var listAddSongs: TextView
+    private lateinit var listSubtitleRow: View
+    private lateinit var listSourceFrom: TextView
+    private lateinit var listSourceLogo: ImageView
+    private var isRenaming = false
     private lateinit var listEmpty: TextView
 
     private lateinit var searchInput: EditText
@@ -458,6 +466,7 @@ class MainActivity : AppCompatActivity() {
         listTitle = findViewById(R.id.list_title)
         listSubtitle = findViewById(R.id.list_subtitle)
         listEmpty = findViewById(R.id.list_empty)
+        setupListHeader()
 
         searchInput = findViewById(R.id.search_input)
         searchStatus = findViewById(R.id.search_status)
@@ -917,6 +926,8 @@ class MainActivity : AppCompatActivity() {
                     isNowPlayingOpen -> collapseNowPlaying()
                     isImportReviewOpen -> closeImportReview()
                     isSearchOpen -> closeSearch()
+                    // 5.3.2: Back while renaming keeps the old name
+                    isListOpen && isRenaming -> cancelRename()
                     isListOpen -> closeList()
                     isShelfOpen -> closeShelf()
                     isArtistOpen -> closeArtist()
@@ -2661,8 +2672,10 @@ class MainActivity : AppCompatActivity() {
         haptic(screenList)
         openListId = null
         openAlbum = album
+        cancelRename()
         listTitle.text = album.title
         listSubtitle.text = album.subtitle
+        updateListHeader()
         listAdapter.submitList(emptyList())
         findViewById<RecyclerView>(R.id.list_tracks).scrollToPosition(0)
         listEntrance.expect()
@@ -2716,8 +2729,10 @@ class MainActivity : AppCompatActivity() {
         albumJob?.cancel()
         openListId = id
         openListName = name
+        cancelRename()
         listTitle.text = name
         listSubtitle.text = ""
+        updateListHeader()
         listAdapter.submitList(emptyList())
         listEmpty.visibility = View.GONE
         listEntrance.expect()
@@ -2726,7 +2741,292 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch { refreshOpenList() }
     }
 
+    // ==========================================================================================
+    // 5.3.2: playlist header: tap the title to rename, "+ Add songs", "from [logo]"
+    // ==========================================================================================
+
+    /** A playlist you made or imported (not Liked Songs, Recents or an album). */
+    private val isOwnPlaylistOpen get() = (openListId ?: -1L) >= 0L && openAlbum == null
+
+    private fun setupListHeader() {
+        listTitleEdit = findViewById(R.id.list_title_edit)
+        listAddSongs = findViewById(R.id.list_add_songs)
+        listSubtitleRow = findViewById(R.id.list_subtitle_row)
+        listSourceFrom = findViewById(R.id.list_source_from)
+        listSourceLogo = findViewById(R.id.list_source_logo)
+        listAddSongs.contentDescription = getString(R.string.add_songs_desc)
+        listAddSongs.setOnClickListener { v ->
+            if (!isOwnPlaylistOpen) return@setOnClickListener
+            haptic(v)
+            if (isRenaming) cancelRename()
+            showAddSongsSheet()
+        }
+        listTitle.setOnClickListener { if (isOwnPlaylistOpen && !isRenaming) startRename() }
+        listTitleEdit.setOnEditorActionListener { _, actionId, event ->
+            val enter = event?.keyCode == android.view.KeyEvent.KEYCODE_ENTER &&
+                event.action == android.view.KeyEvent.ACTION_DOWN
+            if (actionId == EditorInfo.IME_ACTION_DONE || enter) {
+                finishRename()
+                true
+            } else false
+        }
+    }
+
+    /** Shows the pill and the tap-to-rename only on your own playlists. */
+    private fun updateListHeader() {
+        val own = isOwnPlaylistOpen
+        listAddSongs.visibility = if (own) View.VISIBLE else View.GONE
+        listTitle.isClickable = own
+        listTitle.isFocusable = own
+        listTitle.contentDescription = if (own) getString(R.string.rename_desc, openListName) else null
+        if (!own) {
+            listSourceFrom.visibility = View.GONE
+            listSourceLogo.visibility = View.GONE
+            listSubtitleRow.contentDescription = null
+            listSubtitleRow.isFocusable = false
+            listSubtitle.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+        }
+    }
+
+    /** "from [logo] · 25 songs" (Spotify, YouTube Music, YouTube), else "from a list · …" or just the count. */
+    private fun showListSubtitle(origin: com.minim.music.data.importer.ImportOrigin?, count: String) {
+        val logo = origin?.let { sourceLogo(it) }
+        if (logo != null) {
+            listSourceLogo.setImageResource(logo)
+            // About the height of the letters, so it sits in the line like a word
+            val size = (listSubtitle.textSize * 1.15f).toInt().coerceAtLeast(dp(10f).toInt())
+            listSourceLogo.layoutParams = listSourceLogo.layoutParams.apply { width = size; height = size }
+            listSourceFrom.visibility = View.VISIBLE
+            listSourceLogo.visibility = View.VISIBLE
+            listSubtitle.text = "· $count"
+            val name = sourceName(origin)
+            listSourceLogo.contentDescription = name
+            // TalkBack reads the line as one: "from Spotify, 25 songs"
+            listSubtitleRow.contentDescription = getString(R.string.list_from_desc, name, count)
+            listSubtitleRow.isFocusable = true
+            listSubtitle.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        } else {
+            listSourceFrom.visibility = View.GONE
+            listSourceLogo.visibility = View.GONE
+            listSubtitle.text = listOfNotNull(origin?.label, count).joinToString(" · ")
+            listSubtitleRow.contentDescription = null
+            listSubtitleRow.isFocusable = false
+            listSubtitle.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+        }
+        // Tinted with the app colour right away (and on every colour change after)
+        Painter.paint(listSubtitleRow, pal)
+    }
+
+    private fun sourceLogo(o: com.minim.music.data.importer.ImportOrigin): Int? = when (o) {
+        com.minim.music.data.importer.ImportOrigin.SPOTIFY -> R.drawable.ic_logo_spotify
+        com.minim.music.data.importer.ImportOrigin.YOUTUBE_MUSIC -> R.drawable.ic_logo_youtube_music
+        com.minim.music.data.importer.ImportOrigin.YOUTUBE -> R.drawable.ic_logo_youtube
+        com.minim.music.data.importer.ImportOrigin.TEXT -> null
+    }
+
+    private fun sourceName(o: com.minim.music.data.importer.ImportOrigin): String = when (o) {
+        com.minim.music.data.importer.ImportOrigin.SPOTIFY -> "Spotify"
+        com.minim.music.data.importer.ImportOrigin.YOUTUBE_MUSIC -> "YouTube Music"
+        com.minim.music.data.importer.ImportOrigin.YOUTUBE -> "YouTube"
+        com.minim.music.data.importer.ImportOrigin.TEXT -> getString(R.string.import_source_list)
+    }
+
+    private fun startRename() {
+        if (!isOwnPlaylistOpen) return
+        haptic(listTitle)
+        isRenaming = true
+        listTitleEdit.setText(openListName)
+        listTitleEdit.visibility = View.VISIBLE
+        listTitle.visibility = View.INVISIBLE
+        Painter.paint(listTitleEdit, pal)
+        listTitleEdit.requestFocus()
+        listTitleEdit.selectAll()
+        showKeyboard(listTitleEdit)
+    }
+
+    /** Back, a blank name, or leaving the playlist: the old name stays. */
+    private fun cancelRename() {
+        if (!isRenaming) return
+        isRenaming = false
+        if (currentFocus === listTitleEdit) hideKeyboard()
+        listTitleEdit.clearFocus()
+        listTitleEdit.visibility = View.GONE
+        listTitle.visibility = View.VISIBLE
+    }
+
+    /** Done: saves the new name. A name another playlist has keeps the box open and says so. */
+    private fun finishRename() {
+        if (!isRenaming) return
+        val id = openListId?.takeIf { it >= 0L } ?: run { cancelRename(); return }
+        val name = listTitleEdit.text?.toString()?.trim().orEmpty()
+        if (name.isEmpty() || name == openListName) { cancelRename(); return }
+        lifecycleScope.launch {
+            when (app.database.renamePlaylist(id, name)) {
+                com.minim.music.data.local.LibraryDatabase.RenameResult.RENAMED -> {
+                    if (openListId != id) return@launch
+                    haptic(listTitle)
+                    openListName = name
+                    listTitle.text = name
+                    cancelRename()
+                    updateListHeader()
+                    refreshData()
+                    showNote(getString(R.string.rename_done, name))
+                }
+                com.minim.music.data.local.LibraryDatabase.RenameResult.TAKEN ->
+                    showNote(getString(R.string.rename_taken, name))
+                else -> cancelRename()
+            }
+        }
+    }
+
+    /**
+     * "+ Add songs": search and tap + to add to this playlist. The sheet stays open so you can add
+     * several in a row, and the playlist behind it updates as you go.
+     */
+    private fun showAddSongsSheet() {
+        val playlistId = openListId?.takeIf { it >= 0L } ?: return
+        val playlistName = openListName
+        lifecycleScope.launch {
+            val inPlaylist = HashSet<String>()
+            app.database.getPlaylistTracks(playlistId).mapTo(inPlaylist) { it.id }
+            if (openListId != playlistId) return@launch
+            var searchJob: Job? = null
+            var generation = 0
+            openSheet { box ->
+                sheetHeading(box, getString(R.string.add_songs_title, playlistName))
+                val v = layoutInflater.inflate(R.layout.sheet_add_songs, box, false)
+                val input = v.findViewById<EditText>(R.id.add_songs_input)
+                val status = v.findViewById<TextView>(R.id.add_songs_status)
+                val results = v.findViewById<android.widget.LinearLayout>(R.id.add_songs_results)
+                box.addView(v)
+
+                fun setStatus(text: String?) {
+                    if (text == null) status.visibility = View.GONE
+                    else { status.text = text; status.visibility = View.VISIBLE }
+                }
+
+                fun label(text: String) {
+                    val t = TextView(this@MainActivity).apply {
+                        this.text = text
+                        textSize = 13f
+                        alpha = 0.7f
+                        tag = "text:fg"
+                        typeface = listSubtitle.typeface
+                        setPadding(0, dp(14f).toInt(), 0, dp(8f).toInt())
+                        isFocusable = false
+                    }
+                    results.addView(t)
+                    Painter.paint(t, pal)
+                }
+
+                fun row(t: Track) {
+                    val row = layoutInflater.inflate(R.layout.item_import_row, results, false)
+                    row.setPadding(0, 0, 0, row.paddingBottom)
+                    val card = row.findViewById<View>(R.id.track_card).apply { clipToOutline = true }
+                    val art = row.findViewById<ImageView>(R.id.track_art).apply { clipToOutline = true }
+                    row.findViewById<TextView>(R.id.track_title).text = t.title
+                    row.findViewById<TextView>(R.id.track_artist).text = t.artist
+                    val mark = row.findViewById<ImageView>(R.id.import_mark)
+                    fun showMark() {
+                        val added = t.id in inPlaylist
+                        mark.setImageResource(if (added) R.drawable.ic_check else R.drawable.ic_add)
+                        mark.contentDescription = if (added) getString(R.string.add_songs_added, t.title)
+                        else getString(R.string.add_songs_add, t.title)
+                        card.contentDescription = listOf(t.title, t.artist).filter { it.isNotBlank() }
+                            .joinToString(", ") + ". " + mark.contentDescription
+                    }
+                    showMark()
+                    val add = View.OnClickListener {
+                        if (sheetClosing || t.id in inPlaylist) return@OnClickListener
+                        inPlaylist.add(t.id)
+                        haptic(mark, HapticFeedbackConstants.KEYBOARD_TAP)
+                        showMark()
+                        if (animationsOn()) {
+                            mark.scaleX = 0.6f; mark.scaleY = 0.6f
+                            mark.animate().scaleX(1f).scaleY(1f).setDuration(180L)
+                                .setInterpolator(DecelerateInterpolator()).start()
+                        }
+                        lifecycleScope.launch {
+                            app.database.addTrackToPlaylist(playlistId, t)
+                            if (openListId == playlistId) refreshOpenList()
+                            refreshData()
+                        }
+                    }
+                    mark.setOnClickListener(add)
+                    card.setOnClickListener(add)
+                    app.artworkPipeline.loadInto(art, t.thumbnailUrl, dp(44f).toInt())
+                    results.addView(row)
+                    Painter.paint(row, pal)
+                    PressScale.applyTree(row)
+                }
+
+                fun showStart() {
+                    val gen = ++generation
+                    searchJob?.cancel()
+                    results.removeAllViews()
+                    setStatus(null)
+                    searchJob = lifecycleScope.launch {
+                        val recent = app.database.getRecentTracks(12)
+                        val liked = app.database.getLikedTracks().take(30)
+                        if (gen != generation) return@launch
+                        if (recent.isEmpty() && liked.isEmpty()) {
+                            setStatus(getString(R.string.add_songs_nothing_yet))
+                            return@launch
+                        }
+                        if (recent.isNotEmpty()) {
+                            label(getString(R.string.add_songs_recent))
+                            recent.forEach { row(it) }
+                        }
+                        if (liked.isNotEmpty()) {
+                            label(getString(R.string.add_songs_liked))
+                            liked.forEach { row(it) }
+                        }
+                    }
+                }
+
+                fun search(query: String, delayMs: Long) {
+                    val q = query.trim()
+                    if (q.isEmpty()) { showStart(); return }
+                    val gen = ++generation
+                    searchJob?.cancel()
+                    searchJob = lifecycleScope.launch {
+                        if (delayMs > 0) kotlinx.coroutines.delay(delayMs)
+                        if (gen != generation) return@launch
+                        if (results.childCount == 0) setStatus(getString(R.string.add_songs_searching))
+                        val r = app.sourceAdapter.searchTracks(q)
+                        if (gen != generation) return@launch
+                        results.removeAllViews()
+                        when (r) {
+                            is SourceResult.Success -> {
+                                setStatus(if (r.data.isEmpty()) getString(R.string.add_songs_none) else null)
+                                r.data.forEach { row(it) }
+                            }
+                            is SourceResult.Error -> setStatus(getString(R.string.add_songs_error))
+                        }
+                    }
+                }
+
+                input.addTextChangedListener(object : android.text.TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                    override fun afterTextChanged(s: android.text.Editable?) {
+                        search(s?.toString().orEmpty(), 450L)
+                    }
+                })
+                input.setOnEditorActionListener { _, actionId, _ ->
+                    if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                        search(input.text?.toString().orEmpty(), 0L)
+                        hideKeyboard()
+                        true
+                    } else false
+                }
+                showStart()
+            }
+        }
+    }
+
     private fun closeList() {
+        cancelRename()
         openListId = null
         openAlbum = null
         albumJob?.cancel()
@@ -2746,11 +3046,10 @@ class MainActivity : AppCompatActivity() {
         // v4.9.9: rises in on opening; later refreshes (a like, a play) just update
         listEntrance.loaded(tracks.size)
         // 5.3.0: "from Spotify · 84 songs" for an imported playlist
-        listSubtitle.text = listOfNotNull(
-            com.minim.music.data.importer.ImportOrigin.fromCode(openListSource)?.label
-                ?.takeIf { id != LIKED_LIST && id != RECENTS_LIST },
-            songCount(tracks.size)
-        ).joinToString(" · ")
+        // 5.3.2: "from [logo] · 84 songs", the logo tinted with the app colour; a pasted list keeps words
+        val origin = com.minim.music.data.importer.ImportOrigin.fromCode(openListSource)
+            ?.takeIf { id != LIKED_LIST && id != RECENTS_LIST }
+        showListSubtitle(origin, songCount(tracks.size))
         listEmpty.text = getString(
             when (id) {
                 LIKED_LIST -> R.string.liked_empty
@@ -5774,6 +6073,7 @@ class MainActivity : AppCompatActivity() {
         val where = when (ready.origin) {
             com.minim.music.data.importer.ImportOrigin.SPOTIFY -> getString(R.string.import_source_spotify)
             com.minim.music.data.importer.ImportOrigin.YOUTUBE -> "YouTube"
+            com.minim.music.data.importer.ImportOrigin.YOUTUBE_MUSIC -> "YouTube Music"
             com.minim.music.data.importer.ImportOrigin.TEXT -> getString(R.string.import_source_list)
         }
         val was = listOf(src.title, src.artists.joinToString(", ")).filter { it.isNotBlank() }.joinToString(" – ")
@@ -6529,6 +6829,11 @@ class MainActivity : AppCompatActivity() {
 
         override fun openArtist(name: String) = geminiOpenArtist(name)
 
+        override fun addOwnKey() {
+            openGeminiSettings()
+            showGeminiKeySheet()
+        }
+
         override fun openGeminiSettings() {
             openSettings()
             val header = findViewById<View>(R.id.set_gemini_header)
@@ -6571,6 +6876,22 @@ class MainActivity : AppCompatActivity() {
             renderGeminiSettings()
             showNote(getString(R.string.set_gemini_key_removed))
         }
+        // 5.3.2: copy this phone's App Check debug token (never logged, never synced)
+        findViewById<View>(R.id.set_gemini_token_copy).setOnClickListener { v ->
+            haptic(v)
+            val token = AppCheckDebugToken.get(this)
+            try {
+                val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                val clip = android.content.ClipData.newPlainText(getString(R.string.set_gemini_token), token)
+                // Android 13+: keep it out of the clipboard preview pop-up
+                clip.description.extras = android.os.PersistableBundle().apply {
+                    putBoolean("android.content.extra.IS_SENSITIVE", true)
+                }
+                cm?.setPrimaryClip(clip)
+                showNote(getString(R.string.set_gemini_token_copied))
+            } catch (_: Exception) {
+            }
+        }
     }
 
     private fun renderGeminiSettings() {
@@ -6587,6 +6908,16 @@ class MainActivity : AppCompatActivity() {
             if (key != null) R.string.set_gemini_key_change else R.string.set_gemini_key_add
         )
         findViewById<View>(R.id.set_gemini_key_remove).visibility = if (s.hasApiKey) View.VISIBLE else View.GONE
+        // 5.3.2: the device token only matters for the built-in route (needs the Firebase file)
+        val builtIn = GeminiRoute.hasBuiltIn(this)
+        findViewById<View>(R.id.set_gemini_token_box).visibility = if (builtIn) View.VISIBLE else View.GONE
+        if (builtIn) {
+            val token = AppCheckDebugToken.get(this)
+            findViewById<TextView>(R.id.set_gemini_token_value).apply {
+                text = token
+                contentDescription = getString(R.string.set_gemini_token_desc, token.takeLast(4))
+            }
+        }
     }
 
     /** The model dropdown: the two Flash-Lite models, or Custom (any AI Studio model ID). */

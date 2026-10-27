@@ -9,28 +9,108 @@
     android:tag="bg"
     android:visibility="gone">
 
-    <TextView
-        android:id="@+id/list_title"
-        style="@style/MinimText.Bold"
+    <!-- 5.3.2: title (tap to rename a playlist) with "+ Add songs" at the right -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="36dp"
         android:layout_marginTop="30dp"
-        android:layout_marginEnd="36dp"
-        android:ellipsize="end"
-        android:singleLine="true"
-        android:tag="text:fg"
-        android:textSize="22sp" />
+        android:layout_marginEnd="24dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
-    <TextView
-        android:id="@+id/list_subtitle"
-        style="@style/MinimText"
+        <FrameLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1">
+
+            <TextView
+                android:id="@+id/list_title"
+                style="@style/MinimText.Bold"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:tag="text:fg"
+                android:textSize="22sp" />
+
+            <EditText
+                android:id="@+id/list_title_edit"
+                style="@style/MinimText.Bold"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@null"
+                android:hint="@string/rename_hint"
+                android:imeOptions="actionDone"
+                android:importantForAutofill="no"
+                android:inputType="textCapSentences"
+                android:maxLength="40"
+                android:padding="0dp"
+                android:selectAllOnFocus="true"
+                android:singleLine="true"
+                android:tag="text:fg"
+                android:textCursorDrawable="@null"
+                android:textSize="22sp"
+                android:visibility="gone" />
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/list_add_songs"
+            style="@style/MinimText.Semi"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:layout_marginStart="12dp"
+            android:background="@drawable/shape_pill"
+            android:gravity="center"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:tag="fill:fg text:bg"
+            android:text="@string/add_songs"
+            android:textSize="12sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- 5.3.2: "from [logo] · 25 songs"; the logo is tinted with the app colour -->
+    <LinearLayout
+        android:id="@+id/list_subtitle_row"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="36dp"
         android:layout_marginTop="4dp"
-        android:tag="text:fg"
-        android:textSize="11sp" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/list_source_from"
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:importantForAccessibility="no"
+            android:tag="text:fg"
+            android:text="@string/list_from"
+            android:textSize="11sp"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/list_source_logo"
+            android:layout_width="12dp"
+            android:layout_height="12dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter"
+            android:tag="tint:fg"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/list_subtitle"
+            style="@style/MinimText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:importantForAccessibility="no"
+            android:tag="text:fg"
+            android:textSize="11sp" />
+    </LinearLayout>
 
     <FrameLayout
         android:layout_width="match_parent"

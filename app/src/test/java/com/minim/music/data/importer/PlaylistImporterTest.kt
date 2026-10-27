@@ -59,6 +59,17 @@ class PlaylistImporterTest {
         assertTrue(b.queries.isEmpty()) // no matching for YouTube
     }
 
+    // 5.3.2: a music.youtube.com playlist is saved as YouTube Music, so it shows that logo
+    @Test fun `youtube music playlist keeps the youtube music origin`() {
+        val b = Fake(yt = ImportBackend.YouTubeList("Mix", listOf(t("a", "A", "x")), 1, false))
+        val s = runImport(b, ImportInput.YouTube("PL1", music = true)) as ImportState.Ready
+        assertEquals(ImportOrigin.YOUTUBE_MUSIC, s.origin)
+        assertEquals(ImportOrigin.YOUTUBE_MUSIC, ImportOrigin.fromCode("ytmusic"))
+        assertEquals(ImportOrigin.YOUTUBE, ImportOrigin.fromCode("youtube"))
+        assertEquals(ImportOrigin.YOUTUBE, (ImportDetect.detect("https://www.youtube.com/playlist?list=PL1") as ImportInput.YouTube)
+            .let { if (it.music) ImportOrigin.YOUTUBE_MUSIC else ImportOrigin.YOUTUBE })
+    }
+
     @Test fun `spotify songs are matched, doubtful ones flagged, missing ones unticked`() {
         val b = Fake(
             sp = SpotifyReader.Result(

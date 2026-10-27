@@ -16,10 +16,15 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.util.concurrent.atomic.AtomicInteger
 
-/** Where an imported playlist came from: shown as "from Spotify" / "from YouTube" under its name. */
+/**
+ * Where an imported playlist came from: shown as "from [logo] · 25 songs" under its name
+ * (5.3.2: logos for Spotify, YouTube Music and YouTube; a pasted list keeps the words).
+ */
 enum class ImportOrigin(val code: String, val label: String) {
     SPOTIFY("spotify", "from Spotify"),
     YOUTUBE("youtube", "from YouTube"),
+    /** 5.3.2: a music.youtube.com link. Older YouTube Music imports stay [YOUTUBE]. */
+    YOUTUBE_MUSIC("ytmusic", "from YouTube Music"),
     TEXT("text", "from a list");
 
     companion object {
@@ -99,7 +104,7 @@ class PlaylistImporter(
         if (isBusy) return false
         job?.cancel()
         val origin = when (input) {
-            is ImportInput.YouTube -> ImportOrigin.YOUTUBE
+            is ImportInput.YouTube -> if (input.music) ImportOrigin.YOUTUBE_MUSIC else ImportOrigin.YOUTUBE
             is ImportInput.Lines -> ImportOrigin.TEXT
             else -> ImportOrigin.SPOTIFY
         }
@@ -173,7 +178,7 @@ class PlaylistImporter(
     // ---- the work --------------------------------------------------------------------------------
 
     private suspend fun run(input: ImportInput, origin: ImportOrigin): ImportState = when (input) {
-        is ImportInput.YouTube -> readYouTube(input)
+        is ImportInput.YouTube -> readYouTube(input, origin)
         is ImportInput.Spotify -> readSpotify(input.kind, input.id)
         is ImportInput.SpotifyShort -> {
             val real = backend.resolveSpotifyShort(input.url)
@@ -188,9 +193,9 @@ class PlaylistImporter(
         ImportInput.Empty -> throw ImportFailure(ImportMessages.EMPTY)
     }
 
-    private suspend fun readYouTube(input: ImportInput.YouTube): ImportState {
+    private suspend fun readYouTube(input: ImportInput.YouTube, origin: ImportOrigin): ImportState {
         val list = backend.readYouTube(input.url, MAX_SONGS) { n ->
-            _state.value = ImportState.Reading("playlist", ImportOrigin.YOUTUBE, n)
+            _state.value = ImportState.Reading("playlist", origin, n)
         }
         val tracks = ImportDedupe.uniqueTracks(list.tracks)
         if (tracks.isEmpty()) throw ImportFailure(ImportMessages.EMPTY_PLAYLIST)
@@ -200,7 +205,7 @@ class PlaylistImporter(
             if (list.cutAtLimit) ImportMessages.limit(MAX_SONGS, list.total.toInt()) else null,
             ImportMessages.repeats(repeats)
         ).joinToString(" ").ifBlank { null }
-        return ImportState.Ready(list.name.ifBlank { "YouTube playlist" }, ImportOrigin.YOUTUBE, items, note)
+        return ImportState.Ready(list.name.ifBlank { "YouTube playlist" }, origin, items, note)
     }
 
     private suspend fun readSpotify(kind: String, id: String): ImportState {

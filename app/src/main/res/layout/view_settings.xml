@@ -750,6 +750,51 @@
                 android:visibility="gone" />
         </LinearLayout>
 
+        <!-- 5.3.2: App Check debug token for Minim's built-in Gemini (hidden without the Firebase file) -->
+        <LinearLayout
+            android:id="@+id/set_gemini_token_box"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                style="@style/MinimText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:tag="text:fg"
+                android:text="@string/set_gemini_token"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/set_gemini_token_value"
+                style="@style/MinimText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:fontFamily="monospace"
+                android:tag="text:muted"
+                android:textSize="11sp" />
+
+            <TextView
+                style="@style/MinimText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:tag="text:muted"
+                android:text="@string/set_gemini_token_howto"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/set_gemini_token_copy"
+                style="@style/MinimText.Option"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/set_gemini_token_copy" />
+        </LinearLayout>
+
         <!-- Storage -->
         <TextView
             style="@style/MinimText.Section"

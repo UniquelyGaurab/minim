@@ -9,7 +9,8 @@ import java.util.Locale
  */
 sealed class ImportInput {
     /** A YouTube or YouTube Music playlist (also an album, OLAK5uy_..., or a mix, RD...). */
-    data class YouTube(val listId: String) : ImportInput() {
+    data class YouTube(val listId: String, val music: Boolean = false) : ImportInput() {
+        // 5.3.2: [music] is true for a music.youtube.com link, so the playlist shows the YouTube Music logo
         val url: String get() = "https://www.youtube.com/playlist?list=$listId"
     }
 
@@ -94,7 +95,7 @@ object ImportDetect {
                     list == null -> ImportInput.Unsupported(ImportInput.Why.YOUTUBE_NOT_PLAYLIST)
                     // Liked music, Watch later: only the signed-in owner can read them
                     list == "LM" || list == "LL" || list == "WL" -> ImportInput.Unsupported(ImportInput.Why.YOUTUBE_PRIVATE_LIST)
-                    else -> ImportInput.YouTube(list)
+                    else -> ImportInput.YouTube(list, music = host == "music.youtube.com")
                 }
             }
             else -> ImportInput.Unsupported(ImportInput.Why.UNKNOWN_LINK)

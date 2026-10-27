@@ -366,6 +366,12 @@ class LibrarySync(private val lib: LibraryDatabase) {
             if (id == -1L) return
         } else {
             val cv = ContentValues().apply { put("created_at", m.created); put("changed_at", m.changed); put("born", m.born) }
+            // 5.3.2: a rename on another phone (its header is newer) renames it here too
+            d.rawQuery("SELECT name, changed_at FROM playlists WHERE id = ?", arrayOf(id.toString())).use { c ->
+                if (c.moveToFirst() && m.changed > c.getLong(1) && c.getString(0) != m.name) {
+                    cv.put("name", freeName(d, m.name, uid))
+                }
+            }
             d.update("playlists", cv, "id = ?", arrayOf(id.toString()))
         }
         val pid = id.toString()

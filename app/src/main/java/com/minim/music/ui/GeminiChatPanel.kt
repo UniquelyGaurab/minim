@@ -82,6 +82,8 @@ class GeminiChatPanel(
         suspend fun savePlaylist(name: String, tracks: List<Track>): Boolean
         fun openArtist(name: String)
         fun openGeminiSettings()
+        /** v5.3.2: opens the sheet for your own API key (from Settings → Gemini). */
+        fun addOwnKey() = openGeminiSettings()
         fun modelLabel(): String
         /** True when the chat can't work until you add a key (shown before the first message). */
         fun needsKeyUpFront(): Boolean
@@ -1222,6 +1224,7 @@ class GeminiChatPanel(
         GeminiProblem.Quota -> res.getString(R.string.gemini_err_quota)
         is GeminiProblem.UnknownModel -> res.getString(R.string.gemini_err_model, p.model)
         GeminiProblem.DefaultUnavailable -> res.getString(R.string.gemini_err_default_off)
+        GeminiProblem.DeviceNotApproved -> res.getString(R.string.gemini_err_device)
         GeminiProblem.Offline -> res.getString(R.string.gemini_err_offline)
         GeminiProblem.Blocked -> res.getString(R.string.gemini_err_blocked)
         GeminiProblem.Busy -> res.getString(R.string.gemini_err_busy)
@@ -1251,6 +1254,25 @@ class GeminiChatPanel(
         row.addView(icon)
         row.addView(tv)
         col.addView(row)
+        // v5.3.2: not approved yet: copy the device token (Settings) or use your own key
+        if (p == GeminiProblem.DeviceNotApproved) {
+            val pills = LinearLayout(root.context).apply { orientation = LinearLayout.HORIZONTAL }
+            val token = smallPill(res.getString(R.string.gemini_err_action_token)).apply {
+                setOnClickListener { close { host.openGeminiSettings() } }
+            }
+            val key = smallPill(res.getString(R.string.gemini_err_action_own_key)).apply {
+                setOnClickListener { close { host.addOwnKey() } }
+            }
+            pills.addView(token, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(28)))
+            pills.addView(key, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(28)).apply {
+                marginStart = dp(8)
+            })
+            col.addView(pills, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(8)
+                marginStart = dp(24)
+            })
+            return col
+        }
         val action: TextView? = when (p) {
             GeminiProblem.BadKey, GeminiProblem.DefaultUnavailable, is GeminiProblem.UnknownModel ->
                 smallPill(res.getString(R.string.gemini_err_action_settings)).apply {

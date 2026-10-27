@@ -38,6 +38,12 @@ Until this is on, the chat says built-in Gemini is off and asks for a free key f
 (Settings → Gemini → Add key). The app finds your project from `google-services.json`, so there is
 nothing to put in the code. Free-tier chat messages may be used by Google to improve its models.
 
+**If App Check is enforced on AI Logic (5.3.2):** Minim uses App Check's debug provider. Each phone
+makes its own debug token; copy it from Settings → Gemini → Your device token (Copy), then in the
+Firebase console open **App Check → Apps → your app → Manage debug tokens → Add**, paste it and save.
+Until a phone's token is added, the chat says the phone isn't approved yet and offers your own key
+instead. The token stays on the phone: it's never synced, backed up or logged.
+
 ## What Minim stores in the cloud
 
 Sync only runs while you're signed in. Everything lives under `users/{uid}`, where `{uid}` is your

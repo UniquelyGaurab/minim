@@ -10,7 +10,7 @@ class ImportDetectTest {
 
     @Test fun `youtube music playlist link`() {
         assertEquals(
-            ImportInput.YouTube("PLabc_123-XY"),
+            ImportInput.YouTube("PLabc_123-XY", music = true),
             detect("https://music.youtube.com/playlist?list=PLabc_123-XY&si=zz9")
         )
     }

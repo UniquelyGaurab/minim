@@ -48,10 +48,13 @@ data class GeminiEndpoint(
             appId: String?,
             packageName: String?,
             certSha1: String?,
+            appCheckToken: String? = null,
             base: String = FIREBASE_BASE,
         ): GeminiEndpoint {
             val h = linkedMapOf("x-goog-api-key" to apiKey)
             if (!appId.isNullOrBlank()) h["X-Firebase-AppId"] = appId
+            // v5.3.2: App Check (debug provider), see AppCheckDebug.kt
+            if (!appCheckToken.isNullOrBlank()) h["X-Firebase-AppCheck"] = appCheckToken
             if (!packageName.isNullOrBlank()) h["X-Android-Package"] = packageName
             if (!certSha1.isNullOrBlank()) h["X-Android-Cert"] = certSha1
             return GeminiEndpoint(

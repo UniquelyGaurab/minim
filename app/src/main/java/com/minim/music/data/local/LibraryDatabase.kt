@@ -817,6 +817,59 @@ class LibraryDatabase(context: Context) :
         id
     }
 
+    /** 5.3.2: what [renamePlaylist] did. */
+    enum class RenameResult { RENAMED, SAME, TAKEN, BLANK, MISSING }
+
+    /**
+     * 5.3.2: renames a playlist (tap its title). Its sync id stays the same, and the new name is
+     * a header change, so it wins over the old name on your other phones. A name another
+     * playlist already has is refused ([RenameResult.TAKEN]) so the user can pick another.
+     */
+    suspend fun renamePlaylist(playlistId: Long, newName: String): RenameResult = withContext(Dispatchers.IO) {
+        val clean = newName.trim()
+        if (clean.isEmpty()) return@withContext RenameResult.BLANK
+        val db = writableDatabase
+        var result = RenameResult.MISSING
+        db.beginTransaction()
+        try {
+            var uid: String? = null
+            var old: String? = null
+            db.rawQuery("SELECT uid, name FROM playlists WHERE id = ?", arrayOf(playlistId.toString())).use { c ->
+                if (c.moveToFirst()) {
+                    uid = if (c.isNull(0)) null else c.getString(0)
+                    old = c.getString(1)
+                }
+            }
+            when {
+                old == null -> result = RenameResult.MISSING
+                old == clean -> result = RenameResult.SAME
+                else -> {
+                    var taken = false
+                    db.rawQuery(
+                        "SELECT 1 FROM playlists WHERE name = ? AND id != ?",
+                        arrayOf(clean, playlistId.toString())
+                    ).use { c -> taken = c.moveToFirst() }
+                    if (taken) {
+                        result = RenameResult.TAKEN
+                    } else {
+                        val cv = ContentValues().apply {
+                            put("name", clean)
+                            put("changed_at", System.currentTimeMillis())
+                        }
+                        db.update("playlists", cv, "id = ?", arrayOf(playlistId.toString()))
+                        uid?.let { queueSync(db, "P|$it") }
+                        result = RenameResult.RENAMED
+                    }
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        if (result == RenameResult.RENAMED) notifySync(urgent = true)
+        result
+    }
+
     suspend fun deletePlaylist(playlistId: Long) = withContext(Dispatchers.IO) {
         val db = writableDatabase
         db.beginTransaction()

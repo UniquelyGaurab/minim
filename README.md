@@ -21,6 +21,7 @@ It runs on Android 9 (API 28) and newer, and the app is about 8.6 MB.
 - **Festivals and announcements (5.0):** festival banners, colours and greetings, one-time announcements and feature switches can be set from a config document in Firestore, without a new build. See [FIREBASE_SETUP.md](FIREBASE_SETUP.md).
 - **Ask Gemini (5.2.0):** a chat with Google Gemini, opened from **Ask Gemini** under Search on Home or **Ask** next to Up next on Now Playing. It can find and play songs, queue them, like the song that's playing, open artist pages, translate or explain the lyrics, roast your listening stats and put together a playlist you can edit before saving. Replies are short and in any language. The chat is only kept while the app is open. Pick the model in Settings (Gemini 3.5 Flash-Lite by default, Gemini 3.1 Flash-Lite, or any model ID from Google AI Studio) and add your own free AI Studio key there if you like.
 - **Playlist import (5.3.0):** tap **Add playlist** in Library, then **Import Playlist**, and paste a YouTube or YouTube Music playlist, album or mix link, a Spotify playlist or album link, or a plain list of songs (one per line). You can also share a link to Minim from Spotify or YouTube Music. Spotify playlists are read from Spotify's public pages, with no login or key, up to 1,000 songs. The import runs in the background while you listen. Then you review the matches, pick another version for any song Minim isn't sure about or leave it out, and save it as a normal playlist.
+- **Editing playlists (5.3.2):** tap **+ Add songs** at the top of a playlist to search and add several songs in a row, and tap a playlist's name to rename it. Imported playlists show a small Spotify, YouTube Music or YouTube logo under the name, in the app's colours.
 - **Updates in the app:** when Minim opens or comes back after a few hours, it checks this repo's latest release and offers to download and install a newer version. You can also check any time in Settings.
 - **Library:** liked songs, playlists, recents and a song menu on long-press (play next, add to queue, add to playlist, go to artist, share).
 
@@ -56,7 +57,7 @@ The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. Run the unit tests
 
 Sign-in, sync and the config document need your own Firebase project. Without it the app builds and runs the same, and the Account section in Settings stays hidden. To turn it on, follow [FIREBASE_SETUP.md](FIREBASE_SETUP.md): create a Firebase project, put its `google-services.json` in `app/` (see `app/google-services.json.example`; the real file is ignored by git and must never be committed), and publish the rules in [`firestore.rules`](firestore.rules).
 
-The Gemini chat's built-in route uses Firebase AI Logic in the same project (step 4 in FIREBASE_SETUP.md). Without it, or without Firebase at all, the chat still works with your own key from [Google AI Studio](https://aistudio.google.com/apikey), added in Settings → Gemini.
+The Gemini chat's built-in route uses Firebase AI Logic in the same project (step 4 in FIREBASE_SETUP.md). Without it, or without Firebase at all, the chat still works with your own key from [Google AI Studio](https://aistudio.google.com/apikey), added in Settings → Gemini. If your Firebase project enforces App Check on Firebase AI Logic, each phone needs its debug token added: copy it from Settings → Gemini → Your device token, then in the Firebase console go to App Check → Apps → your app → Manage debug tokens → Add. The token is kept on the phone only, never synced, backed up or logged.
 
 ### Signing
 
@@ -125,6 +126,7 @@ Lines about your listening go in a separate `"stats"` list after `"greetings"`. 
 - [Firebase](https://firebase.google.com) Authentication and Cloud Firestore for the optional sign-in and sync
 - [Google Gemini](https://ai.google.dev) (Gemini API and Firebase AI Logic) for the chat
 - [Poppins](https://fonts.google.com/specimen/Poppins) font (SIL Open Font License)
+- [Simple Icons](https://simpleicons.org) for the one-colour Spotify, YouTube Music and YouTube logos (CC0; the logos are their owners' trademarks)
 
 From the app's own credits: designed by Gaurab, built by Charlie (Sesame AI), early code by Google Gemini.
 
