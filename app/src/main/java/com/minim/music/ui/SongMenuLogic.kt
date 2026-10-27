@@ -25,4 +25,30 @@ object SongMenuLogic {
     /** Text for Share: title · artist, then the link. */
     fun shareText(title: String, artist: String, url: String): String =
         if (artist.isBlank()) "$title\n$url" else "$title · $artist\n$url"
+
+    /** 5.4.1: the Save offline row in the Now Playing menu: not saved, saving now, or saved. */
+    enum class OfflineRowState { SAVE, SAVING, SAVED }
+
+    /** How the row looks: its label, its icon, and the ring's progress (null = no ring). */
+    data class OfflineRowLook(val label: Int, val icon: Int, val ring: Float?)
+
+    /** Saving wins over saved (a song being saved again shows its ring). */
+    fun offlineRowState(saved: Boolean, saving: Float?): OfflineRowState = when {
+        saving != null -> OfflineRowState.SAVING
+        saved -> OfflineRowState.SAVED
+        else -> OfflineRowState.SAVE
+    }
+
+    /**
+     * Same words and icons as the long-press menu: "Save offline" until it's saving or saved, then
+     * "Remove from offline" (which also stops a save that's running). While saving, the row shows
+     * the small ring from the song lists.
+     */
+    fun offlineRowLook(saved: Boolean, saving: Float?): OfflineRowLook = when (offlineRowState(saved, saving)) {
+        OfflineRowState.SAVE -> OfflineRowLook(com.minim.music.R.string.offline_save, com.minim.music.R.drawable.ic_offline, null)
+        OfflineRowState.SAVING -> OfflineRowLook(
+            com.minim.music.R.string.offline_remove, com.minim.music.R.drawable.ic_offline_filled, saving!!.coerceIn(0f, 1f)
+        )
+        OfflineRowState.SAVED -> OfflineRowLook(com.minim.music.R.string.offline_remove, com.minim.music.R.drawable.ic_offline_filled, null)
+    }
 }

@@ -411,6 +411,7 @@ class GridTileAdapter(
         private val ring: com.minim.music.ui.ProgressRing = view.findViewById(R.id.tile_ring)
         private val fromRow: View = view.findViewById(R.id.tile_from_row)
         private val logo: ImageView = view.findViewById(R.id.tile_logo)
+        private val from: TextView = view.findViewById(R.id.tile_from)
 
         /** 5.4.0: the corner ring while this playlist saves offline (null = not saving). */
         fun bindRing(f: Float?, pal: Pal) {
@@ -485,7 +486,7 @@ class GridTileAdapter(
                     com.minim.music.data.importer.ImportOrigin.fromCode(tile.playlist.source)?.let {
                         val mark = com.minim.music.ui.SourceLogos.wordmark(it)
                         if (mark != null) {
-                            com.minim.music.ui.SourceLogos.show(logo, mark, dp(13))
+                            com.minim.music.ui.SourceLogos.show(logo, mark, from)
                             fromRow.visibility = View.VISIBLE
                             box.contentDescription = res.getString(
                                 R.string.tile_from_desc, tile.playlist.name, com.minim.music.ui.SourceLogos.name(it)

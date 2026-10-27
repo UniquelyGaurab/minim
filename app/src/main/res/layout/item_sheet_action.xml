@@ -55,4 +55,14 @@
         android:importantForAccessibility="no"
         android:tag="tint:fg"
         android:visibility="gone" />
+
+    <!-- 5.4.1: the small saving ring from the song lists (Save offline in the Now Playing menu) -->
+    <com.minim.music.ui.ProgressRing
+        android:id="@+id/action_ring"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_marginStart="8dp"
+        android:contentDescription="@string/offline_saving_cd"
+        android:tag="tint:fg"
+        android:visibility="gone" />
 </LinearLayout>

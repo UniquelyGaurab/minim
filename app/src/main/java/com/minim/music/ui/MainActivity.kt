@@ -83,6 +83,7 @@ import com.minim.music.data.account.MinimAccount
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import com.minim.music.data.sync.CloudSync
 import com.minim.music.data.sync.SyncText
 import kotlinx.coroutines.isActive
@@ -2798,9 +2799,8 @@ class MainActivity : AppCompatActivity() {
     private fun showListSubtitle(origin: com.minim.music.data.importer.ImportOrigin?, count: String) {
         val logo = SourceLogos.wordmark(origin)
         if (logo != null) {
-            // 5.4.0: the full logo (icon + name), a little taller than the letters so its name reads
-            val size = (listSubtitle.textSize * 1.4f).toInt().coerceAtLeast(dp(12f).toInt())
-            SourceLogos.show(listSourceLogo, logo, size)
+            // 5.4.1: the logo's letters as tall as the capitals of "from" (same for all three logos)
+            SourceLogos.show(listSourceLogo, logo, listSourceFrom)
             listSourceFrom.visibility = View.VISIBLE
             listSourceLogo.visibility = View.VISIBLE
             listSubtitle.text = "· $count"
@@ -5608,7 +5608,7 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * v4.9.7 Now Playing 3 dot menu, a Minim sheet in the app's colours: Add to playlist,
-     * Go to artist (the first one when there are several), Share and Sleep timer.
+     * Save offline (5.4.1), Go to artist (the first one when there are several), Share and Sleep timer.
      */
     private fun showNowPlayingMenu() {
         val track = app.playbackController.uiState.value.currentTrack ?: return
@@ -5618,6 +5618,7 @@ class MainActivity : AppCompatActivity() {
             sheetAction(box, R.drawable.ic_playlist_add, getString(R.string.add_to_playlist)) {
                 showAddToPlaylistSheet(track)
             }
+            nowPlayingOfflineRow(box, track)
             if (hasArtist) {
                 sheetAction(box, R.drawable.ic_person, getString(R.string.sheet_go_to_artist)) {
                     closeSheet()
@@ -5636,6 +5637,61 @@ class MainActivity : AppCompatActivity() {
                 showSleepTimerSheet()
             }
         }
+    }
+
+    /** 5.4.1: the live Save offline row in the Now Playing menu (see [nowPlayingOfflineRow]). */
+    private var npOfflineJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * 5.4.1: "Save offline" in the Now Playing menu, right under Add to playlist. While the song is
+     * saving it shows the small ring from the song lists, and once saving or saved it reads
+     * "Remove from offline", which works like the long-press menu (it also stops a save that's
+     * running). The row follows the saving live while the menu is open.
+     */
+    private fun nowPlayingOfflineRow(box: android.widget.LinearLayout, track: Track) {
+        npOfflineJob?.cancel()
+        fun look() = SongMenuLogic.offlineRowLook(
+            app.offlineStore.isSaved(track.id), app.offline.progress.value[track.id]
+        )
+        val first = look()
+        val row = sheetAction(box, first.icon, getString(first.label)) {
+            // read it again: the save may have finished or started since the menu opened
+            val on = look().ring != null || app.offlineStore.isSaved(track.id)
+            closeSheet()
+            if (on) removeOffline(listOf(track.id)) else saveOffline(listOf(track))
+        }
+        val icon = row.findViewById<ImageView>(R.id.action_icon)
+        val label = row.findViewById<TextView>(R.id.action_label)
+        val ring = row.findViewById<ProgressRing>(R.id.action_ring)
+        fun render(l: SongMenuLogic.OfflineRowLook) {
+            icon.setImageResource(l.icon)
+            label.setText(l.label)
+            if (l.ring != null) {
+                ring.setProgress(l.ring)
+                ring.visibility = View.VISIBLE
+                row.contentDescription = getString(l.label) + ", " + getString(R.string.offline_saving_cd)
+            } else {
+                ring.visibility = View.GONE
+                row.contentDescription = getString(l.label)
+            }
+        }
+        render(first)
+        val job = lifecycleScope.launch {
+            kotlinx.coroutines.flow.combine(app.offlineStore.saved, app.offline.progress) { saved, progress ->
+                SongMenuLogic.offlineRowLook(saved.any { it.track.id == track.id }, progress[track.id])
+            }.distinctUntilChanged().collect { l ->
+                if (!isSheetOpen || row.parent == null) {
+                    npOfflineJob?.cancel()
+                    return@collect
+                }
+                render(l)
+            }
+        }
+        npOfflineJob = job
+        row.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) = Unit
+            override fun onViewDetachedFromWindow(v: View) { job.cancel() }
+        })
     }
 
     /** "12:34" left on the sleep timer, or null when it's off. */
@@ -6256,7 +6312,7 @@ class MainActivity : AppCompatActivity() {
         if (mark != null) {
             from.visibility = View.VISIBLE
             logo.visibility = View.VISIBLE
-            SourceLogos.show(logo, mark, (importSubtitle.textSize * 1.4f).toInt())
+            SourceLogos.show(logo, mark, from)
             importSubtitle.text = rest.joinToString(" · ", prefix = "· ")
             importSubtitle.contentDescription =
                 (listOf(getString(R.string.list_from_desc_prefix, SourceLogos.name(ready.origin))) + rest).joinToString(", ")
