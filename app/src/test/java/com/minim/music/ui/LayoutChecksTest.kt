@@ -102,7 +102,12 @@ class LayoutChecksTest {
     fun upNextRowsMatchSongRows_withButtonsAndNoPlaylistPill() {
         assertFalse(ids("view_queue.xml").contains("queue_add_to_playlist"))
         val row = parse("item_queue_track.xml").elements()
-        assertTrue(row.map { it.attr("id") }.containsAll(listOf("@+id/queue_up", "@+id/queue_down", "@+id/queue_remove")))
+        // 5.5.1: x then the drag handle, last on the right; the up / down arrows are gone
+        val ids = row.map { it.attr("id") }
+        assertTrue(ids.containsAll(listOf("@+id/queue_remove", "@+id/queue_handle")))
+        assertFalse(ids.contains("@+id/queue_up") || ids.contains("@+id/queue_down"))
+        assertTrue(ids.indexOf("@+id/queue_remove") < ids.indexOf("@+id/queue_handle"))
+        assertEquals("@+id/queue_handle", ids.filterNotNull().filter { it.isNotEmpty() }.last())
         val card = row.first { it.attr("id") == "@+id/queue_row" }
         assertEquals("@drawable/shape_card", card.attr("background"))
         assertEquals("fill:soft", card.attr("tag"))
@@ -140,8 +145,10 @@ class LayoutChecksTest {
         // It's the last thing on the screen, where the hint was, with a fixed height for fitNowPlaying
         // (v4.9.8: the screen's elements live in np_content, inside the coloured screen)
         // (5.2.0: it shares that last row with the "Ask" Gemini pill)
-        val content = np.childElements().single()
+        // 5.5.0: the seek bar's floating time pill sits beside np_content
+        val content = np.childElements().first()
         assertEquals("@+id/np_content", content.attr("id"))
+        assertEquals(listOf("@+id/np_seek_pill"), np.childElements().drop(1).map { it.attr("id") })
         val row = content.childElements().last()
         assertEquals("@+id/np_pill_row", row.attr("id"))
         assertTrue(row.attr("layout_height")!!.endsWith("dp"))
@@ -156,8 +163,12 @@ class LayoutChecksTest {
         assertEquals("@+id/screen_now_playing", np.attr("id"))
         assertEquals("bg", np.attr("tag"))
         assertEquals("true", np.attr("clickable"))
-        val content = np.childElements().single()
+        val content = np.childElements().first()
         assertEquals("vertical", content.attr("orientation"))
+        // 5.5.0: the only other child is the seek time pill, hidden until the bar is dragged
+        val pill = np.childElements().drop(1).single()
+        assertEquals("@+id/np_seek_pill", pill.attr("id"))
+        assertEquals("invisible", pill.attr("visibility"))
         assertNull("the colour belongs to the screen, not the fading content", content.attr("tag"))
     }
 

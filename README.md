@@ -2,7 +2,7 @@
 
 Minim is a lightweight, minimal YouTube Music client for Android. It keeps only what you need to listen: search, a clean player, your library and a few fun extras, with no clutter.
 
-It runs on Android 9 (API 28) and newer, and the app is about 8.6 MB.
+It runs on Android 9 (API 28) and newer, and the app is about 8.9 MB.
 
 ## Features
 
@@ -23,6 +23,8 @@ It runs on Android 9 (API 28) and newer, and the app is about 8.6 MB.
 - **Playlist import (5.3.0):** tap **Add playlist** in Library, then **Import Playlist**, and paste a YouTube or YouTube Music playlist, album or mix link, a Spotify playlist or album link, or a plain list of songs (one per line). You can also share a link to Minim from Spotify or YouTube Music. Spotify playlists are read from Spotify's public pages, with no login or key, up to 1,000 songs. The import runs in the background while you listen. Then you review the matches, pick another version for any song Minim isn't sure about or leave it out, and save it as a normal playlist.
 - **Editing playlists (5.3.2):** tap **+ Add songs** at the top of a playlist to search and add several songs in a row, and tap a playlist's name to rename it. Imported playlists show a small Spotify, YouTube Music or YouTube logo under the name, in the app's colours.
 - **Save offline (5.4.0):** long-press a song, a playlist or Liked Songs and tap **Save offline**. Minim saves the best audio YouTube offers (usually Opus at about 160 kbps, exactly as sent, with no re-encoding), 3 songs at a time, each in 4 parts at once, on Wi-Fi or mobile data. The synced lyrics and the cover are saved too, so a saved song plays with its lyrics and cover with no signal. Saved songs live in Minim's private storage, so clearing the cache keeps them. Find them under **Offline** in Library, and see the space they use, or remove them all, in Settings. Nothing is saved automatically.
+- **Player motion (5.5.0):** the mini player turns into Now Playing instead of being swapped for it. Swipe up on the pill and it opens as far as you drag; let go past a third, or flick, and it springs open, otherwise it springs back. Swipe down on Now Playing (anywhere but the seek bar), or press Back, and it shrinks back into the pill. Liking a song squishes and bounces the heart, fills it from the centre and bursts six small dots in the cover's colour; double-tap the cover to like it with a big floating heart (when the cover's double tap is set to Like in Settings). The seek bar thickens and grows a handle under your finger, shows a time bubble while you drag and dips the sound softly when you let go. The search pill stretches up into the search bar and goes back into the pill on Back.
+- **Up next and Settings motion (5.5.1):** tap the Up next pill on Now Playing and it stretches up into the Up next screen; swipe it down, or press Back or ×, and it shrinks back into the pill. Hold a song's ≡ handle to drag it to a new place, or tap × to remove it. Up next starts at the song that's playing, which stays pinned at the top; Previous still goes back to songs you've played. Tap your profile picture and Settings grows out of it, then shrinks back into it on Back.
 - **Updates in the app:** when Minim opens or comes back after a few hours, it checks this repo's latest release and offers to download and install a newer version. You can also check any time in Settings.
 - **Library:** liked songs, playlists, recents, songs saved offline, a song menu on long-press (play next, add to queue, add to playlist, save offline, go to artist, share) and a playlist menu on long-press (save offline, delete).
 
@@ -34,7 +36,7 @@ Signing in is optional. Minim only gets your name, profile picture and email. It
 
 ## Download
 
-Get the latest APK from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page.
+Get the latest APK from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page. What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Building
 

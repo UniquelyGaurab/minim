@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- v4.9.7 Up next row: the same filled song row as search and playlists (item_track: soft fill,
-     10dp padding, 44dp cover, 15sp / 13sp text), with up / down / remove kept on the right.
+     10dp padding, 44dp cover, 15sp / 13sp text), with remove (x) and a drag handle on the right (5.5.1; they were up / down / remove).
      The playing song is drawn fully filled (styleSongRow). -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:paddingStart="30dp"
     android:paddingEnd="26dp"
-    android:paddingBottom="8dp">
+    android:paddingBottom="8dp"
+    android:clipChildren="false"
+    android:clipToPadding="false">
 
     <LinearLayout
         android:id="@+id/queue_row"
@@ -65,34 +67,26 @@
                 android:textSize="13sp" />
         </LinearLayout>
 
-        <ImageView
-            android:id="@+id/queue_up"
-            android:layout_width="32dp"
-            android:layout_height="36dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/move_up"
-            android:padding="7dp"
-            android:src="@drawable/ic_arrow_up"
-            android:tag="tint:fg" />
-
-        <ImageView
-            android:id="@+id/queue_down"
-            android:layout_width="32dp"
-            android:layout_height="36dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/move_down"
-            android:padding="7dp"
-            android:src="@drawable/ic_arrow_down"
-            android:tag="tint:fg" />
-
+        <!-- 5.5.1: remove (x) then the drag handle, both faint; the playing song shows neither -->
         <ImageView
             android:id="@+id/queue_remove"
-            android:layout_width="32dp"
-            android:layout_height="36dp"
+            android:layout_width="36dp"
+            android:layout_height="40dp"
+            android:alpha="0.55"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/remove"
-            android:padding="8dp"
+            android:padding="10dp"
             android:src="@drawable/ic_close"
+            android:tag="tint:fg" />
+
+        <ImageView
+            android:id="@+id/queue_handle"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:alpha="0.55"
+            android:contentDescription="@string/drag_to_reorder"
+            android:padding="8dp"
+            android:src="@drawable/ic_drag_handle"
             android:tag="tint:fg" />
     </LinearLayout>
 </FrameLayout>

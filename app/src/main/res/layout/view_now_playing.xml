@@ -23,6 +23,7 @@
     android:id="@+id/np_content"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:clipChildren="false"
     android:gravity="center_horizontal"
     android:orientation="vertical">
 
@@ -214,4 +215,21 @@
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>
+<!-- 5.5.0: the time pill that floats above the finger while dragging the seek bar -->
+<TextView
+    android:id="@+id/np_seek_pill"
+    android:layout_width="wrap_content"
+    android:layout_height="28dp"
+    android:background="@drawable/shape_pill"
+    android:fontFamily="@font/poppins_medium"
+    android:gravity="center"
+    android:includeFontPadding="false"
+    android:minWidth="52dp"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp"
+    android:tag="fill:fg text:bg"
+    android:textSize="13sp"
+    android:visibility="invisible"
+    tools:text="2:47" />
+
 </FrameLayout>

@@ -163,6 +163,7 @@ class MainActivity : AppCompatActivity() {
     // ---- views -------------------------------------------------------------------------------
 
     private lateinit var root: ViewGroup
+    private lateinit var heartFx: HeartFx
     private lateinit var screenHome: View
     private lateinit var screenStats: View
     private lateinit var statsScreen: StatsScreen
@@ -287,6 +288,21 @@ class MainActivity : AppCompatActivity() {
     private var sleepChoice = 0
 
     private var screenGestures: GestureDetector? = null
+
+    // 5.5.0: the mini player <-> Now Playing morph (follows the finger both ways)
+    private lateinit var npMorph: NowPlayingMorph
+    private lateinit var queueMorph: QueueMorph
+    private lateinit var settingsReveal: SettingsReveal
+    private lateinit var queueList: RecyclerView
+    /** Keeps the floating mini player on screen (invisible) while it morphs, so it has a place. */
+    private var miniHeldForMorph = false
+    /** This touch started on a mini player pill: a swipe up opens Now Playing, never Discover. */
+    private var downOnMiniPill = false
+    private var npSwipeCandidate = false
+    private var npSwiping = false
+    private var npSwipeDownX = 0f
+    private var npSwipeDownY = 0f
+    private var npSwipeVelocity: android.view.VelocityTracker? = null
 
     // v4.1: rotating greetings, mini player pop in/out, pill width
     // v4.5: regular + fun (data-based) greetings, every second one fun when one fits
@@ -493,6 +509,10 @@ class MainActivity : AppCompatActivity() {
             mini.artist.isSelected = true
         }
         npArt.clipToOutline = true
+
+        // 5.5.0: the animated hearts (the burst and big heart draw in the root's overlay)
+        heartFx = HeartFx(root) { ValueAnimator.areAnimatorsEnabled() }
+        for (v in listOf(homeMini.like, floatMini.like, npControls.like)) heartFx.attach(v)
     }
 
     // ==========================================================================================
@@ -524,10 +544,10 @@ class MainActivity : AppCompatActivity() {
             row.tabDiscover.setOnClickListener { switchTabByHand(it, Tab.DISCOVER) }
             row.tabStats.setOnClickListener { switchTabByHand(it, Tab.STATS) }
             row.tabLibrary.setOnClickListener { switchTabByHand(it, Tab.LIBRARY) }
-            row.gear.setOnClickListener { openSettings() }
+            row.gear.setOnClickListener { v -> openSettings(from = v) }
             // v5.0: the avatar is round, not a pill, so it gets the 4.9.9 press shrink explicitly
             PressScale.apply(row.gear)
-            row.search.setOnClickListener { openSearch() }
+            row.search.setOnClickListener { openSearch(it) }
         }
         fitTopRows()
     }
@@ -849,7 +869,9 @@ class MainActivity : AppCompatActivity() {
     private fun updateChrome() {
         val hasTrack = app.playbackController.uiState.value.currentTrack != null
         // 5.3.0: the import review hides it too (its Save pill sits where the mini player would)
-        val coveredByPlayer = isNowPlayingOpen || isLyricsOpen || isQueueOpen || isSettingsOpen || isImportReviewOpen
+        // 5.5.1: while Settings grows out of / shrinks into the avatar, the screen behind still shows
+        val settingsCovers = isSettingsOpen && !(::settingsReveal.isInitialized && settingsReveal.isRunning)
+        val coveredByPlayer = (isNowPlayingOpen && !miniHeldForMorph) || isLyricsOpen || isQueueOpen || settingsCovers || isImportReviewOpen
         val onScreenThatFloats = isSearchOpen || isListOpen || isShelfOpen || isArtistOpen || tab != Tab.HOME
         // Pop in when playback starts and out when it stops; other changes (navigation) are instant
         val playbackChanged = lastHasTrack != null && lastHasTrack != hasTrack
@@ -921,12 +943,12 @@ class MainActivity : AppCompatActivity() {
                     isGeminiOpen -> geminiChat.close()
                     isWelcomeOpen && welcomePage == 2 -> showWelcomePage(1)
                     isWelcomeOpen && welcomePage == 3 -> Unit // on its way to Home by itself
-                    isSettingsOpen -> closeSettings()
-                    isQueueOpen -> closeQueue()
+                    isSettingsOpen -> closeSettings(animate = true)
+                    isQueueOpen -> closeQueue(animate = true)
                     isLyricsOpen -> closeLyrics()
-                    isNowPlayingOpen -> collapseNowPlaying()
+                    isNowPlayingOpen -> collapseNowPlaying(animate = true)
                     isImportReviewOpen -> closeImportReview()
-                    isSearchOpen -> closeSearch()
+                    isSearchOpen -> closeSearch(animate = true)
                     // 5.3.2: Back while renaming keeps the old name
                     isListOpen && isRenaming -> cancelRename()
                     isListOpen -> closeList()
@@ -1150,6 +1172,8 @@ class MainActivity : AppCompatActivity() {
                 val isSwipeUp = dy < -dp(70f) && abs(dy) > abs(dx) * 1.5f && abs(velocityY) > 500f
                 if (!isSwipeUp) return false
                 if (isWelcomeOpen) return false
+                // 5.5.0: a swipe up on the Home mini player opens Now Playing, not Discover
+                if (downOnMiniPill || (::npMorph.isInitialized && npMorph.isActive)) return false
                 // 5.3.0: a swipe on the Gemini chat only moves the chat, open or still closing
                 if (!discoverSwipeGate.allows(isGeminiShowing)) return false
                 if (recapStory != null || recapStoryOpening) return false
@@ -1166,8 +1190,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        if (ev.actionMasked == MotionEvent.ACTION_DOWN) discoverSwipeGate.onDown(isGeminiShowing)
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+            discoverSwipeGate.onDown(isGeminiShowing)
+            downOnMiniPill = isTouchOn(homeMini.root, ev) || isTouchOn(floatMini.root, ev)
+        }
         screenGestures?.onTouchEvent(ev)
+        // 5.5.0: swiping down on Now Playing shrinks it back into the mini player by the finger
+        // 5.5.1: dragging the Up Next sheet down springs it back into its pill
+        if (handleQueueSwipe(ev)) return true
+        if (handleNowPlayingSwipe(ev)) return true
         // v4.9.3: a drag or scroll mid-takeover fades it out early
         if (isTakeoverActive) {
             when (ev.actionMasked) {
@@ -1188,7 +1219,7 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("ClickableViewAccessibility")
     private fun setupHome() {
         setupTakeover()
-        homeSearch.setOnClickListener { openSearch() }
+        homeSearch.setOnClickListener { openSearch(it) }
         // The tip opens what it talks about: Discover for the swipe-up and Discover tips, Settings for Settings tips
         homeHint.setOnClickListener {
             when {
@@ -1663,18 +1694,44 @@ class MainActivity : AppCompatActivity() {
         searchStatus.visibility = View.GONE
     }
 
-    private fun openSearch() {
-        screenSearch.visibility = View.VISIBLE
-        updateChrome()
-        searchInput.requestFocus()
-        showKeyboard(searchInput)
+    /**
+     * 5.5.0: [source] is the pill that was tapped; the Search screen grows out of it (SearchMorph).
+     * The focus and keyboard start with the morph so the keyboard rises in step.
+     */
+    private fun openSearch(source: View? = null) {
+        searchMorph.open(source) {
+            updateChrome()
+            searchInput.requestFocus()
+            showKeyboard(searchInput)
+        }
     }
 
-    private fun closeSearch() {
+    /**
+     * [animate] (Back): shrinks back into the pill it came from. Other closes (going somewhere
+     * else from Search) stay instant, as before.
+     */
+    private fun closeSearch(animate: Boolean = false) {
         hideKeyboard()
         searchInput.clearFocus()
-        screenSearch.visibility = View.GONE
-        updateChrome()
+        val hide = {
+            screenSearch.visibility = View.GONE
+            updateChrome()
+        }
+        if (animate) searchMorph.close(hide) else { searchMorph.finish(); hide() }
+    }
+
+    private val searchMorph: SearchMorph by lazy {
+        SearchMorph(
+            overlayHost = root,
+            screen = screenSearch,
+            logo = (searchInput.parent as ViewGroup).getChildAt(0),
+            input = searchInput,
+            go = findViewById(R.id.search_go),
+            results = findViewById(R.id.search_results),
+            status = searchStatus,
+            colors = { pal.fg to pal.bg },
+            animationsOn = { ValueAnimator.areAnimatorsEnabled() }
+        )
     }
 
     /**
@@ -2111,7 +2168,7 @@ class MainActivity : AppCompatActivity() {
 
         artistSearch.setOnClickListener {
             haptic(it)
-            openSearch()
+            openSearch(it)
         }
         artistShuffle.setOnClickListener {
             val songs = artistPage?.songs.orEmpty()
@@ -3108,7 +3165,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupMiniPlayers() {
         for (mini in listOf(homeMini, floatMini)) {
-            mini.root.setOnClickListener { expandNowPlaying() }
+            // 5.5.0: the pill turns into Now Playing: tap plays it, a swipe up follows the finger
+            mini.root.setOnClickListener { openNowPlayingFrom(mini) }
+            mini.root.setOnTouchListener(MiniDrag(mini))
             mini.play.setOnClickListener {
                 haptic(it)
                 app.playbackController.togglePlayPause()
@@ -3117,16 +3176,14 @@ class MainActivity : AppCompatActivity() {
                 haptic(it)
                 app.playbackController.skipNext()
             }
-            mini.like.setOnClickListener {
-                haptic(it)
-                toggleLikeCurrent()
-            }
+            mini.like.setOnClickListener { tapHeart(mini.like) }
         }
     }
 
     @SuppressLint("ClickableViewAccessibility")
     private fun setupNowPlaying() {
-        findViewById<View>(R.id.np_back).setOnClickListener { collapseNowPlaying() }
+        findViewById<View>(R.id.np_back).setOnClickListener { collapseNowPlaying(animate = true) }
+        setupNowPlayingMorph()
         // v4.9.7: 3 dot menu at the top right (Add to playlist, Go to artist, Share, Sleep timer)
         findViewById<View>(R.id.np_more).setOnClickListener { v ->
             haptic(v)
@@ -3135,7 +3192,7 @@ class MainActivity : AppCompatActivity() {
         // v4.9.8: "Up Next" pill (was "swipe up for lyrics"; the long-press for Up next is gone)
         findViewById<View>(R.id.np_up_next).setOnClickListener { v ->
             haptic(v)
-            openQueue()
+            openQueue(from = v)
         }
         // v4.9.8: tap the lyric line for full screen lyrics (only while the song has lyrics)
         npLyric.setOnClickListener { v ->
@@ -3168,7 +3225,12 @@ class MainActivity : AppCompatActivity() {
             override fun onDoubleTap(e: MotionEvent): Boolean {
                 when (app.preferences.gestureDoubleTapAction) {
                     AppPreferences.GESTURE_DTAP_PLAY_PAUSE -> app.playbackController.togglePlayPause()
-                    AppPreferences.GESTURE_DTAP_LIKE -> toggleLikeCurrent()
+                    AppPreferences.GESTURE_DTAP_LIKE -> {
+                        // 5.5.0: the big heart floats up over the cover and the small heart fills;
+                        // a second double tap keeps the song liked (it never unlikes)
+                        doubleTapLike()
+                        return true
+                    }
                     else -> return false
                 }
                 haptic(npArt)
@@ -3269,10 +3331,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupControls(c: Controls) {
-        c.like.setOnClickListener {
-            haptic(it)
-            toggleLikeCurrent()
-        }
+        c.like.setOnClickListener { tapHeart(c.like) }
         c.prev.setOnClickListener {
             haptic(it)
             app.playbackController.skipPrevious()
@@ -3290,7 +3349,62 @@ class MainActivity : AppCompatActivity() {
             app.playbackController.toggleRepeat()
         }
         c.progress.onSeek = { fraction, finished -> seekFromBar(fraction, finished, c.progress) }
+        // 5.5.0: the animated bar: thickens and grows a thumb when grabbed, a time pill above
+        // the finger, a light tick at either end, smooth fill and the buffered part
+        c.progress.expressive = true
+        c.progress.onScrub = { fraction, shown -> showSeekPill(c.progress, fraction, shown) }
+        c.progress.onEdge = { haptic(c.progress, HapticFeedbackConstants.CLOCK_TICK) }
     }
+
+    private val seekPill: TextView by lazy { findViewById(R.id.np_seek_pill) }
+    private var seekPillShown = false
+
+    /** 5.5.0: the time pill floating above the finger while the bar is dragged. */
+    private fun showSeekPill(bar: ProgressLine, fraction: Float, shown: Boolean) {
+        val pill = seekPill
+        if (!shown) {
+            if (seekPillShown) {
+                seekPillShown = false
+                pill.animate().alpha(0f).scaleX(0.85f).scaleY(0.85f).translationYBy(dp(4f))
+                    .setDuration(140L).withEndAction { pill.visibility = View.INVISIBLE }.start()
+            }
+            return
+        }
+        val durationMs = app.playbackController.uiState.value.durationMs
+        pill.text = SeekMotion.label(SeekMotion.targetMs(fraction, durationMs))
+        val barLoc = IntArray(2)
+        val hostLoc = IntArray(2)
+        bar.getLocationInWindow(barLoc)
+        screenNowPlaying.getLocationInWindow(hostLoc)
+        val half = 2.5f * resources.displayMetrics.density
+        val left = bar.paddingLeft + half
+        val right = bar.width - bar.paddingRight - half
+        val xInBar = left + (right - left) * fraction
+        val pw = if (pill.width > 0) pill.width.toFloat() else dp(52f)
+        val ph = if (pill.height > 0) pill.height.toFloat() else dp(28f)
+        val margin = dp(8f)
+        val x = (barLoc[0] - hostLoc[0] + xInBar - pw / 2f)
+            .coerceIn(margin, screenNowPlaying.width - pw - margin)
+        val y = barLoc[1] - hostLoc[1] + bar.height / 2f - ph - dp(16f)
+        pill.translationX = x
+        if (!seekPillShown) {
+            seekPillShown = true
+            pill.animate().cancel()
+            pill.translationY = y + dp(6f)
+            pill.alpha = 0f
+            pill.scaleX = 0.85f
+            pill.scaleY = 0.85f
+            pill.visibility = View.VISIBLE
+            pill.animate().alpha(1f).scaleX(1f).scaleY(1f).translationY(y)
+                .setInterpolator(DecelerateInterpolator()).setDuration(160L).withEndAction(null).start()
+        } else if (pill.animation == null) {
+            pill.translationY = y
+        }
+    }
+
+    /** 5.5.0: after a bar seek, older positions still arriving don't pull the bar back. */
+    private var seekHoldTarget = -1L
+    private var seekHoldAt = 0L
 
     /** Dragging either progress bar (Now Playing's or the full screen lyrics' one) seeks. */
     /**
@@ -3323,7 +3437,14 @@ class MainActivity : AppCompatActivity() {
             val target = (fraction * durationMs).toLong()
             if (finished) {
                 isSeeking = false
-                app.playbackController.seekTo(target)
+                if (source === npControls.progress) {
+                    // 5.5.0: a quick dip in the sound instead of a hard cut
+                    seekHoldTarget = target
+                    seekHoldAt = android.os.SystemClock.uptimeMillis()
+                    app.playbackController.seekToSmooth(target)
+                } else {
+                    app.playbackController.seekTo(target)
+                }
             } else {
                 isSeeking = true
             }
@@ -3345,10 +3466,267 @@ class MainActivity : AppCompatActivity() {
         fsLyrics.prefetch()
     }
 
-    private fun collapseNowPlaying() {
+    /**
+     * Hides Now Playing. [animate] (the back pill and Back) shrinks it back into the mini player
+     * it came from; everything else (the song ending, going to an artist) stays instant.
+     */
+    private fun collapseNowPlaying(animate: Boolean = false) {
+        if (::npMorph.isInitialized) {
+            if (animate && animationsOn() && isNowPlayingOpen && !isLyricsOpen) {
+                if (npMorph.isActive || beginMorphClose()) {
+                    npMorph.animateTo(0f)
+                    return
+                }
+            }
+            npMorph.abort()
+        }
+        miniHeldForMorph = false
         fsLyrics.close(animate = false)
         screenNowPlaying.visibility = View.GONE
         updateChrome()
+    }
+
+    // ---- 5.5.0: mini player <-> Now Playing morph ---------------------------------------------
+
+    private fun setupNowPlayingMorph() {
+        val controlsRow = npControls.like.parent as View
+        val fadingControls = buildList {
+            add(npControls.progress)
+            add(npControls.elapsed.parent as View)
+            // Every part of the controls row except the heart, which travels instead
+            if (controlsRow is ViewGroup) {
+                for (i in 0 until controlsRow.childCount) {
+                    val c = controlsRow.getChildAt(i)
+                    if (c !== npControls.like) add(c)
+                }
+            }
+        }
+        npMorph = NowPlayingMorph(
+            screen = screenNowPlaying as ViewGroup,
+            art = npArt,
+            title = npTitle,
+            artist = npArtist,
+            heart = npControls.like,
+            header = listOf(findViewById<View>(R.id.np_back).parent as View, findViewById(R.id.np_vibing)),
+            lyric = npLyric,
+            controls = fadingControls,
+            pills = findViewById(R.id.np_pill_row),
+            cardRadius = dp(16f),
+            restoreColors = {
+                Painter.paint(npTitle, pal)
+                Painter.paint(npArtist, pal)
+                Painter.paint(npControls.like, pal)
+                screenNowPlaying.setBackgroundColor(pal.bg)
+            },
+            npBackground = { pal.bg },
+            onLock = { haptic(screenNowPlaying, HapticFeedbackConstants.CLOCK_TICK) }
+        )
+        npMorph.onSettled = { open ->
+            miniHeldForMorph = false
+            if (open) updateChrome() else collapseNowPlaying()
+        }
+    }
+
+    private fun morphSource(mini: Mini) =
+        NowPlayingMorph.Source(mini.root, mini.art, mini.title, mini.artist, mini.like)
+
+    /** The mini player Now Playing shrinks into: the one that shows once it is gone. */
+    private fun morphLandingMini(): Mini? {
+        if (isImportReviewOpen || isSettingsOpen || isQueueOpen || isLyricsOpen) return null
+        val onHome = tab == Tab.HOME && !(isSearchOpen || isListOpen || isShelfOpen || isArtistOpen)
+        return if (onHome) homeMini.takeIf { it.root.visibility == View.VISIBLE } else floatMini
+    }
+
+    /** Tapping a pill: the same morph, played on its own. */
+    private fun openNowPlayingFrom(mini: Mini) {
+        if (app.playbackController.uiState.value.currentTrack == null) return
+        if (npMorph.isActive) {
+            npMorph.animateTo(1f)
+            return
+        }
+        if (!animationsOn() || !mini.root.isShown) {
+            expandNowPlaying()
+            return
+        }
+        if (beginMorphOpen(mini)) npMorph.animateTo(1f)
+    }
+
+    private fun beginMorphOpen(mini: Mini): Boolean {
+        if (app.playbackController.uiState.value.currentTrack == null) return false
+        if (npMorph.isActive) {
+            npMorph.grab()
+            return true
+        }
+        miniHeldForMorph = true
+        npMorph.begin(morphSource(mini), 0f)
+        expandNowPlaying()
+        return true
+    }
+
+    private fun beginMorphClose(): Boolean {
+        if (npMorph.isActive) {
+            npMorph.grab()
+            return true
+        }
+        val mini = morphLandingMini() ?: return false
+        if (mini === floatMini) {
+            // Back on screen (invisible) so it can be measured and the cover can land on it
+            miniHeldForMorph = true
+            updateChrome()
+        }
+        npMorph.begin(morphSource(mini), 1f)
+        return true
+    }
+
+    private val touchLoc = IntArray(2)
+
+    /** True when [ev] (window coordinates) is on [v], widened by [pad]. */
+    private fun isTouchOn(v: View, ev: MotionEvent, pad: Float = 0f): Boolean {
+        if (!v.isShown || v.width == 0) return false
+        v.getLocationInWindow(touchLoc)
+        return ev.x >= touchLoc[0] - pad && ev.x <= touchLoc[0] + v.width + pad &&
+            ev.y >= touchLoc[1] - pad && ev.y <= touchLoc[1] + v.height + pad
+    }
+
+    /** Only from Now Playing itself, with nothing over it and not on the seek bar. */
+    private fun canSwipeNowPlayingDown(ev: MotionEvent): Boolean =
+        ::npMorph.isInitialized && isNowPlayingOpen && !npMorph.isActive && animationsOn() &&
+            !isLyricsOpen && !isQueueOpen && !isSettingsOpen && !isImportReviewOpen && !isGeminiShowing &&
+            !isWelcomeOpen && recapStory == null && !isSeeking &&
+            !(::sheetRoot.isInitialized && sheetRoot.visibility == View.VISIBLE) &&
+            !isTouchOn(npControls.progress, ev, dp(14f))
+
+    /**
+     * Swipe down on Now Playing: once the finger has clearly moved down, the touch is taken from
+     * whatever it started on (cancelled there) and drives the morph back into the pill.
+     */
+    private fun handleNowPlayingSwipe(ev: MotionEvent): Boolean {
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                npSwiping = false
+                npSwipeCandidate = canSwipeNowPlayingDown(ev)
+                if (npSwipeCandidate) {
+                    npSwipeDownX = ev.rawX
+                    npSwipeDownY = ev.rawY
+                    npSwipeVelocity?.recycle()
+                    npSwipeVelocity = android.view.VelocityTracker.obtain().also { it.addMovement(ev) }
+                }
+                return false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!npSwipeCandidate) return false
+                npSwipeVelocity?.addMovement(ev)
+                if (!npSwiping) {
+                    if (isSeeking) {
+                        npSwipeCandidate = false
+                        return false
+                    }
+                    val dy = ev.rawY - npSwipeDownY
+                    val dx = ev.rawX - npSwipeDownX
+                    val slop = android.view.ViewConfiguration.get(this).scaledTouchSlop
+                    if (dy > slop && dy > abs(dx) * 1.5f) {
+                        if (!beginMorphClose()) {
+                            npSwipeCandidate = false
+                            return false
+                        }
+                        npSwiping = true
+                        npSwipeDownY = ev.rawY
+                        val cancel = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
+                        super.dispatchTouchEvent(cancel)
+                        cancel.recycle()
+                    } else {
+                        return false
+                    }
+                }
+                npMorph.drag(MorphMotion.dragProgress(1f, ev.rawY - npSwipeDownY, npMorph.travelPx()))
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val wasSwiping = npSwiping
+                if (wasSwiping) {
+                    val vt = npSwipeVelocity
+                    vt?.addMovement(ev)
+                    vt?.computeCurrentVelocity(1000)
+                    val vy = if (ev.actionMasked == MotionEvent.ACTION_UP) (vt?.yVelocity ?: 0f) / resources.displayMetrics.density else 0f
+                    npMorph.release(vy, startedOpen = true)
+                }
+                npSwiping = false
+                npSwipeCandidate = false
+                npSwipeVelocity?.recycle()
+                npSwipeVelocity = null
+                return wasSwiping
+            }
+        }
+        return npSwiping
+    }
+
+    /** A swipe up on a mini player pill opens Now Playing by the finger (a tap still opens it). */
+    private inner class MiniDrag(private val mini: Mini) : View.OnTouchListener {
+        private var downX = 0f
+        private var downY = 0f
+        private var startY = 0f
+        private var startP = 0f
+        private var dragging = false
+        private var opened = false
+        private var velocity: android.view.VelocityTracker? = null
+
+        @SuppressLint("ClickableViewAccessibility")
+        override fun onTouch(v: View, ev: MotionEvent): Boolean {
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = ev.rawX
+                    downY = ev.rawY
+                    dragging = false
+                    opened = false
+                    velocity?.recycle()
+                    velocity = android.view.VelocityTracker.obtain().also { it.addMovement(ev) }
+                    return false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    velocity?.addMovement(ev)
+                    if (opened) return true
+                    if (!dragging) {
+                        val dy = ev.rawY - downY
+                        val dx = ev.rawX - downX
+                        val slop = android.view.ViewConfiguration.get(this@MainActivity).scaledTouchSlop
+                        if (-dy <= slop || abs(dy) <= abs(dx) * 1.2f) return false
+                        if (app.playbackController.uiState.value.currentTrack == null) return false
+                        v.parent?.requestDisallowInterceptTouchEvent(true)
+                        val cancel = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
+                        v.onTouchEvent(cancel)
+                        cancel.recycle()
+                        if (!animationsOn()) {
+                            // No animations: the swipe just opens it
+                            opened = true
+                            expandNowPlaying()
+                            return true
+                        }
+                        if (!beginMorphOpen(mini)) return false
+                        dragging = true
+                        startY = ev.rawY
+                        startP = npMorph.progress
+                    }
+                    npMorph.drag(MorphMotion.dragProgress(startP, ev.rawY - startY, npMorph.travelPx()))
+                    return true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val handled = dragging || opened
+                    if (dragging) {
+                        val vt = velocity
+                        vt?.addMovement(ev)
+                        vt?.computeCurrentVelocity(1000)
+                        val vy = if (ev.actionMasked == MotionEvent.ACTION_UP) (vt?.yVelocity ?: 0f) / resources.displayMetrics.density else 0f
+                        npMorph.release(vy, startedOpen = startP >= 0.5f)
+                    }
+                    dragging = false
+                    opened = false
+                    velocity?.recycle()
+                    velocity = null
+                    return handled
+                }
+            }
+            return dragging
+        }
     }
 
     /**
@@ -3374,32 +3752,144 @@ class MainActivity : AppCompatActivity() {
         queueAdapter = QueueAdapter(
             artwork = app.artworkPipeline,
             onItemClick = { index -> app.playbackController.playQueueIndex(index) },
-            onMoveUp = { index -> if (index > 0) app.playbackController.moveQueueItem(index, index - 1) },
-            onMoveDown = { index -> app.playbackController.moveQueueItem(index, index + 1) },
-            onRemove = { index -> app.playbackController.removeQueueItem(index) },
+            // 5.5.1: drag by the handle / tap the x; worked out against the queue as it is now
+            onMove = { id, fromHint, toShown ->
+                val st = app.playbackController.uiState.value
+                QueueEdit.resolveMove(st.queue.map { it.id }, st.currentIndex, id, fromHint, toShown)?.let { (from, to) ->
+                    app.playbackController.moveQueueItem(from, to)
+                }
+                val now = app.playbackController.uiState.value
+                queueAdapter.submitQueue(now.queue, now.currentIndex)
+            },
+            onRemove = { id, hint ->
+                val st = app.playbackController.uiState.value
+                val at = QueueEdit.resolveRemove(st.queue.map { it.id }, st.currentIndex, id, hint)
+                if (at != null) app.playbackController.removeQueueItem(at)
+                val now = app.playbackController.uiState.value
+                if (at == null || now.queue == st.queue) queueAdapter.redraw()
+                else queueAdapter.submitQueue(now.queue, now.currentIndex)
+            },
             onLongClick = { index ->
                 app.playbackController.uiState.value.queue.getOrNull(index)?.let { t ->
                     showTrackOptions(null, t, queueIndex = index)
                 }
-            }
+            },
+            haptic = { v, type -> haptic(v, type) }
         )
-        findViewById<RecyclerView>(R.id.queue_list).apply {
+        queueList = findViewById<RecyclerView>(R.id.queue_list).apply {
             layoutManager = LinearLayoutManager(this@MainActivity)
             adapter = queueAdapter
             // v4.9.9: moved rows glide, removed rows fade and the gap closes
             itemAnimator = QueueItemAnimator()
         }
-        findViewById<View>(R.id.queue_close).setOnClickListener { closeQueue() }
+        findViewById<View>(R.id.queue_close).setOnClickListener { closeQueue(animate = true) }
+        // 5.5.1: the Up Next pill stretches into this sheet, and the sheet springs back into it
+        val sheet = screenQueue as ViewGroup
+        queueMorph = QueueMorph(
+            screen = sheet,
+            header = sheet.getChildAt(0),
+            content = sheet.getChildAt(1),
+            list = queueList,
+            behind = screenNowPlaying,
+            colors = { pal.fg to pal.bg },
+            onLock = { haptic(screenQueue, HapticFeedbackConstants.CLOCK_TICK) }
+        )
+        queueMorph.onSettled = { open ->
+            if (!open) {
+                screenQueue.visibility = View.GONE
+                updateChrome()
+            }
+        }
     }
 
-    private fun openQueue() {
+    /** 5.5.1: from the Up Next pill ([from]) the pill stretches into the sheet; otherwise it just shows. */
+    private fun openQueue(from: View? = null) {
+        queueMorph.abort()
         screenQueue.visibility = View.VISIBLE
         updateChrome()
+        if (from != null && animationsOn()) queueMorph.open(from)
     }
 
-    private fun closeQueue() {
+    /** [animate]: the sheet shrinks back into the Up Next pill (Back, the close button). */
+    private fun closeQueue(animate: Boolean = false) {
+        if (animate && animationsOn() && isQueueOpen && queueMorph.beginClose()) {
+            queueMorph.animateTo(0f)
+            return
+        }
+        queueMorph.abort()
         screenQueue.visibility = View.GONE
         updateChrome()
+    }
+
+    // 5.5.1: dragging the Up Next sheet down closes it by the finger
+    private var qSwipeCandidate = false
+    private var qSwiping = false
+    private var qSwipeOnHeader = false
+    private var qSwipeDownX = 0f
+    private var qSwipeDownY = 0f
+    private var qSwipeVelocity: android.view.VelocityTracker? = null
+
+    private fun handleQueueSwipe(ev: MotionEvent): Boolean {
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                qSwiping = false
+                qSwipeCandidate = isQueueOpen && animationsOn() && !queueAdapter.isDragging &&
+                    !isGeminiShowing && !isTakeoverActive &&
+                    !(::sheetRoot.isInitialized && sheetRoot.visibility == View.VISIBLE) &&
+                    !queueMorph.isActive && queueMorph.canCloseIntoPill
+                if (qSwipeCandidate) {
+                    qSwipeOnHeader = isTouchOn((screenQueue as ViewGroup).getChildAt(0), ev)
+                    qSwipeDownX = ev.rawX
+                    qSwipeDownY = ev.rawY
+                    qSwipeVelocity?.recycle()
+                    qSwipeVelocity = android.view.VelocityTracker.obtain().also { it.addMovement(ev) }
+                }
+                return false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!qSwipeCandidate) return false
+                qSwipeVelocity?.addMovement(ev)
+                if (!qSwiping) {
+                    val dy = ev.rawY - qSwipeDownY
+                    val dx = ev.rawX - qSwipeDownX
+                    val slop = android.view.ViewConfiguration.get(this).scaledTouchSlop.toFloat()
+                    val listAtTop = !queueList.canScrollVertically(-1)
+                    if (QueueMotion.startsClose(dx, dy, slop, qSwipeOnHeader, listAtTop, queueAdapter.isDragging)) {
+                        if (!queueMorph.beginClose()) {
+                            qSwipeCandidate = false
+                            return false
+                        }
+                        qSwiping = true
+                        qSwipeDownY = ev.rawY
+                        val cancel = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
+                        super.dispatchTouchEvent(cancel)
+                        cancel.recycle()
+                    } else {
+                        // A scroll, a sideways move or a row drag: the list keeps the finger
+                        if (queueAdapter.isDragging || abs(dx) > slop || abs(dy) > slop) qSwipeCandidate = false
+                        return false
+                    }
+                }
+                queueMorph.drag(QueueMotion.dragProgress(ev.rawY - qSwipeDownY, queueMorph.travelPx()))
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val wasSwiping = qSwiping
+                if (wasSwiping) {
+                    val vt = qSwipeVelocity
+                    vt?.addMovement(ev)
+                    vt?.computeCurrentVelocity(1000)
+                    val vy = if (ev.actionMasked == MotionEvent.ACTION_UP) (vt?.yVelocity ?: 0f) / resources.displayMetrics.density else 0f
+                    queueMorph.release(vy)
+                }
+                qSwiping = false
+                qSwipeCandidate = false
+                qSwipeVelocity?.recycle()
+                qSwipeVelocity = null
+                return wasSwiping
+            }
+        }
+        return qSwiping
     }
 
     private fun toggleLikeCurrent() {
@@ -3410,12 +3900,61 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** 5.5.0: is the playing song liked right now (what the hearts show). */
+    private fun currentLiked(): Boolean {
+        val id = app.playbackController.uiState.value.currentTrack?.id ?: return false
+        return app.database.likedIds.value.contains(id)
+    }
+
+    private fun heartBurstColor(): Int = HeartFx.burstColor(paletteSeed, pal.muted)
+
+    /**
+     * 5.5.0: a tap on any heart. It animates at once (spring, ink and burst for a like; drain and
+     * shrink for an unlike), with a crisp tick at the pop or a softer one for an unlike, then
+     * saves. The other hearts follow when the like lands (renderLikes), so they stay in sync.
+     */
+    private fun tapHeart(view: ImageView) {
+        if (app.playbackController.uiState.value.currentTrack == null) return
+        val liked = HeartMotion.afterTap(currentLiked())
+        heartFx.play(view, liked, heartBurstColor())
+        heartHaptic(view, liked)
+        toggleLikeCurrent()
+    }
+
+    /** 5.5.0: double tap on the Now Playing cover with the Like gesture: only ever likes. */
+    private fun doubleTapLike() {
+        val track = app.playbackController.uiState.value.currentTrack ?: return
+        val was = currentLiked()
+        heartFx.bigHeart(npArt)
+        if (HeartMotion.doubleTapChanges(was)) {
+            heartFx.play(npControls.like, true, heartBurstColor())
+            heartHaptic(npArt, true)
+            lifecycleScope.launch {
+                if (!app.database.likedIds.value.contains(track.id)) app.database.toggleLike(track)
+                refreshData()
+            }
+        } else {
+            haptic(npArt, HapticFeedbackConstants.CLOCK_TICK)
+        }
+    }
+
+    private fun heartHaptic(v: View, liked: Boolean) {
+        val type = if (liked) {
+            if (android.os.Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.CONFIRM
+            else HapticFeedbackConstants.VIRTUAL_KEY
+        } else {
+            HapticFeedbackConstants.CLOCK_TICK
+        }
+        haptic(v, type)
+    }
+
     // ==========================================================================================
     // Settings
     // ==========================================================================================
 
     private fun setupSettings() {
-        findViewById<View>(R.id.settings_close).setOnClickListener { closeSettings() }
+        findViewById<View>(R.id.settings_close).setOnClickListener { closeSettings(animate = true) }
+        settingsReveal = SettingsReveal(screenSettings as ViewGroup, findViewById(R.id.settings_content), root)
         setupAccount()
         setupVibe()
 
@@ -3623,18 +4162,37 @@ class MainActivity : AppCompatActivity() {
         Painter.paint(screenSettings, pal)
     }
 
-    private fun openSettings() {
+    /** 5.5.1: from the avatar ([from]) the circle grows into Settings; other ways just show it. */
+    private fun openSettings(from: View? = null) {
+        settingsReveal.abort()
         settingsName.setText(app.preferences.userName)
         renderSettingsOptions()
         renderOfflineStorage()
         screenSettings.visibility = View.VISIBLE
+        if (from != null && animationsOn() && settingsReveal.open(from) { updateChrome() }) {
+            // The floating mini player goes once the circle has covered the screen
+            updateChrome()
+            return
+        }
         updateChrome()
     }
 
-    private fun closeSettings() {
+    /** [animate]: Settings shrinks back into the avatar it grew from (Back, the close button). */
+    private fun closeSettings(animate: Boolean = false) {
+        if (settingsReveal.isClosing && animate) return
         saveName()
         settingsName.clearFocus()
         hideKeyboard()
+        if (animate && animationsOn() && settingsReveal.close {
+                screenSettings.visibility = View.GONE
+                updateChrome()
+            }
+        ) {
+            renderGreeting(animate = false)
+            updateChrome()
+            return
+        }
+        settingsReveal.abort()
         screenSettings.visibility = View.GONE
         renderGreeting(animate = false)
         updateChrome()
@@ -3749,7 +4307,7 @@ class MainActivity : AppCompatActivity() {
         if (track == null) {
             renderedTrackId = null
             if (isNowPlayingOpen || isLyricsOpen || isQueueOpen) {
-                screenQueue.visibility = View.GONE
+                closeQueue()
                 collapseNowPlaying()
             }
             setPaletteSeed(0)
@@ -3812,11 +4370,16 @@ class MainActivity : AppCompatActivity() {
             c.repeat.contentDescription = getString(repeatDesc)
             // Off: faded icon. All / One: full icon (One has its own "1" icon)
             c.repeat.imageAlpha = if (state.repeatMode == Player.REPEAT_MODE_OFF) 110 else 255
-            if (!isSeeking) {
+            val held = seekHoldTarget >= 0L && !SeekMotion.acceptsPosition(
+                state.positionMs, seekHoldTarget, android.os.SystemClock.uptimeMillis() - seekHoldAt
+            )
+            if (!held) seekHoldTarget = -1L
+            if (!isSeeking && !held) {
                 c.elapsed.text = ArtworkPipeline.formatDurationSec(state.positionMs / 1000L)
                 c.remaining.text = formatRemaining(state.durationMs, state.positionMs)
-                c.progress.setFraction(
-                    if (state.durationMs > 0L) state.positionMs.toFloat() / state.durationMs else 0f
+                c.progress.setPlayback(
+                    state.positionMs, state.durationMs,
+                    state.isPlaying && !state.isBuffering, state.bufferedPositionMs
                 )
             }
         }
@@ -3836,13 +4399,18 @@ class MainActivity : AppCompatActivity() {
     private fun renderLikes(likedIds: Set<String>) {
         val id = app.playbackController.uiState.value.currentTrack?.id ?: return
         val liked = likedIds.contains(id)
-        val icon = if (liked) R.drawable.ic_heart_filled else R.drawable.ic_heart_outline
         val desc = getString(if (liked) R.string.unlike else R.string.like)
+        // 5.5.0: the same song changing state animates the ink on every visible heart (the
+        // tapped one already did and is left alone); a new song just shows its state
+        val sameSong = id == lastLikeRenderId
+        lastLikeRenderId = id
         for (v in listOf(homeMini.like, floatMini.like, npControls.like)) {
-            v.setImageResource(icon)
+            heartFx.setLiked(v, liked, animate = sameSong)
             v.contentDescription = desc
         }
     }
+
+    private var lastLikeRenderId: String? = null
 
     private fun renderLyrics(data: LyricsData?) {
         lyrics = data

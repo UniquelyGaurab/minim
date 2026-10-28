@@ -3,12 +3,22 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:clipChildren="false"
+    android:clipToPadding="false"
     android:orientation="vertical">
 
+    <!-- 5.5.0: a little bigger than it looks (the negative margins keep the old 20dp footprint
+         and the padding keeps the line where it was) so the grabbed 3x bar and its thumb fit -->
     <com.minim.music.ui.ProgressLine
         android:id="@+id/pc_progress"
         android:layout_width="match_parent"
-        android:layout_height="20dp" />
+        android:layout_height="28dp"
+        android:layout_marginStart="-10dp"
+        android:layout_marginTop="-4dp"
+        android:layout_marginEnd="-10dp"
+        android:layout_marginBottom="-4dp"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp" />
 
     <FrameLayout
         android:layout_width="match_parent"

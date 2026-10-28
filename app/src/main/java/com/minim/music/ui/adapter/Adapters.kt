@@ -6,7 +6,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.core.view.ViewCompat
 import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import com.minim.music.R
 import com.minim.music.data.model.ArtistCountKind
@@ -15,6 +17,7 @@ import com.minim.music.data.model.Track
 import com.minim.music.ui.GridTile
 import com.minim.music.ui.Painter
 import com.minim.music.ui.Pal
+import com.minim.music.ui.QueueEdit
 import com.minim.music.ui.RoundPhoto
 import com.minim.music.util.ArtworkPipeline
 
@@ -537,53 +540,81 @@ private fun savingKey(t: GridTile): String? = when (t) {
 
 class QueueAdapter(
     private val artwork: ArtworkPipeline,
+    /** Tapped a row: its queue index. */
     private val onItemClick: (Int) -> Unit,
-    private val onMoveUp: (Int) -> Unit,
-    private val onMoveDown: (Int) -> Unit,
-    private val onRemove: (Int) -> Unit,
-    /** v4.8: long-press a queue row for the song menu. */
-    private val onLongClick: (Int) -> Unit = {}
+    /** 5.5.1: a row with song id was dragged from queue index (hint) to shown position. */
+    private val onMove: (id: String, fromQueueIndex: Int, toShown: Int) -> Unit,
+    /** 5.5.1: tapped a row's x: song id, queue index (hint). */
+    private val onRemove: (id: String, queueIndex: Int) -> Unit,
+    /** v4.8: long-press a queue row for the song menu (queue index). */
+    private val onLongClick: (Int) -> Unit = {},
+    private val haptic: (View, Int) -> Unit = { _, _ -> }
 ) : RecyclerView.Adapter<QueueAdapter.Holder>() {
 
+    /** 5.5.1: a song row is being dragged by its handle. */
+    var isDragging = false
+        private set
+
+    /** The whole player queue and the playing song's index in it. */
     private var queue: List<Track> = emptyList()
     private var activeIndex: Int = -1
+    /** 5.5.1: what's on screen: the playing song (pinned first), then the songs after it. */
+    private var shown: List<Track> = emptyList()
     private var pal: Pal = DEFAULT_PAL
     private var list: RecyclerView? = null
     private var paletteRefreshPending = false
+    /** A queue that arrived mid-drag; it's applied once the row is dropped. */
+    private var pending: Pair<List<Track>, Int>? = null
+    private var dragFromShown = -1
+    private var dragId: String? = null
+    private var dragOffset = 0
+
+    private val touchHelper = ItemTouchHelper(DragCallback())
 
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         list = recyclerView
+        touchHelper.attachToRecyclerView(recyclerView)
     }
 
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
-        if (list === recyclerView) list = null
+        if (list === recyclerView) {
+            list = null
+            touchHelper.attachToRecyclerView(null)
+        }
     }
 
     /**
      * v4.9.9: small changes (a song moved up or down, removed, a few added, the next song
      * starting) go through DiffUtil, so moved rows glide, removed rows fade out and the rest close
      * the gap. A basically new queue, or one that isn't on screen, just redraws.
+     * 5.5.1: only the playing song and the songs after it are listed; mid-drag it waits.
      */
     fun submitQueue(queue: List<Track>, activeIndex: Int) {
+        if (isDragging) {
+            pending = queue.toList() to activeIndex
+            return
+        }
         if (queue == this.queue && activeIndex == this.activeIndex) return
-        val old = this.queue
-        val oldActive = this.activeIndex
-        val new = queue.toList()
-        this.queue = new
+        val old = shown
+        val oldActive = if (this.activeIndex >= 0) 0 else -1
+        val newShown = queue.drop(QueueEdit.offset(activeIndex))
+        val newActive = if (activeIndex >= 0) 0 else -1
+        this.queue = queue.toList()
         this.activeIndex = activeIndex
-        val shown = list?.isShown == true
-        if (!shown || com.minim.music.ui.QueueDiffRules.isWholesale(old.map { it.id }, new.map { it.id })) {
+        this.shown = newShown
+        val isShown = list?.isShown == true
+        if (!isShown || com.minim.music.ui.QueueDiffRules.isWholesale(old.map { it.id }, newShown.map { it.id })) {
             redrawAll()
             return
         }
         DiffUtil.calculateDiff(object : DiffUtil.Callback() {
             override fun getOldListSize() = old.size
-            override fun getNewListSize() = new.size
-            override fun areItemsTheSame(o: Int, n: Int) = old[o].id == new[n].id
-            override fun areContentsTheSame(o: Int, n: Int) = old[o] == new[n] &&
+            override fun getNewListSize() = newShown.size
+            override fun areItemsTheSame(o: Int, n: Int) = old[o].id == newShown[n].id
+            override fun areContentsTheSame(o: Int, n: Int) = old[o] == newShown[n] &&
                 com.minim.music.ui.QueueDiffRules.sameContents(
                     old[o].id, o, oldActive, old.size,
-                    new[n].id, n, activeIndex, new.size
+                    newShown[n].id, n, newActive, newShown.size
                 )
         }, true).dispatchUpdatesTo(this)
     }
@@ -593,60 +624,222 @@ class QueueAdapter(
         // v4.9.9: a full redraw ends a move or removal mid glide, so it waits for them to finish.
         // (The rows on screen already have the new colours from the palette fade.)
         val animator = list?.itemAnimator
-        if (animator == null || !animator.isRunning) {
+        if (!isDragging && (animator == null || !animator.isRunning)) {
             redrawAll()
             return
         }
         if (paletteRefreshPending) return
         paletteRefreshPending = true
-        animator.isRunning {
+        val again = {
             paletteRefreshPending = false
-            list?.post { redrawAll() }
+            list?.post { if (isDragging) setPalette(pal) else redrawAll() }
         }
+        if (animator == null) again() else animator.isRunning { again() }
     }
 
     private fun redrawAll() = notifyDataSetChanged()
 
-    override fun getItemCount(): Int = queue.size
+    /** 5.5.1: every row drawn again (a remove that didn't go through puts its row back). */
+    fun redraw() = redrawAll()
+
+    override fun getItemCount(): Int = shown.size
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = Holder(inflate(parent, R.layout.item_queue_track))
 
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
     override fun onBindViewHolder(holder: Holder, position: Int) {
-        val track = queue[position]
-        holder.bind(track, position, position == activeIndex, queue.size, artwork, pal)
-        holder.row.setOnClickListener { pos(holder)?.let(onItemClick) }
-        holder.row.setOnLongClickListener { pos(holder)?.let(onLongClick); true }
-        holder.up.setOnClickListener { pos(holder)?.let(onMoveUp) }
-        holder.down.setOnClickListener { pos(holder)?.let(onMoveDown) }
-        holder.remove.setOnClickListener { pos(holder)?.let(onRemove) }
+        val track = shown[position]
+        val pinned = QueueEdit.isPinned(position, activeIndex)
+        holder.bind(track, pinned, artwork, pal)
+        holder.row.setOnClickListener { pos(holder)?.let { onItemClick(QueueEdit.toQueueIndex(it, activeIndex)) } }
+        holder.row.setOnLongClickListener { pos(holder)?.let { onLongClick(QueueEdit.toQueueIndex(it, activeIndex)) }; true }
+        holder.remove.setOnClickListener { v -> removeRow(holder, v) }
+        // Touching the handle picks the row up straight away (no long-press wait)
+        holder.handle.setOnTouchListener { _, ev ->
+            if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+                val p = pos(holder)
+                if (p != null && QueueEdit.isMovable(p, activeIndex, shown.size)) touchHelper.startDrag(holder)
+            }
+            true
+        }
+        // Without the handle (TalkBack, switch access) a row can still move one step at a time
+        ViewCompat.removeAccessibilityAction(holder.row, holder.a11yUp)
+        ViewCompat.removeAccessibilityAction(holder.row, holder.a11yDown)
+        holder.a11yUp = View.NO_ID
+        holder.a11yDown = View.NO_ID
+        if (!pinned) {
+            val res = holder.row.resources
+            holder.a11yUp = ViewCompat.addAccessibilityAction(holder.row, res.getString(R.string.move_up)) { _, _ ->
+                stepRow(holder, -1)
+            }
+            holder.a11yDown = ViewCompat.addAccessibilityAction(holder.row, res.getString(R.string.move_down)) { _, _ ->
+                stepRow(holder, 1)
+            }
+        }
+    }
+
+    override fun onViewRecycled(holder: Holder) {
+        holder.itemView.animate().cancel()
+        holder.itemView.alpha = 1f
+        holder.itemView.translationX = 0f
+        holder.itemView.translationY = 0f
+        holder.itemView.scaleX = 1f
+        holder.itemView.scaleY = 1f
+        holder.row.translationZ = 0f
+    }
+
+    private fun stepRow(holder: Holder, by: Int): Boolean {
+        val p = pos(holder) ?: return false
+        val to = p + by
+        if (!QueueEdit.isMovable(p, activeIndex, shown.size) || !QueueEdit.isMovable(to, activeIndex, shown.size)) return false
+        onMove(shown[p].id, QueueEdit.toQueueIndex(p, activeIndex), to)
+        return true
+    }
+
+    /** The row slides out a little as it fades, then the song leaves the queue and the gap closes. */
+    private fun removeRow(holder: Holder, v: View) {
+        val p = pos(holder) ?: return
+        if (holder.removing || isDragging || !QueueEdit.isMovable(p, activeIndex, shown.size)) return
+        holder.removing = true
+        haptic(v, android.view.HapticFeedbackConstants.CONTEXT_CLICK)
+        val id = shown[p].id
+        val q = QueueEdit.toQueueIndex(p, activeIndex)
+        val item = holder.itemView
+        val commit = {
+            holder.removing = false
+            onRemove(id, q)
+        }
+        if (!android.animation.ValueAnimator.areAnimatorsEnabled()) {
+            commit()
+            return
+        }
+        item.animate().cancel()
+        item.animate().alpha(0f).translationX(item.width * 0.12f)
+            .setDuration(REMOVE_SLIDE_MS)
+            .setInterpolator(android.view.animation.AccelerateInterpolator(1.4f))
+            .withEndAction { commit() }
+            .start()
     }
 
     private fun pos(holder: Holder): Int? =
         holder.bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION }
+
+    /**
+     * 5.5.1: drag by the handle. The row lifts with a shadow and a light tick, the others slide
+     * out of its way, and on drop it settles with a small bounce; the player's queue changes then.
+     */
+    private inner class DragCallback : ItemTouchHelper.Callback() {
+        override fun isLongPressDragEnabled() = false
+        override fun isItemViewSwipeEnabled() = false
+
+        override fun getMovementFlags(rv: RecyclerView, vh: RecyclerView.ViewHolder): Int {
+            val p = vh.bindingAdapterPosition
+            return if (p != RecyclerView.NO_POSITION && QueueEdit.isMovable(p, activeIndex, shown.size))
+                makeMovementFlags(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) else 0
+        }
+
+        override fun canDropOver(rv: RecyclerView, current: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {
+            val p = target.bindingAdapterPosition
+            return p != RecyclerView.NO_POSITION && QueueEdit.isMovable(p, activeIndex, shown.size)
+        }
+
+        override fun onMove(rv: RecyclerView, vh: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {
+            val from = vh.bindingAdapterPosition
+            val to = target.bindingAdapterPosition
+            if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false
+            if (!QueueEdit.isMovable(from, activeIndex, shown.size) || !QueueEdit.isMovable(to, activeIndex, shown.size)) return false
+            shown = QueueEdit.move(shown, from, to)
+            notifyItemMoved(from, to)
+            return true
+        }
+
+        override fun onSwiped(vh: RecyclerView.ViewHolder, direction: Int) = Unit
+
+        override fun onSelectedChanged(vh: RecyclerView.ViewHolder?, actionState: Int) {
+            super.onSelectedChanged(vh, actionState)
+            if (actionState != ItemTouchHelper.ACTION_STATE_DRAG || vh !is Holder) return
+            val p = vh.bindingAdapterPosition
+            if (p == RecyclerView.NO_POSITION) return
+            isDragging = true
+            dragFromShown = p
+            dragId = shown[p].id
+            dragOffset = QueueEdit.offset(activeIndex)
+            val d = vh.itemView.resources.displayMetrics.density
+            vh.itemView.animate().cancel()
+            vh.itemView.animate().scaleX(LIFT_SCALE).scaleY(LIFT_SCALE)
+                .setDuration(LIFT_MS).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+            vh.row.animate().translationZ(LIFT_DP * d).setDuration(LIFT_MS).start()
+            haptic(vh.handle, android.view.HapticFeedbackConstants.CLOCK_TICK)
+        }
+
+        override fun clearView(rv: RecyclerView, vh: RecyclerView.ViewHolder) {
+            super.clearView(rv, vh)
+            val holder = vh as? Holder
+            if (holder != null) {
+                holder.itemView.animate().scaleX(1f).scaleY(1f)
+                    .setDuration(SETTLE_MS).setInterpolator(android.view.animation.OvershootInterpolator(3f)).start()
+                holder.row.animate().translationZ(0f).setDuration(SETTLE_MS).start()
+            }
+            if (!isDragging) return
+            isDragging = false
+            val id = dragId
+            val from = dragFromShown
+            val to = vh.bindingAdapterPosition
+            dragId = null
+            dragFromShown = -1
+            // What's on screen is now the truth; the player follows right away
+            queue = queue.take(dragOffset) + shown
+            val waiting = pending
+            pending = null
+            if (id != null && to != RecyclerView.NO_POSITION && to != from) {
+                holder?.let { haptic(it.handle, android.view.HapticFeedbackConstants.CLOCK_TICK) }
+                onMove(id, dragOffset + from, to)
+            } else if (waiting != null) {
+                submitQueue(waiting.first, waiting.second)
+            }
+        }
+    }
 
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
         val row: View = view.findViewById(R.id.queue_row)
         private val art: ImageView = view.findViewById<ImageView>(R.id.queue_art).apply { clipToOutline = true }
         private val title: TextView = view.findViewById(R.id.queue_title)
         private val artist: TextView = view.findViewById(R.id.queue_artist)
-        val up: ImageView = view.findViewById(R.id.queue_up)
-        val down: ImageView = view.findViewById(R.id.queue_down)
         val remove: ImageView = view.findViewById(R.id.queue_remove)
+        val handle: ImageView = view.findViewById(R.id.queue_handle)
+        var removing = false
+        var a11yUp = View.NO_ID
+        var a11yDown = View.NO_ID
 
-        fun bind(track: Track, position: Int, active: Boolean, size: Int, artwork: ArtworkPipeline, pal: Pal) {
+        fun bind(track: Track, pinned: Boolean, artwork: ArtworkPipeline, pal: Pal) {
+            if (removing || itemView.translationX != 0f) {
+                // A remove that didn't go through (the song was already gone): the row comes back
+                itemView.animate().cancel()
+                itemView.alpha = 1f
+                itemView.translationX = 0f
+            }
+            removing = false
             title.text = track.title
             artist.text = track.artist
             // v4.9.7: the same filled row as search and playlists; the buttons follow the text colour
-            styleSongRow(row, art, listOf(title, artist), active)
-            val on = if (active) "bg" else "fg"
-            listOf(up, down, remove).forEach { it.tag = "tint:$on" }
-            up.alpha = if (position > 0) 1f else 0.3f
-            up.isEnabled = position > 0
-            down.alpha = if (position < size - 1) 1f else 0.3f
-            down.isEnabled = position < size - 1
+            styleSongRow(row, art, listOf(title, artist), pinned)
+            // 5.5.1: the playing song is pinned: no x, no handle
+            val tools = if (pinned) View.GONE else View.VISIBLE
+            remove.visibility = tools
+            handle.visibility = tools
+            val on = if (pinned) "bg" else "fg"
+            listOf(remove, handle).forEach { it.tag = "tint:$on" }
             artwork.loadInto(art, track.thumbnailUrl, dp(44))
             Painter.paint(itemView, pal)
         }
+    }
+
+    private companion object {
+        const val LIFT_SCALE = 1.03f
+        const val LIFT_DP = 8f
+        const val LIFT_MS = 150L
+        const val SETTLE_MS = 280L
+        const val REMOVE_SLIDE_MS = 160L
     }
 }
 

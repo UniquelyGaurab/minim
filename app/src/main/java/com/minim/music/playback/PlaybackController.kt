@@ -193,7 +193,8 @@ class PlaybackController(
         if (c.isPlaying) {
             _uiState.value = _uiState.value.copy(
                 positionMs = c.currentPosition.coerceAtLeast(0L),
-                durationMs = if (c.duration > 0) c.duration else _uiState.value.durationMs
+                durationMs = if (c.duration > 0) c.duration else _uiState.value.durationMs,
+                bufferedPositionMs = c.bufferedPosition.coerceAtLeast(0L)
             )
         }
     }
@@ -221,6 +222,7 @@ class PlaybackController(
             isBuffering = isBuffering,
             positionMs = c.currentPosition.coerceAtLeast(0L),
             durationMs = resolvedDurationMs,
+            bufferedPositionMs = c.bufferedPosition.coerceAtLeast(0L),
             repeatMode = c.repeatMode,
             errorMessage = if (clearError) null else _uiState.value.errorMessage
         )
@@ -564,6 +566,19 @@ class PlaybackController(
         updateStateFromController()
     }
 
+    /**
+     * 5.5.0: a seek from Now Playing's bar. While playing, the sound dips quickly, jumps and comes
+     * back up at the new spot (through the track fade's volume) instead of a hard cut. Paused,
+     * or when the fade isn't running, it's a plain seek.
+     */
+    fun seekToSmooth(positionMs: Long) {
+        val c = mediaController ?: return
+        val target = positionMs.coerceAtLeast(0L)
+        val fade = TrackFadeController.active
+        if (c.isPlaying && fade != null && fade.dipAndSeek(target)) return
+        seekTo(target)
+    }
+
     fun toggleRepeat() {
         val c = mediaController ?: return
         c.repeatMode = when (c.repeatMode) {
@@ -593,12 +608,16 @@ class PlaybackController(
         if (index in 0 until c.mediaItemCount && index != c.currentMediaItemIndex) {
             c.removeMediaItem(index)
             updateStateFromController()
+            // 5.5.1: removing songs from Up Next can leave the radio short; it tops up as usual
+            maybeTopUpRadio()
         }
     }
 
     fun moveQueueItem(fromIndex: Int, toIndex: Int) {
         val c = mediaController ?: return
-        if (fromIndex in 0 until c.mediaItemCount && toIndex in 0 until c.mediaItemCount) {
+        // 5.5.1: the playing song itself never moves (it's pinned at the top of Up Next)
+        if (fromIndex in 0 until c.mediaItemCount && toIndex in 0 until c.mediaItemCount &&
+            fromIndex != toIndex && fromIndex != c.currentMediaItemIndex) {
             c.moveMediaItem(fromIndex, toIndex)
             updateStateFromController()
         }

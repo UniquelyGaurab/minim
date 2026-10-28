@@ -106,6 +106,8 @@ data class PlaybackUiState(
     val isBuffering: Boolean = false,
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
+    /** 5.5.0: how far the current song has loaded (the seek bar's faint buffered part). */
+    val bufferedPositionMs: Long = 0L,
     val repeatMode: Int = 0,
     val errorMessage: String? = null,
     val accentColor: Int? = null

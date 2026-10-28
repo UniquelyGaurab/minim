@@ -2,6 +2,8 @@ package com.minim.music.playback
 
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import com.minim.music.ui.SeekMotion
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -38,12 +40,84 @@ class TrackFadeController(
     fun start() {
         player.addListener(this)
         restartTicking()
+        active = this
     }
 
     fun release() {
         released = true
         handler.removeCallbacks(tick)
+        handler.removeCallbacks(dipTick)
         player.removeListener(this)
+        if (active === this) active = null
+    }
+
+    // 5.5.0: the seek dip. The volume goes down quickly, the player jumps, waits for the new spot
+    // to be ready (at most SeekMotion.DIP_MAX_HOLD_MS) and comes back up. It multiplies the fade's
+    // own volume, so fades in and out still apply on top.
+    private var dipFactor = 1f
+    private var dipPhase = DIP_NONE
+    private var dipPhaseAt = 0L
+    private var dipTarget = 0L
+
+    /** Starts a dip that ends at [positionMs]. False when it can't (released). */
+    fun dipAndSeek(positionMs: Long): Boolean {
+        if (released) return false
+        dipTarget = positionMs
+        val now = SystemClock.uptimeMillis()
+        when (dipPhase) {
+            // Already down or waiting: jump straight to the newer spot
+            DIP_HOLD -> { player.seekTo(positionMs); dipPhaseAt = now }
+            DIP_OUT -> Unit // the jump at the bottom uses the newest target
+            else -> {
+                // From full (or on the way back up): go down from where the volume is now
+                dipPhase = DIP_OUT
+                dipPhaseAt = now - outElapsedFor(dipFactor)
+            }
+        }
+        handler.removeCallbacks(dipTick)
+        handler.post(dipTick)
+        return true
+    }
+
+    private fun outElapsedFor(factor: Float): Long {
+        val t = ((1f - factor) / (1f - SeekMotion.DIP_FLOOR)).coerceIn(0f, 1f)
+        return (t * SeekMotion.DIP_OUT_MS).toLong()
+    }
+
+    private val dipTick = object : Runnable {
+        override fun run() {
+            if (released) return
+            val now = SystemClock.uptimeMillis()
+            val ms = now - dipPhaseAt
+            when (dipPhase) {
+                DIP_OUT -> {
+                    dipFactor = SeekMotion.dipOut(ms)
+                    if (ms >= SeekMotion.DIP_OUT_MS) {
+                        player.seekTo(dipTarget)
+                        dipPhase = DIP_HOLD
+                        dipPhaseAt = now
+                    }
+                }
+                DIP_HOLD -> {
+                    dipFactor = SeekMotion.DIP_FLOOR
+                    val ready = player.playbackState == Player.STATE_READY && ms >= 40L
+                    if (ready || ms >= SeekMotion.DIP_MAX_HOLD_MS) {
+                        dipPhase = DIP_IN
+                        dipPhaseAt = now
+                    }
+                }
+                DIP_IN -> {
+                    dipFactor = SeekMotion.dipIn(ms)
+                    if (ms >= SeekMotion.DIP_IN_MS) {
+                        dipFactor = 1f
+                        dipPhase = DIP_NONE
+                    }
+                }
+                else -> dipFactor = 1f
+            }
+            applyVolume()
+            if (dipPhase != DIP_NONE) handler.postDelayed(this, 16L)
+        }
     }
 
     /** Re-apply right away after the fade setting changes (so Off restores full volume even while paused). */
@@ -83,7 +157,7 @@ class TrackFadeController(
     }
 
     private fun applyVolume() {
-        val target = targetVolume(fadeSecondsProvider(), player.duration, player.currentPosition)
+        val target = targetVolume(fadeSecondsProvider(), player.duration, player.currentPosition) * dipFactor
         val current = player.volume
         // v4.4 fix: the end points (full and silent) are always set exactly. Before, the last fade-in
         // step could be skipped by the 0.005 threshold, leaving the volume stuck at e.g. 0.998.
@@ -95,6 +169,15 @@ class TrackFadeController(
 
     companion object {
         private const val TICK_MS = 100L
+        private const val DIP_NONE = 0
+        private const val DIP_OUT = 1
+        private const val DIP_HOLD = 2
+        private const val DIP_IN = 3
+
+        /** 5.5.0: the running service's fade (same process), for the seek dip. */
+        @Volatile
+        var active: TrackFadeController? = null
+            private set
 
         /** Player volume for this moment of the track. Fade Off (0 s) is always exactly 1. */
         fun targetVolume(fadeSeconds: Int, durationMs: Long, rawPositionMs: Long): Float {
