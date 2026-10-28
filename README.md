@@ -120,6 +120,10 @@ Lines about your listening go in a separate `"stats"` list after `"greetings"`. 
 - Conditions (all optional, every one that's set must hold): `min` and `max` (for example `{ "plays": 5 }`), `needs` (placeholders that must have data even if the text doesn't use them), `hours` (`"22-3"` wraps past midnight, or a single hour like `8`), `days` (`["sat", "sun"]`), `playing` (`true` while a song plays, `false` while paused) and `liked` (whether the song in the player is liked).
 - A line with an unknown placeholder or a broken condition is skipped, and the rest still work.
 
+## Festival themes
+
+Festival wallpapers, Home colours, greetings and like bursts live in the [`themes`](themes) folder, so a new festival is a file swap, not an app update. [`themes/README.md`](themes/README.md) shows how to add one from GitHub's website. Phones use them once they have the Minim update that reads this folder.
+
 ## Credits
 
 - [NewPipe Extractor](https://github.com/TeamNewPipe/NewPipeExtractor) for search and streams (GPL-3.0)

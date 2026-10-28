@@ -1,0 +1,28 @@
+# Checks themes/themes.json and the wallpapers whenever something under themes/ changes.
+# A red X on the commit means Minim would skip part of the file: open the run to see why.
+name: Check festival themes
+
+on:
+  push:
+    paths:
+      - "themes/**"
+      - ".github/workflows/themes.yml"
+  pull_request:
+    paths:
+      - "themes/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install jsonschema
+      - run: python3 themes/check_themes.py

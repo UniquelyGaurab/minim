@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/UniquelyGaurab/minim/main/themes/themes.schema.json",
+  "title": "Minim festival themes (themes/themes.json)",
+  "description": "Version 1. Unknown fields are allowed everywhere: Minim ignores them, so new fields can be added later without breaking older apps.",
+  "type": "object",
+  "required": ["version", "festivals"],
+  "properties": {
+    "version": {
+      "description": "Format version. Minim reads version 1. A bigger number means a change older apps can't read, so they ignore the file and keep normal Home.",
+      "type": "integer",
+      "const": 1
+    },
+    "festivals": {
+      "type": "array",
+      "maxItems": 50,
+      "items": { "$ref": "#/$defs/festival" }
+    }
+  },
+  "$defs": {
+    "date": {
+      "description": "A full date, YYYY-MM-DD, read in the phone's local date (IST for Gaurab).",
+      "type": "string",
+      "pattern": "^20[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$"
+    },
+    "color": {
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}$"
+    },
+    "festival": {
+      "type": "object",
+      "required": ["id", "name", "start", "end"],
+      "properties": {
+        "id": {
+          "description": "Short and unique: lowercase letters, digits and hyphens, like diwali-2026. Same as the asset folder name. Ids starting with _ are templates.",
+          "type": "string",
+          "pattern": "^_?[a-z0-9][a-z0-9-]{0,39}$"
+        },
+        "name": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "enabled": {
+          "description": "Optional, default true. false switches the festival off without deleting it.",
+          "type": "boolean"
+        },
+        "start": { "$ref": "#/$defs/date", "description": "First day, inclusive." },
+        "end": { "$ref": "#/$defs/date", "description": "Last day, inclusive. Same as start for a single day." },
+        "priority": {
+          "description": "Optional, default 0. When two festivals overlap, the higher number wins. A tie goes to the one higher up in the list.",
+          "type": "integer",
+          "minimum": -100,
+          "maximum": 100
+        },
+        "wallpaper": {
+          "description": "Repo path of the Home wallpaper, inside themes/. WebP, 1080x2400 (9:20), under 300 KB.",
+          "type": "string",
+          "pattern": "^themes/[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+\\.webp$"
+        },
+        "colors": {
+          "description": "Optional backup colours for Home. Leave empty so Minim picks them from the wallpaper. Any colour set here replaces the automatic one.",
+          "type": "object",
+          "properties": {
+            "text": { "$ref": "#/$defs/color", "description": "Greeting, minim logo and top tab labels." },
+            "pill": { "$ref": "#/$defs/color", "description": "Fill of the search pill and the Home mini player pill." },
+            "pillText": { "$ref": "#/$defs/color", "description": "Text and icons on those pills." }
+          }
+        },
+        "burst": {
+          "description": "What bursts out of the heart when you like a song during the festival.",
+          "type": "object",
+          "properties": {
+            "shape": {
+              "description": "One of the fixed shapes. An unknown shape falls back to dots.",
+              "enum": ["dots", "sparks", "petals", "snow", "hearts"]
+            },
+            "colors": {
+              "description": "1 to 6 colours, used in turn. Empty or missing = the cover's colour, as today.",
+              "type": "array",
+              "maxItems": 6,
+              "items": { "$ref": "#/$defs/color" }
+            }
+          }
+        },
+        "greetings": {
+          "description": "The festival's own greetings, grouped like greetings/greetings.json. While the festival is on, only these rotate.",
+          "type": "object",
+          "properties": {
+            "anytime": {
+              "description": "Plain lines, like the ones in greetings.json's \"greetings\" list without dates.",
+              "type": "array",
+              "maxItems": 300,
+              "items": { "$ref": "#/$defs/greeting" }
+            },
+            "stats": {
+              "description": "Lines about the listening, like greetings.json's \"stats\" list.",
+              "type": "array",
+              "maxItems": 300,
+              "items": { "$ref": "#/$defs/greeting" }
+            }
+          }
+        }
+      }
+    },
+    "greeting": {
+      "description": "Same fields as a greetings.json entry, without from / to / day / year (the festival's dates apply).",
+      "type": "object",
+      "required": ["text"],
+      "not": {
+        "anyOf": [
+          { "required": ["from"] },
+          { "required": ["to"] },
+          { "required": ["day"] },
+          { "required": ["year"] }
+        ]
+      },
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "min": { "$ref": "#/$defs/counts" },
+        "max": { "$ref": "#/$defs/counts" },
+        "needs": {
+          "oneOf": [
+            { "$ref": "#/$defs/statToken" },
+            { "type": "array", "items": { "$ref": "#/$defs/statToken" } }
+          ]
+        },
+        "hours": {
+          "oneOf": [
+            { "type": "integer", "minimum": 0, "maximum": 23 },
+            { "type": "string", "pattern": "^\\s*([01]?[0-9]|2[0-3])\\s*-\\s*([01]?[0-9]|2[0-3])\\s*$" }
+          ]
+        },
+        "days": {
+          "oneOf": [
+            { "$ref": "#/$defs/day" },
+            { "type": "array", "items": { "$ref": "#/$defs/day" } }
+          ]
+        },
+        "playing": { "type": "boolean" },
+        "liked": { "type": "boolean" }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "propertyNames": {
+        "enum": ["plays", "today", "liked", "topsongplays", "topartistplays", "artists", "likedartistsongs", "playlists", "bigplaylistsongs"]
+      },
+      "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 1000000 }
+    },
+    "statToken": {
+      "type": "string",
+      "pattern": "^\\s*\\{?(song|artist|last|lastartist|topsong|topartist|likedsong|likedartist|playlist|bigplaylist|weekday|plays|today|liked|topsongplays|topartistplays|artists|likedartistsongs|playlists|bigplaylistsongs)\\}?\\s*$"
+    },
+    "day": {
+      "type": "string",
+      "pattern": "^\\s*([Ss][Uu][Nn]|[Mm][Oo][Nn]|[Tt][Uu][Ee]|[Ww][Ee][Dd]|[Tt][Hh][Uu]|[Ff][Rr][Ii]|[Ss][Aa][Tt])[A-Za-z]*\\s*$"
+    }
+  }
+}

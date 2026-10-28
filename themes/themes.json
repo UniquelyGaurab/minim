@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "festivals": [
+    {
+      "id": "_template",
+      "name": "Template (copy me, never shows)",
+      "enabled": false,
+      "start": "2000-01-01",
+      "end": "2000-01-01",
+      "priority": 0,
+      "wallpaper": "themes/_template/wallpaper.webp",
+      "colors": {},
+      "burst": { "shape": "sparks", "colors": ["#FFD54F", "#FF8A65", "#FFF3E0"] },
+      "greetings": {
+        "anytime": [
+          { "text": "Festive mode: on.\nVolume: also on." },
+          { "text": "Lights up,\nplaylist up." },
+          { "text": "Happy festival, {name}!\nPick the first song." },
+          { "text": "Morning sweets\nand morning beats.", "hours": "5-11" },
+          { "text": "Festival night.\nOne more song.", "hours": "20-3" }
+        ],
+        "stats": [
+          { "text": "{song} with the festive lights?\nPerfect pairing.", "playing": true },
+          { "text": "{today} songs today.\nThe festival spirit is real.", "min": { "today": 5 } },
+          { "text": "{liked} liked songs.\nThat's a festival playlist.", "min": { "liked": 20 } }
+        ]
+      }
+    }
+  ]
+}
