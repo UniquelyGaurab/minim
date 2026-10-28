@@ -1,4 +1,4 @@
-# Checks themes/themes.json and the wallpapers whenever something under themes/ changes.
+# Checks themes/themes.json, each festival's greetings file and the wallpapers whenever something under themes/ changes.
 # A red X on the commit means Minim would skip part of the file: open the run to see why.
 name: Check festival themes
 

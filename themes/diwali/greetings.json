@@ -1,0 +1,197 @@
+{
+  "version": 1,
+  "anytime": [
+    {
+      "text": "Good morning.\nRangoli first, playlist second.",
+      "hours": "5-8"
+    },
+    {
+      "text": "The diyas are up.\nSo should you be.",
+      "hours": "6-9"
+    },
+    {
+      "text": "Ladoo for breakfast?\nIt's Diwali, it counts.",
+      "hours": "9-11"
+    },
+    {
+      "text": "Afternoon slump?\nKaju katli fixes that.",
+      "hours": "12-15"
+    },
+    {
+      "text": "Your Diwali nap\nneeds a soundtrack.",
+      "hours": "13-16"
+    },
+    {
+      "text": "Sun's down, diyas on.\nLighting hour, {name}.",
+      "hours": "17-18"
+    },
+    {
+      "text": "Puja's done.\nVolume's allowed now.",
+      "hours": "18-20"
+    },
+    {
+      "text": "Crackers outside.\nBetter bangers in here.",
+      "hours": "19-22"
+    },
+    {
+      "text": "Still up?\nSo are the neighbours' rockets.",
+      "hours": "22-0"
+    },
+    {
+      "text": "3am crackers again.\nFine. Play on.",
+      "hours": "1-4"
+    },
+    {
+      "text": "Happy Diwali week, {name}.\nLights on, volume up."
+    },
+    {
+      "text": "Soan papdi incoming.\nRegift responsibly."
+    },
+    {
+      "text": "Relatives asking your marks?\nTurn it up."
+    },
+    {
+      "text": "Diwali cleaning found\nyour old earphones. Use them."
+    },
+    {
+      "text": "One more sweet.\nOne more song."
+    },
+    {
+      "text": "Your diet called.\nIt's on leave till Bhai Dooj."
+    },
+    {
+      "text": "New clothes.\nSame old playlist? Fix that."
+    },
+    {
+      "text": "Rangoli by mom,\nsoundtrack by you."
+    },
+    {
+      "text": "Card night tip:\nsad songs make bluffing harder."
+    },
+    {
+      "text": "Neighbours on rockets.\nYou on repeat."
+    },
+    {
+      "text": "Sweets eaten: lost count.\nRegrets: zero."
+    },
+    {
+      "text": "Ears getting\ncracker-proofed."
+    },
+    {
+      "text": "Pollution's high.\nSo is the volume."
+    },
+    {
+      "text": "House is clean.\nQueue is full."
+    },
+    {
+      "text": "Lighting diyas\none beat at a time."
+    }
+  ],
+  "stats": [
+    {
+      "text": "Diya lit.\n{song} on."
+    },
+    {
+      "text": "{artist} on Diwali?\nRespect."
+    },
+    {
+      "text": "{song} is brighter\nthan the whole lane's lights."
+    },
+    {
+      "text": "More {lastartist}?\nSecond helping, like the sweets."
+    },
+    {
+      "text": "You've seen {topartist} more\nthan your relatives this week."
+    },
+    {
+      "text": "{topsong} on repeat\nlike Diwali forwards on WhatsApp."
+    },
+    {
+      "text": "{song} in your Likes?\nThat's sweet box material."
+    },
+    {
+      "text": "{topartist} deserves\na sweet box from you."
+    },
+    {
+      "text": "Diwali cleaning\nto {topsong} again?"
+    },
+    {
+      "text": "{lastartist} last time.\nWho's lighting it up tonight?"
+    },
+    {
+      "text": "{song} hits harder\nthan a sutli bomb."
+    },
+    {
+      "text": "If {topartist} came over\nyou'd share the kaju katli. Maybe."
+    },
+    {
+      "text": "{topsong} played that much\nhas earned a Diwali bonus."
+    },
+    {
+      "text": "{artist} in,\ncrackers drowned out."
+    },
+    {
+      "text": "{song} is the phuljhadi\nof your playlist."
+    }
+  ],
+  "days": [
+    {
+      "date": "2026-11-08",
+      "greetings": [
+        {
+          "text": "Happy Diwali, {name}!\nLight it up."
+        },
+        {
+          "text": "Happy Diwali!\nMay your queue never run out."
+        },
+        {
+          "text": "It's Diwali!\nShine brighter than every diya."
+        },
+        {
+          "text": "Happy Diwali!\nSweets in one hand, music in the other."
+        },
+        {
+          "text": "Happy Diwali!\nLights, sweets and {topsong}."
+        },
+        {
+          "text": "Today's the day.\nEvery diya lit, every banger played."
+        },
+        {
+          "text": "Happy Diwali, {name}.\nBe louder than the crackers."
+        },
+        {
+          "text": "Happy Diwali!\nMore light, more music, less soan papdi."
+        },
+        {
+          "text": "Happy Diwali!\nMay this year sound like {topsong}."
+        },
+        {
+          "text": "Happy Diwali!\nHere's to light winning, again."
+        }
+      ]
+    }
+  ],
+  "topArtist": [
+    {
+      "text": "{topartist} is today's\nbrightest diya."
+    },
+    {
+      "text": "Today's Diwali headliner:\n{topartist}."
+    },
+    {
+      "text": "{topartist} lit up\nyour whole day."
+    },
+    {
+      "text": "More {topartist}\nthan crackers today."
+    },
+    {
+      "text": "{topartist} gets\nthe first sweet today."
+    },
+    {
+      "text": "Your rangoli today\nis all {topartist}."
+    },
+    {
+      "text": "Your Diwali playlist,\nsponsored by {topartist}."
+    }
+  ]
+}

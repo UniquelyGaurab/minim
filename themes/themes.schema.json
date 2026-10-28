@@ -4,7 +4,10 @@
   "title": "Minim festival themes (themes/themes.json)",
   "description": "Version 1. Unknown fields are allowed everywhere: Minim ignores them, so new fields can be added later without breaking older apps.",
   "type": "object",
-  "required": ["version", "festivals"],
+  "required": [
+    "version",
+    "festivals"
+  ],
   "properties": {
     "version": {
       "description": "Format version. Minim reads version 1. A bigger number means a change older apps can't read, so they ignore the file and keep normal Home.",
@@ -14,7 +17,9 @@
     "festivals": {
       "type": "array",
       "maxItems": 50,
-      "items": { "$ref": "#/$defs/festival" }
+      "items": {
+        "$ref": "#/$defs/festival"
+      }
     }
   },
   "$defs": {
@@ -29,20 +34,35 @@
     },
     "festival": {
       "type": "object",
-      "required": ["id", "name", "start", "end"],
+      "required": [
+        "id",
+        "name",
+        "start",
+        "end"
+      ],
       "properties": {
         "id": {
           "description": "Short and unique: lowercase letters, digits and hyphens, like diwali-2026. Same as the asset folder name. Ids starting with _ are templates.",
           "type": "string",
           "pattern": "^_?[a-z0-9][a-z0-9-]{0,39}$"
         },
-        "name": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
         "enabled": {
           "description": "Optional, default true. false switches the festival off without deleting it.",
           "type": "boolean"
         },
-        "start": { "$ref": "#/$defs/date", "description": "First day, inclusive." },
-        "end": { "$ref": "#/$defs/date", "description": "Last day, inclusive. Same as start for a single day." },
+        "start": {
+          "$ref": "#/$defs/date",
+          "description": "First day, inclusive."
+        },
+        "end": {
+          "$ref": "#/$defs/date",
+          "description": "Last day, inclusive. Same as start for a single day."
+        },
         "priority": {
           "description": "Optional, default 0. When two festivals overlap, the higher number wins. A tie goes to the one higher up in the list.",
           "type": "integer",
@@ -58,9 +78,18 @@
           "description": "Optional backup colours for Home. Leave empty so Minim picks them from the wallpaper. Any colour set here replaces the automatic one.",
           "type": "object",
           "properties": {
-            "text": { "$ref": "#/$defs/color", "description": "Greeting, minim logo and top tab labels." },
-            "pill": { "$ref": "#/$defs/color", "description": "Fill of the search pill and the Home mini player pill." },
-            "pillText": { "$ref": "#/$defs/color", "description": "Text and icons on those pills." }
+            "text": {
+              "$ref": "#/$defs/color",
+              "description": "Greeting, minim logo and top tab labels."
+            },
+            "pill": {
+              "$ref": "#/$defs/color",
+              "description": "Fill of the search pill and the Home mini player pill."
+            },
+            "pillText": {
+              "$ref": "#/$defs/color",
+              "description": "Text and icons on those pills."
+            }
           }
         },
         "burst": {
@@ -69,80 +98,147 @@
           "properties": {
             "shape": {
               "description": "One of the fixed shapes. An unknown shape falls back to dots.",
-              "enum": ["dots", "sparks", "petals", "snow", "hearts"]
+              "enum": [
+                "dots",
+                "sparks",
+                "petals",
+                "snow",
+                "hearts"
+              ]
             },
             "colors": {
               "description": "1 to 6 colours, used in turn. Empty or missing = the cover's colour, as today.",
               "type": "array",
               "maxItems": 6,
-              "items": { "$ref": "#/$defs/color" }
+              "items": {
+                "$ref": "#/$defs/color"
+              }
             }
           }
         },
         "greetings": {
-          "description": "The festival's own greetings, grouped like greetings/greetings.json. While the festival is on, only these rotate.",
-          "type": "object",
-          "properties": {
-            "anytime": {
-              "description": "Plain lines, like the ones in greetings.json's \"greetings\" list without dates.",
-              "type": "array",
-              "maxItems": 300,
-              "items": { "$ref": "#/$defs/greeting" }
+          "description": "Either the path to the festival's own greetings file (themes/<folder>/greetings.json, see themes/README.md) or the lines written right here.",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^themes/[a-z0-9][a-z0-9-]*/[A-Za-z0-9._-]+\\.json$"
             },
-            "stats": {
-              "description": "Lines about the listening, like greetings.json's \"stats\" list.",
-              "type": "array",
-              "maxItems": 300,
-              "items": { "$ref": "#/$defs/greeting" }
+            {
+              "$ref": "#/$defs/inlineGreetings"
             }
-          }
+          ]
         }
       }
     },
     "greeting": {
       "description": "Same fields as a greetings.json entry, without from / to / day / year (the festival's dates apply).",
       "type": "object",
-      "required": ["text"],
+      "required": [
+        "text"
+      ],
       "not": {
         "anyOf": [
-          { "required": ["from"] },
-          { "required": ["to"] },
-          { "required": ["day"] },
-          { "required": ["year"] }
+          {
+            "required": [
+              "from"
+            ]
+          },
+          {
+            "required": [
+              "to"
+            ]
+          },
+          {
+            "required": [
+              "day"
+            ]
+          },
+          {
+            "required": [
+              "year"
+            ]
+          }
         ]
       },
       "properties": {
-        "text": { "type": "string", "minLength": 1, "maxLength": 120 },
-        "min": { "$ref": "#/$defs/counts" },
-        "max": { "$ref": "#/$defs/counts" },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "min": {
+          "$ref": "#/$defs/counts"
+        },
+        "max": {
+          "$ref": "#/$defs/counts"
+        },
         "needs": {
           "oneOf": [
-            { "$ref": "#/$defs/statToken" },
-            { "type": "array", "items": { "$ref": "#/$defs/statToken" } }
+            {
+              "$ref": "#/$defs/statToken"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/statToken"
+              }
+            }
           ]
         },
         "hours": {
           "oneOf": [
-            { "type": "integer", "minimum": 0, "maximum": 23 },
-            { "type": "string", "pattern": "^\\s*([01]?[0-9]|2[0-3])\\s*-\\s*([01]?[0-9]|2[0-3])\\s*$" }
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 23
+            },
+            {
+              "type": "string",
+              "pattern": "^\\s*([01]?[0-9]|2[0-3])\\s*-\\s*([01]?[0-9]|2[0-3])\\s*$"
+            }
           ]
         },
         "days": {
           "oneOf": [
-            { "$ref": "#/$defs/day" },
-            { "type": "array", "items": { "$ref": "#/$defs/day" } }
+            {
+              "$ref": "#/$defs/day"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/day"
+              }
+            }
           ]
         },
-        "playing": { "type": "boolean" },
-        "liked": { "type": "boolean" }
+        "playing": {
+          "type": "boolean"
+        },
+        "liked": {
+          "type": "boolean"
+        }
       }
     },
     "counts": {
       "type": "object",
       "propertyNames": {
-        "enum": ["plays", "today", "liked", "topsongplays", "topartistplays", "artists", "likedartistsongs", "playlists", "bigplaylistsongs"]
+        "enum": [
+          "plays",
+          "today",
+          "liked",
+          "topsongplays",
+          "topartistplays",
+          "artists",
+          "likedartistsongs",
+          "playlists",
+          "bigplaylistsongs"
+        ]
       },
-      "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 1000000 }
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1000000
+      }
     },
     "statToken": {
       "type": "string",
@@ -151,6 +247,96 @@
     "day": {
       "type": "string",
       "pattern": "^\\s*([Ss][Uu][Nn]|[Mm][Oo][Nn]|[Tt][Uu][Ee]|[Ww][Ee][Dd]|[Tt][Hh][Uu]|[Ff][Rr][Ii]|[Ss][Aa][Tt])[A-Za-z]*\\s*$"
+    },
+    "inlineGreetings": {
+      "description": "The festival's own greetings, grouped like greetings/greetings.json. While the festival is on, only these rotate.",
+      "type": "object",
+      "properties": {
+        "anytime": {
+          "description": "Plain lines, like the ones in greetings.json's \"greetings\" list without dates.",
+          "type": "array",
+          "maxItems": 300,
+          "items": {
+            "$ref": "#/$defs/greeting"
+          }
+        },
+        "stats": {
+          "description": "Lines about the listening, like greetings.json's \"stats\" list.",
+          "type": "array",
+          "maxItems": 300,
+          "items": {
+            "$ref": "#/$defs/greeting"
+          }
+        }
+      }
+    },
+    "greetingsFile": {
+      "description": "A festival's own greetings file. The festival's dates apply to every line; days lines show only on their date.",
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "anytime": {
+          "type": "array",
+          "maxItems": 300,
+          "items": {
+            "$ref": "#/$defs/greeting"
+          }
+        },
+        "stats": {
+          "type": "array",
+          "maxItems": 300,
+          "items": {
+            "$ref": "#/$defs/greeting"
+          }
+        },
+        "days": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "date",
+              "greetings"
+            ],
+            "properties": {
+              "date": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "greetings": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/greeting"
+                }
+              }
+            }
+          }
+        },
+        "topArtist": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
     }
   }
 }

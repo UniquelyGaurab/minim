@@ -2,6 +2,17 @@
   "version": 1,
   "festivals": [
     {
+      "id": "diwali",
+      "name": "Diwali",
+      "start": "2026-11-01",
+      "end": "2026-11-10",
+      "priority": 10,
+      "wallpaper": "themes/diwali/wallpaper.webp",
+      "colors": {},
+      "burst": { "shape": "sparks", "colors": ["#FFC107", "#FF8F00", "#FFE082", "#FF7043"] },
+      "greetings": "themes/diwali/greetings.json"
+    },
+    {
       "id": "_template",
       "name": "Template (copy me, never shows)",
       "enabled": false,

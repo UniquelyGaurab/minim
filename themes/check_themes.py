@@ -28,6 +28,10 @@ WORDS = {"song", "artist", "last", "lastartist", "topsong", "topartist", "likeds
 COUNTS = {"plays", "today", "liked", "topsongplays", "topartistplays", "artists",
           "likedartistsongs", "playlists", "bigplaylistsongs"}
 KNOWN = WORDS | COUNTS | {"name"}
+# Top artist takeover lines only know these
+TAKEOVER = {"topartist", "minutes", "name"}
+MAX_GREETINGS_FILE = 128 * 1024  # Minim won't download a bigger greetings file
+GREETINGS_PATH = re.compile(r"^themes/[a-z0-9][a-z0-9-]*/[A-Za-z0-9._-]+\.json$")
 TOKEN = re.compile(r"\{([A-Za-z_]+)\}")
 
 errors, warnings = [], []
@@ -76,8 +80,8 @@ def clean_lines(text):
     return l1, l2
 
 
-def check_greeting(fid, group, i, g):
-    where = f"{fid}: greetings.{group}[{i}]"
+def check_greeting(fid, group, i, g, where=None):
+    where = where or f"{fid}: greetings.{group}[{i}]"
     if not isinstance(g, dict) or not isinstance(g.get("text"), str):
         err(f"{where} needs a \"text\"")
         return
@@ -92,6 +96,92 @@ def check_greeting(fid, group, i, g):
     stats = [t for t in TOKEN.findall(g["text"]) if t in WORDS | COUNTS]
     if group == "anytime" and (stats or any(k in g for k in ("min", "max", "needs", "playing", "liked"))):
         warn(f"{where} talks about the listening; it works, but it belongs in \"stats\"")
+
+
+def check_greetings_file(fid, path, start, end, enabled):
+    """A festival's own greetings file (themes/<folder>/greetings.json)."""
+    full = os.path.join(ROOT, *path.split("/"))
+    if not GREETINGS_PATH.match(path) or ".." in path:
+        err(f"{fid}: greetings path {path} should look like themes/{fid}/greetings.json")
+        return
+    if not os.path.isfile(full):
+        (err if enabled else warn)(f"{fid}: greetings file {path} isn't in the repo (names are case-sensitive)")
+        return
+    if os.path.getsize(full) > MAX_GREETINGS_FILE:
+        err(f"{fid}: {path} is over {MAX_GREETINGS_FILE // 1024} KB; Minim won't download it")
+    try:
+        with open(full, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception as e:  # noqa: BLE001
+        err(f"{path} isn't valid JSON: {e}. Minim keeps the regular greetings.")
+        return
+    if not isinstance(data, dict):
+        err(f"{path} should be one {{ ... }} object")
+        return
+    if data.get("version", 1) != 1:
+        err(f"{path}: \"version\" must be 1")
+    name = path
+    try:
+        import jsonschema
+        with open(SCHEMA, encoding="utf-8") as fh:
+            schema = json.load(fh)
+        sub = dict(schema["$defs"]["greetingsFile"])
+        sub["$defs"] = schema["$defs"]
+        for e in jsonschema.Draft202012Validator(sub).iter_errors(data):
+            loc = "/".join(str(x) for x in e.absolute_path) or "(top)"
+            err(f"{name}: {loc}: {e.message}")
+    except (ImportError, AttributeError):
+        pass  # main() already warned that only the basic checks ran
+    for group in ("anytime", "stats"):
+        items = data.get(group) or []
+        if not isinstance(items, list):
+            err(f"{name}: \"{group}\" should be a list")
+            continue
+        for i, g in enumerate(items):
+            check_greeting(fid, group, i, g, where=f"{name}: {group}[{i}]")
+    days = data.get("days") or []
+    if not isinstance(days, list):
+        err(f"{name}: \"days\" should be a list")
+        days = []
+    for i, d in enumerate(days):
+        where = f"{name}: days[{i}]"
+        if not isinstance(d, dict):
+            err(f"{where} should be {{ \"date\": ..., \"greetings\": [...] }}")
+            continue
+        try:
+            day = datetime.date.fromisoformat(str(d.get("date", "")))
+        except ValueError:
+            err(f"{where} needs a \"date\" as YYYY-MM-DD")
+            continue
+        if start and end and not (start <= day <= end):
+            warn(f"{where}: {day} is outside the festival ({start} to {end}), so its lines never show")
+        lines = d.get("greetings") or []
+        if not isinstance(lines, list) or not lines:
+            err(f"{where} needs a \"greetings\" list")
+            continue
+        for j, g in enumerate(lines):
+            check_greeting(fid, "stats", j, g, where=f"{where}.greetings[{j}]")
+    top = data.get("topArtist") or []
+    if not isinstance(top, list):
+        err(f"{name}: \"topArtist\" should be a list")
+        top = []
+    for i, t in enumerate(top):
+        where = f"{name}: topArtist[{i}]"
+        text = t if isinstance(t, str) else (t.get("text") if isinstance(t, dict) else None)
+        if not isinstance(text, str):
+            err(f"{where} needs a \"text\"")
+            continue
+        if clean_lines(text) is None:
+            err(f"{where} is too long: keep each line under {MAX_LINE} characters ({MAX_TEXT} in total)")
+        bad = [x for x in TOKEN.findall(text) if x not in TAKEOVER]
+        if bad:
+            err(f"{where} uses {', '.join('{' + b + '}' for b in bad)}; takeover lines only know {{topartist}}, {{minutes}} and {{name}}")
+        if "{topartist}" not in text:
+            warn(f"{where} doesn't name the artist ({{topartist}})")
+    if enabled and not data.get("anytime"):
+        warn(f"{name}: no \"anytime\" greetings; when no stats line fits, the regular greetings show")
+    print(f"{path}: {len(data.get('anytime') or [])} anytime, {len(data.get('stats') or [])} stats, "
+          f"{sum(len(d.get('greetings') or []) for d in days if isinstance(d, dict))} special-day, {len(top)} top artist")
 
 
 def main():
@@ -174,7 +264,9 @@ def main():
             warn(f"{fid}: no wallpaper, so Home stays normal (greetings and burst still work)")
 
         greetings = fest.get("greetings") or {}
-        if isinstance(greetings, dict):
+        if isinstance(greetings, str):
+            check_greetings_file(fid, greetings, start, end, enabled)
+        elif isinstance(greetings, dict):
             for group in ("anytime", "stats"):
                 for i, g in enumerate(greetings.get(group) or []):
                     check_greeting(fid, group, i, g)
