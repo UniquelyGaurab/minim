@@ -343,7 +343,12 @@ class MainActivity : AppCompatActivity() {
         // v4.6.1: draw behind the status bar so the Artist page photo can reach the top of the
         // screen. Every other screen is kept below it by the root's padding (setupWindowInsets).
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) window.isStatusBarContrastEnforced = false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isStatusBarContrastEnforced = false
+            // 5.5.2 (39): remembered so the nav bar goes back to exactly this off the wallpaper
+            baseNavContrast = window.isNavigationBarContrastEnforced
+            themeNavContrast = baseNavContrast
+        }
         // v4.7: on first launch the notification prompt waits until the welcome screens are done
         if (app.preferences.welcomeDone) requestNotificationPermissionIfNeeded()
 
@@ -643,6 +648,8 @@ class MainActivity : AppCompatActivity() {
         if (target != Tab.HOME) lifecycleScope.launch { refreshData() }
         if (target == Tab.DISCOVER) loadDiscover(force = false)
         if (slide) animateTabChange(from, target) else stopTabTransition()
+        // 5.5.2: the festival wallpaper fades in under Home and out for the other tabs
+        syncThemeLayer(animate = slide)
         updateChrome()
     }
 
@@ -737,7 +744,8 @@ class MainActivity : AppCompatActivity() {
         val toI = to.ordinal
         val slides = ArrayList<TabSlide>()
         // The top artist takeover's photo sits under Home: there the old screen just goes (as before)
-        val keepOld = takeoverRoot.visibility != View.VISIBLE
+        // (5.5.2: the same with a festival wallpaper, which fades on its own instead)
+        val keepOld = takeoverRoot.visibility != View.VISIBLE && themeHomePal == null
         if (keepOld) {
             for (c in slidingChildren(outScreen, from)) {
                 val end = TabMotion.outgoingEnd(fromI, toI, shift)
@@ -834,7 +842,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun restoreTabBackground(screen: ViewGroup) {
-        if (screen === screenHome && isTakeoverActive) applyTakeoverColors()
+        if (screen === screenHome) applyHomeOverrides()
         else screen.setBackgroundColor(pal.bg)
     }
 
@@ -1219,6 +1227,7 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("ClickableViewAccessibility")
     private fun setupHome() {
         setupTakeover()
+        setupTheme()
         homeSearch.setOnClickListener { openSearch(it) }
         // The tip opens what it talks about: Discover for the swipe-up and Discover tips, Settings for Settings tips
         homeHint.setOnClickListener {
@@ -1375,10 +1384,18 @@ class MainActivity : AppCompatActivity() {
 
     /** On open: always the time-based greeting first. */
     private fun showTimeGreeting() {
-        greetingIndex = Greetings.TIME_BASED
-        greetingRotation.markShown(Greetings.TIME_BASED)
+        pickOpener()
         renderGreeting(animate = false)
         lifecycleScope.launch { refreshGreetingFacts(force = true) }
+    }
+
+    /** 5.5.2: the first greeting: the time-based one, or during a festival one of its time-of-day lines. */
+    private fun pickOpener() {
+        val name = app.preferences.userName
+        greetingIndex = if (Greetings.themeOn) {
+            greetingRotation.opener { Greetings.fits(it, GreetingFacts(), name) }
+        } else Greetings.TIME_BASED
+        greetingRotation.markShown(greetingIndex)
     }
 
     // ---- v4.5: fun greetings from the user's own data -----------------------------------------
@@ -1505,6 +1522,8 @@ class MainActivity : AppCompatActivity() {
         greetingFileJob = lifecycleScope.launch {
             while (isActive) {
                 app.syncRemoteGreetings()
+                // 5.5.2: festival themes on the same 10-minute beat (also catches midnight)
+                app.syncThemes()
                 // A little over 10 minutes, so the store's "10 minutes since the last check" has passed
                 delay(GREETING_FILE_CHECK_MS + 5_000L)
             }
@@ -2518,6 +2537,10 @@ class MainActivity : AppCompatActivity() {
      */
     private fun setupWindowInsets() {
         root.clipToPadding = false
+        val themeLayerView = findViewById<View>(R.id.home_theme)
+        barCovers = findViewById(R.id.home_bar_covers)
+        barCoverTop = findViewById(R.id.home_bar_cover_top)
+        barCoverBottom = findViewById(R.id.home_bar_cover_bottom)
         ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
@@ -2531,6 +2554,31 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             margins(screenArtist, -bars.top)
+            // 5.5.2 (39): the festival wallpaper fills the whole screen, behind both system bars;
+            // Home's own content stays inside the root's padding as before
+            navInset = bars.bottom
+            (themeLayerView.layoutParams as ViewGroup.MarginLayoutParams).let { lp ->
+                val m = ThemeBars.edgeToEdgeMargins(bars.left, bars.top, bars.right, bars.bottom)
+                if (lp.leftMargin != m[0] || lp.topMargin != m[1] || lp.rightMargin != m[2] || lp.bottomMargin != m[3]) {
+                    lp.setMargins(m[0], m[1], m[2], m[3])
+                    themeLayerView.layoutParams = lp
+                }
+            }
+            readThemeBarTones()
+            // 5.5.2 (update 40): the bar strips sit edge to edge too, one per system bar
+            (barCovers.layoutParams as ViewGroup.MarginLayoutParams).let { lp ->
+                val m = ThemeBars.edgeToEdgeMargins(bars.left, bars.top, bars.right, bars.bottom)
+                if (lp.leftMargin != m[0] || lp.topMargin != m[1] || lp.rightMargin != m[2] || lp.bottomMargin != m[3]) {
+                    lp.setMargins(m[0], m[1], m[2], m[3])
+                    barCovers.layoutParams = lp
+                }
+            }
+            fun stripHeight(view: View, h: Int) {
+                val lp = view.layoutParams
+                if (lp.height != h) { lp.height = h; view.layoutParams = lp }
+            }
+            stripHeight(barCoverTop, bars.top)
+            stripHeight(barCoverBottom, bars.bottom)
             // v4.7: the welcome screens are white right up behind the status and navigation bars
             (screenWelcome.layoutParams as ViewGroup.MarginLayoutParams).let { lp ->
                 if (lp.topMargin != -bars.top || lp.bottomMargin != -bars.bottom) {
@@ -2576,6 +2624,12 @@ class MainActivity : AppCompatActivity() {
             updateArtistScrim()
             updateSystemBars()
         }
+        // 5.5.2 (update 40): every frame, the bar strips follow whatever is opening or closing
+        // over Home (the morphs move views each frame, so this runs right through them)
+        root.viewTreeObserver.addOnPreDrawListener {
+            syncBarCovers()
+            true
+        }
         ViewCompat.requestApplyInsets(root)
     }
 
@@ -2614,6 +2668,22 @@ class MainActivity : AppCompatActivity() {
             Painter.isLight(p.bg)
         }
         var lightNav = Painter.isLight(p.bg)
+        // 5.5.2: over the festival wallpaper the bars follow it, and the nav bar is see-through
+        val wallOnTop = themeWallpaperOnTop()
+        val barsPlan = ThemeBars.plan(
+            wallOnTop, themeStatusLight, themeNavLight, lightStatus, lightNav, baseNavContrast
+        )
+        lightStatus = barsPlan.lightStatus
+        lightNav = barsPlan.lightNav
+        if (wallOnTop != themeNavClear && !isTakeoverActive) {
+            themeNavClear = wallOnTop
+            window.navigationBarColor = if (barsPlan.navTransparent) android.graphics.Color.TRANSPARENT else pal.bg
+        }
+        // 5.5.2 (39): no grey scrim over the wallpaper behind 3-button nav; back to normal elsewhere
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && barsPlan.navContrastEnforced != themeNavContrast) {
+            themeNavContrast = barsPlan.navContrastEnforced
+            window.isNavigationBarContrastEnforced = barsPlan.navContrastEnforced
+        }
         // v4.9.3: during the top artist takeover the bars follow the photo
         if (isTakeoverActive && takeoverT >= 0.5f && tab == Tab.HOME && !isArtistOpen && !isShelfOpen &&
             !isSearchOpen && !isListOpen && !isNowPlayingOpen && !isLyricsOpen && !isQueueOpen && !isSettingsOpen
@@ -3955,6 +4025,8 @@ class MainActivity : AppCompatActivity() {
     private fun setupSettings() {
         findViewById<View>(R.id.settings_close).setOnClickListener { closeSettings(animate = true) }
         settingsReveal = SettingsReveal(screenSettings as ViewGroup, findViewById(R.id.settings_content), root)
+        // The circle runs off the main thread, so its own curve drives the bar strips
+        settingsReveal.onCoverage = { syncBarCovers() }
         setupAccount()
         setupVibe()
 
@@ -3998,6 +4070,10 @@ class MainActivity : AppCompatActivity() {
         option(R.id.set_boost_off) { p.volumeBoost = AppPreferences.BOOST_OFF }
         option(R.id.set_boost_normal) { p.volumeBoost = AppPreferences.BOOST_NORMAL }
         option(R.id.set_boost_loud) { p.volumeBoost = AppPreferences.BOOST_LOUD }
+        option(R.id.set_bass_off) { p.bassBoost = AppPreferences.BASS_OFF }
+        option(R.id.set_bass_warm) { p.bassBoost = AppPreferences.BASS_WARM }
+        option(R.id.set_bass_punchy) { p.bassBoost = AppPreferences.BASS_PUNCHY }
+        option(R.id.set_bass_heavy) { p.bassBoost = AppPreferences.BASS_HEAVY }
         option(R.id.set_fade_off) { p.crossfadeSeconds = 0 }
         option(R.id.set_fade_2) { p.crossfadeSeconds = 2 }
         option(R.id.set_fade_4) { p.crossfadeSeconds = 4 }
@@ -4148,6 +4224,10 @@ class MainActivity : AppCompatActivity() {
         sel(R.id.set_boost_off, p.volumeBoost == AppPreferences.BOOST_OFF)
         sel(R.id.set_boost_normal, p.volumeBoost == AppPreferences.BOOST_NORMAL)
         sel(R.id.set_boost_loud, p.volumeBoost == AppPreferences.BOOST_LOUD)
+        sel(R.id.set_bass_off, p.bassBoost == AppPreferences.BASS_OFF)
+        sel(R.id.set_bass_warm, p.bassBoost == AppPreferences.BASS_WARM)
+        sel(R.id.set_bass_punchy, p.bassBoost == AppPreferences.BASS_PUNCHY)
+        sel(R.id.set_bass_heavy, p.bassBoost == AppPreferences.BASS_HEAVY)
         sel(R.id.set_fade_off, p.crossfadeSeconds == 0)
         sel(R.id.set_fade_2, p.crossfadeSeconds == 2)
         sel(R.id.set_fade_4, p.crossfadeSeconds == 4)
@@ -4775,7 +4855,15 @@ class MainActivity : AppCompatActivity() {
         setTakeoverMix(0f)
 
         // The greeting: two lines with the artist's name and today's minutes
-        val lines = ArtistTakeover.lines(takeoverPicker.next(), top.name, top.ms)
+        // (5.5.2: during a festival, its own top artist lines)
+        val set = Greetings.themeSet
+        val themedLines = set?.takeIf { it.topArtist.isNotEmpty() }?.let {
+            val i = takeoverPicker.next(it.topArtist.size)
+            val user = app.preferences.userName
+            it.takeoverLine(i, top.name, user, top.ms) ?: it.takeoverLine(i, ArtistTakeover.shortName(top.name), user, top.ms)
+        }
+        val lines = themedLines ?: ArtistTakeover.lines(takeoverPicker.next(), top.name, top.ms)
+        val takeoverMs = ArtistTakeover.durationMs(Greetings.themeOn)
         greetingOverrideJob?.cancel()
         greetingOverrideJob = null
         greetingPlayTrackId = null
@@ -4787,13 +4875,13 @@ class MainActivity : AppCompatActivity() {
         val zoom = animationsOn()
         val drift = dp(14f)
         takeoverAnim?.cancel()
-        takeoverAnim = ValueAnimator.ofFloat(0f, ArtistTakeover.DURATION_MS.toFloat()).apply {
-            duration = ArtistTakeover.DURATION_MS
+        takeoverAnim = ValueAnimator.ofFloat(0f, takeoverMs.toFloat()).apply {
+            duration = takeoverMs
             interpolator = android.view.animation.LinearInterpolator()
             addUpdateListener { a ->
                 val el = a.animatedValue as Float
                 val inT = (el / ArtistTakeover.FADE_IN_MS).coerceIn(0f, 1f)
-                val outT = ((ArtistTakeover.DURATION_MS - el) / ArtistTakeover.FADE_OUT_MS).coerceIn(0f, 1f)
+                val outT = ((takeoverMs - el) / ArtistTakeover.FADE_OUT_MS).coerceIn(0f, 1f)
                 val m = minOf(inT, outT)
                 setTakeoverMix(m * m * (3f - 2f * m)) // smoothstep: no hard cuts
                 if (zoom) {
@@ -4856,9 +4944,11 @@ class MainActivity : AppCompatActivity() {
         takeoverRoot.alpha = 0f
         takeoverPhoto.setImageDrawable(null)
         homeGreeting.contentDescription = null
-        // Home back in the song's colours exactly
+        // Home back in the song's colours exactly (5.5.2: or the festival wallpaper's)
         Painter.paint(screenHome, pal)
-        window.navigationBarColor = pal.bg
+        applyHomeOverrides()
+        window.navigationBarColor = if (themeWallpaperOnTop()) android.graphics.Color.TRANSPARENT else pal.bg
+        themeNavClear = themeWallpaperOnTop()
         updateSystemBars()
         val ours = takeoverLinesShown
         takeoverLinesShown = null
@@ -4886,16 +4976,316 @@ class MainActivity : AppCompatActivity() {
     private fun applyTakeoverColors() {
         val homePal = takeoverHomePal ?: return
         val t = takeoverT.coerceIn(0f, 1f)
-        Painter.paint(screenHome, pal.lerp(homePal, t))
+        // 5.5.2: during a festival theme it blends from the wallpaper's colours, not the album's
+        Painter.paint(screenHome, homeBasePal().lerp(homePal, t))
+        themePillPal?.let { if (it != themeHomePal) Painter.paint(homeSearch, it.lerp(homePal, t)) }
         takeoverMiniPal?.let {
-            val miniPal = pal.lerp(it, t)
+            val miniPal = miniBasePal().lerp(it, t)
             Painter.paint(homeMini.root, miniPal)
             Painter.paint(homeMini.actions, miniPal)
         }
         // Home goes see-through so the photo underneath shows; the root behind it is the song colour
         screenHome.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-        window.navigationBarColor =
+        // (5.5.2: with a festival wallpaper the nav bar stays see-through, the wallpaper is behind it)
+        window.navigationBarColor = if (themeHomePal != null) android.graphics.Color.TRANSPARENT else
             androidx.core.graphics.ColorUtils.setAlphaComponent(pal.bg, ((1f - t) * 255f).toInt().coerceIn(0, 255))
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // 5.5.2: festival theme on Home (wallpaper, Home's colours from it, themed like burst)
+    // ------------------------------------------------------------------------------------------
+
+    private lateinit var themeLayer: View
+    private lateinit var themePhoto: ImageView
+
+    /** Home's colours picked from the wallpaper, or null when no wallpaper is up. */
+    private var themeHomePal: Pal? = null
+
+    /** The search pill's colours when the festival sets `pill` / `pillText`, else null. */
+    private var themePillPal: Pal? = null
+
+    /** Whether the wallpaper is light (dark clock and battery icons over it). */
+    private var themeLight = false
+    private var themeWallpaperKey: String? = null
+    private var themeGreetingsSeen: Any? = null
+    private var themeJob: Job? = null
+    private var themeNavClear = false
+
+    /** 5.5.2 (39): light picture behind the status bar / nav bar (dark icons there). */
+    private var themeStatusLight = false
+    private var themeNavLight = false
+    private var themeBitmap: android.graphics.Bitmap? = null
+    private var navInset = 0
+    private var baseNavContrast = true
+    private var themeNavContrast = true
+    private var versionTaps = 0
+    private var versionTapAt = 0L
+
+    private fun setupTheme() {
+        themeLayer = findViewById(R.id.home_theme)
+        themePhoto = findViewById(R.id.home_theme_photo)
+        lifecycleScope.launch {
+            app.themeState.collect { s ->
+                themeJob?.cancel()
+                themeJob = lifecycleScope.launch { applyThemeState(s) }
+            }
+        }
+        // 7 taps on the version: preview the next festival; long press during a preview: its big day
+        val about = findViewById<TextView>(R.id.set_about)
+        about.setOnClickListener { onVersionTapped() }
+        about.setOnLongClickListener { v ->
+            haptic(v)
+            app.toggleThemeBigDay { showPreviewToast(it) }
+            true
+        }
+    }
+
+    private fun onVersionTapped() {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - versionTapAt > VERSION_TAP_GAP_MS) versionTaps = 0
+        versionTapAt = now
+        versionTaps++
+        if (versionTaps >= VERSION_TAPS) {
+            versionTaps = 0
+            haptic(findViewById(R.id.set_about))
+            app.toggleThemePreview { showPreviewToast(it) }
+        }
+    }
+
+    private fun showPreviewToast(r: com.minim.music.data.themes.PreviewResult) {
+        val msg = ThemePreviewText.message(r)
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    }
+
+    private suspend fun applyThemeState(s: com.minim.music.data.themes.ThemeState) {
+        heartFx.burstStyle = s.theme?.burst
+        // New festival greetings (or back to the regular ones): start again from a fitting opener
+        val greet: Any? = s.greetings?.file
+        if (greet !== themeGreetingsSeen) {
+            val first = themeGreetingsSeen == null && greet == null
+            themeGreetingsSeen = greet
+            if (!first && greetingOverride == null && ::homeGreeting.isInitialized) {
+                pickOpener()
+                renderGreeting(animate = isHomeShowing)
+            }
+        }
+        val file = s.wallpaper
+        val key = file?.let { "${it.path}:${it.length()}:${it.lastModified()}:${s.theme?.colors}" }
+        if (key == themeWallpaperKey) return
+        val theme = s.theme
+        if (file == null || theme == null) {
+            themeWallpaperKey = null
+            clearThemeWallpaper()
+            return
+        }
+        // 5.5.2 (39): decoded for the full screen, bars included (the layer reaches behind them)
+        val (screenW, screenH) = fullScreenSize()
+        val w = screenW.coerceIn(480, 1440)
+        val h = screenH.coerceIn(800, 3200)
+        val decoded = withContext(Dispatchers.IO) { ThemeWallpaper.decode(file, w, h) }
+        if (decoded == null) {
+            themeWallpaperKey = null
+            clearThemeWallpaper()
+            return
+        }
+        themeWallpaperKey = key
+        val (bmp, look) = decoded
+        themeLight = look.light
+        val c = theme.colors
+        val ink = c.text ?: look.ink
+        val base = look.bg
+        themeHomePal = Pal(bg = base, fg = ink, muted = androidx.core.graphics.ColorUtils.setAlphaComponent(ink, 0x99))
+        themePillPal = if (c.pill != null || c.pillText != null) {
+            val fill = c.pill ?: ink
+            val text = c.pillText ?: (if (Painter.isLight(fill)) 0xFF111111.toInt() else 0xFFFFFFFF.toInt())
+            Pal(bg = text, fg = fill, muted = androidx.core.graphics.ColorUtils.setAlphaComponent(fill, 0x99))
+        } else null
+        themePhoto.setImageBitmap(bmp)
+        themeBitmap = bmp
+        readThemeBarTones()
+        syncThemeLayer(animate = false)
+        applyHomeOverrides()
+        updateSystemBars()
+    }
+
+    private fun clearThemeWallpaper() {
+        if (themeHomePal == null && !::themeLayer.isInitialized) return
+        themeHomePal = null
+        themePillPal = null
+        themeBitmap = null
+        if (::themeLayer.isInitialized) {
+            themeLayer.animate().cancel()
+            themeLayer.visibility = View.GONE
+            themePhoto.setImageDrawable(null)
+        }
+        if (::screenHome.isInitialized) {
+            Painter.paint(screenHome, pal)
+            applyHomeOverrides()
+        }
+        updateSystemBars()
+    }
+
+    /** Home's colours on top of the album palette: the takeover's, else the wallpaper's, else nothing. */
+    private fun applyHomeOverrides() {
+        if (!::screenHome.isInitialized) return
+        if (isTakeoverActive) {
+            applyTakeoverColors()
+            return
+        }
+        val tp = themeHomePal
+        if (tp == null) {
+            screenHome.setBackgroundColor(pal.bg)
+            return
+        }
+        Painter.paint(screenHome, tp)
+        themePillPal?.let { Painter.paint(homeSearch, it) }
+        // The mini player keeps the song's colours (it grows into Now Playing)
+        Painter.paint(homeMini.root, pal)
+        Painter.paint(homeMini.actions, pal)
+        screenHome.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+    }
+
+    private fun homeBasePal(): Pal = themeHomePal ?: pal
+
+    private fun miniBasePal(): Pal = pal
+
+    /** The wallpaper only shows under Home; [animate] fades it on tab switches. */
+    private fun syncThemeLayer(animate: Boolean) {
+        if (!::themeLayer.isInitialized || !::screenHome.isInitialized) return
+        if (tab == Tab.HOME) applyHomeOverrides()
+        val show = themeHomePal != null && tab == Tab.HOME
+        themeLayer.animate().cancel()
+        if (show) {
+            if (themeLayer.visibility != View.VISIBLE) {
+                themeLayer.alpha = if (animate && animationsOn()) 0f else 1f
+                themeLayer.visibility = View.VISIBLE
+            }
+            if (themeLayer.alpha < 1f) themeLayer.animate().alpha(1f).setDuration(THEME_FADE_MS).start()
+        } else if (themeLayer.visibility == View.VISIBLE) {
+            if (animate && animationsOn()) {
+                themeLayer.animate().alpha(0f).setDuration(THEME_FADE_MS).withEndAction {
+                    if (!(themeHomePal != null && tab == Tab.HOME)) themeLayer.visibility = View.GONE
+                }.start()
+            } else {
+                themeLayer.visibility = View.GONE
+            }
+        }
+    }
+
+    /** The whole screen in pixels, behind the status and navigation bars too. */
+    private fun fullScreenSize(): Pair<Int, Int> {
+        val d = window.decorView
+        if (d.width > 0 && d.height > 0) return d.width to d.height
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val b = windowManager.currentWindowMetrics.bounds
+            b.width() to b.height()
+        } else {
+            val m = android.util.DisplayMetrics()
+            @Suppress("DEPRECATION") windowManager.defaultDisplay.getRealMetrics(m)
+            m.widthPixels to m.heightPixels
+        }
+    }
+
+    /**
+     * 5.5.2 (39): how light the wallpaper is right behind the status bar and behind the nav bar,
+     * read from the part the full-screen centre-crop really shows (like the Artist page photo).
+     */
+    private fun readThemeBarTones() {
+        val bmp = themeBitmap ?: return
+        if (bmp.isRecycled) return
+        val (viewW, viewH) = fullScreenSize()
+        fun light(strip: Pair<Float, Float>): Boolean {
+            val box = ThemeBars.cropBox(bmp.width, bmp.height, viewW, viewH, strip.first, strip.second)
+            val step = maxOf(1, minOf(bmp.width, bmp.height) / 90)
+            var sum = 0.0
+            var n = 0
+            var y = box[1]
+            while (y < box[3]) {
+                var x = box[0]
+                while (x < box[2]) {
+                    sum += androidx.core.graphics.ColorUtils.calculateLuminance(bmp.getPixel(x, y) or 0xFF000000.toInt())
+                    n++
+                    x += step
+                }
+                y += maxOf(1, minOf(step, (box[3] - box[1]) / 4))
+            }
+            return ThemeBars.isLight(if (n == 0) 0.0 else sum / n)
+        }
+        val s = light(ThemeBars.statusStrip(statusInset, viewH))
+        val nv = light(ThemeBars.navStrip(navInset, viewH))
+        if (s != themeStatusLight || nv != themeNavLight) {
+            themeStatusLight = s
+            themeNavLight = nv
+            updateSystemBars()
+        }
+    }
+
+    /**
+     * Whether Home with its wallpaper is what's on screen (bars follow the wallpaper).
+     * 5.5.2 (update 40): a screen opening over Home takes the bars over once it's half way in,
+     * the same moment its strips behind the bars are half faded in (see [syncBarCovers]).
+     */
+    private fun themeWallpaperOnTop(): Boolean =
+        themeHomePal != null && tab == Tab.HOME && !isWelcomeOpen && overlayCoverage() < 0.5f
+
+    private lateinit var barCovers: View
+    private lateinit var barCoverTop: View
+    private lateinit var barCoverBottom: View
+    private var barCoverWallOnTop: Boolean? = null
+
+    /**
+     * 5.5.2 (update 40): how much of Home is covered by a screen opened over it, 0..1, following
+     * each screen's own animation: Now Playing's morph, Settings' reveal, Search's backdrop, and
+     * the others' fade. 1 as soon as one of them is fully there.
+     */
+    private fun overlayCoverage(): Float {
+        var c = 0f
+        fun take(v: Float) { if (v > c) c = v }
+        fun shown(v: View) = v.visibility == View.VISIBLE
+        if (::screenNowPlaying.isInitialized && shown(screenNowPlaying)) {
+            take(if (::npMorph.isInitialized && npMorph.isActive) npMorph.progress else screenNowPlaying.alpha)
+        }
+        if (::screenSettings.isInitialized && shown(screenSettings)) {
+            take(if (::settingsReveal.isInitialized && settingsReveal.isRunning) settingsReveal.coverage else screenSettings.alpha)
+        }
+        if (::screenSearch.isInitialized && shown(screenSearch)) {
+            val back = (screenSearch.background?.alpha ?: 255) / 255f
+            take(minOf(screenSearch.alpha, back))
+        }
+        if (::screenQueue.isInitialized && shown(screenQueue)) take(screenQueue.alpha)
+        if (::screenArtist.isInitialized && shown(screenArtist)) take(screenArtist.alpha)
+        if (::screenShelf.isInitialized && shown(screenShelf)) take(screenShelf.alpha)
+        if (::screenList.isInitialized && shown(screenList)) take(screenList.alpha)
+        if (isImportReviewOpen) take(screenImport.alpha)
+        if (isLyricsOpen) take(1f)
+        return c.coerceIn(0f, 1f)
+    }
+
+    /**
+     * 5.5.2 (update 40): the strips behind the status bar and the nav bar. Over the wallpaper (or
+     * the takeover photo) they fade in, in the app's colour, as a screen opens over Home and out
+     * as it closes, so the wallpaper only ever shows behind the bars on Home itself. Home alone
+     * (update 39) is untouched: with nothing over it they're gone.
+     */
+    private fun syncBarCovers() {
+        if (!::barCovers.isInitialized || !::themeLayer.isInitialized || !::takeoverRoot.isInitialized) return
+        val photoBehind = themeLayer.visibility == View.VISIBLE || takeoverRoot.visibility == View.VISIBLE
+        val cover = if (photoBehind) overlayCoverage() else 0f
+        if (cover <= 0f) {
+            if (barCovers.visibility != View.GONE) barCovers.visibility = View.GONE
+        } else {
+            val bg = pal.bg
+            if ((barCoverTop.background as? android.graphics.drawable.ColorDrawable)?.color != bg) barCoverTop.setBackgroundColor(bg)
+            if ((barCoverBottom.background as? android.graphics.drawable.ColorDrawable)?.color != bg) barCoverBottom.setBackgroundColor(bg)
+            if (barCovers.alpha != cover) barCovers.alpha = cover
+            if (barCovers.visibility != View.VISIBLE) barCovers.visibility = View.VISIBLE
+        }
+        // The clock, battery and nav icons switch with the strips, half way
+        val wallOnTop = themeWallpaperOnTop()
+        if (barCoverWallOnTop != wallOnTop) {
+            barCoverWallOnTop = wallOnTop
+            updateSystemBars()
+        }
     }
 
     // ------------------------------------------------------------------------------------------
@@ -5811,8 +6201,10 @@ class MainActivity : AppCompatActivity() {
         // so it looks the same as before everywhere except on the Artist page
         window.statusBarColor = android.graphics.Color.TRANSPARENT
         window.navigationBarColor = p.bg
+        themeNavClear = false // 5.5.2: updateSystemBars clears it again over the wallpaper
         // v4.9.3: a takeover on Home keeps its colours through a song change
-        if (isTakeoverActive) applyTakeoverColors()
+        // (5.5.2: so does the festival wallpaper's Home)
+        if (isTakeoverActive || themeHomePal != null) applyHomeOverrides()
         // 5.2.0: the Gemini chat crossfades with everything else (Painter covers its tagged views)
         if (::geminiChat.isInitialized) geminiChat.onPalette(p)
         // v4.9.8: the full screen lyrics keep their see-through nav bar through a song change
@@ -7946,6 +8338,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        /** 5.5.2: taps on the version in Settings that toggle the festival preview. */
+        private const val VERSION_TAPS = 7
+        /** A pause longer than this between taps starts the count again. */
+        private const val VERSION_TAP_GAP_MS = 1_500L
+        /** The festival wallpaper's fade on tab switches. */
+        private const val THEME_FADE_MS = 260L
         private const val GRID_COLUMNS = 2
         private const val LIKED_LIST = -1L
         /** v4.9: Recents opens in the song list screen from Library. */

@@ -50,6 +50,29 @@ class SettingsReveal(
 
     val isRunning get() = isOpening || isClosing
 
+    /**
+     * 5.5.2 (update 40): how much of the way open Settings is, on the reveal's own curve (0 at the
+     * avatar, 1 full screen). The strips behind the system bars follow it, so the Home wallpaper
+     * never shows there over Settings, also not mid-animation. [onCoverage] runs on every change.
+     */
+    var coverage = 1f
+        private set
+    var onCoverage: (() -> Unit)? = null
+
+    private fun setCoverage(v: Float) {
+        if (coverage == v) return
+        coverage = v
+        onCoverage?.invoke()
+    }
+
+    /** A plain animator on the reveal's curve (the circle itself runs off the main thread). */
+    private fun coverageAnimator(from: Float, to: Float, ms: Long, curve: android.view.animation.Interpolator) =
+        android.animation.ValueAnimator.ofFloat(from, to).apply {
+            duration = ms
+            interpolator = curve
+            addUpdateListener { setCoverage(it.animatedValue as Float) }
+        }
+
     /** Can land back on the avatar it came from. */
     val canClose get() = source?.let { it.isShown && it.width > 0 } == true && screen.isAttachedToWindow
 
@@ -62,6 +85,7 @@ class SettingsReveal(
         abort()
         source = avatar
         isOpening = true
+        setCoverage(0f)
         // Hidden until its first frame, when the circle starts at the avatar's own size
         screen.alpha = 0f
         screen.doOnPreDraw {
@@ -80,7 +104,8 @@ class SettingsReveal(
             reveal.interpolator = PathInterpolator(0.3f, 0f, 0f, 1f)
             reveal.duration = OPEN_MS
             val fade = ghostAnimator(avatar, opening = true)
-            val set = AnimatorSet().apply { playTogether(listOfNotNull(reveal, fade)) }
+            val cover = coverageAnimator(0f, 1f, OPEN_MS, PathInterpolator(0.3f, 0f, 0f, 1f))
+            val set = AnimatorSet().apply { playTogether(listOfNotNull(reveal, fade, cover)) }
             set.addListener(object : AnimatorListenerAdapter() {
                 private var cancelled = false
                 override fun onAnimationCancel(animation: Animator) { cancelled = true }
@@ -119,7 +144,8 @@ class SettingsReveal(
         reveal.interpolator = PathInterpolator(0.4f, 0f, 0.2f, 1f)
         reveal.duration = CLOSE_MS
         val fade = ghostAnimator(avatar, opening = false)
-        val set = AnimatorSet().apply { playTogether(listOfNotNull(reveal, fade)) }
+        val cover = coverageAnimator(coverage, 0f, CLOSE_MS, PathInterpolator(0.4f, 0f, 0.2f, 1f))
+        val set = AnimatorSet().apply { playTogether(listOfNotNull(reveal, fade, cover)) }
         set.addListener(object : AnimatorListenerAdapter() {
             override fun onAnimationEnd(animation: Animator) {
                 if (anim !== animation) return
@@ -129,6 +155,7 @@ class SettingsReveal(
                 onEnd()
                 clearGhost()
                 source = null
+                setCoverage(1f)
             }
         })
         anim = set
@@ -145,6 +172,7 @@ class SettingsReveal(
         source = null
         isOpening = false
         isClosing = false
+        setCoverage(1f)
     }
 
     private fun stop() {
@@ -155,6 +183,7 @@ class SettingsReveal(
 
     private fun finishOpen(onEnd: () -> Unit) {
         isOpening = false
+        setCoverage(1f)
         onEnd()
     }
 

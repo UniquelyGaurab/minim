@@ -231,7 +231,12 @@ data class RemoteGreetingFile(
     val anytime: List<RemoteGreeting>,
     val occasions: List<RemoteGreeting>,
     val skipped: Int = 0,
-    val stats: List<RemoteGreeting> = emptyList()
+    val stats: List<RemoteGreeting> = emptyList(),
+    /**
+     * 5.5.2: a festival theme's greetings. While one is in use the regular greetings (the built-in
+     * time-based ones included) pause and only these lines rotate.
+     */
+    val exclusive: Boolean = false
 ) {
     val size: Int get() = anytime.size + occasions.size + stats.size
 

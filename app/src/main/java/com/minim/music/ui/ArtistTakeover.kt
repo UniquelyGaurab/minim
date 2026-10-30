@@ -20,6 +20,11 @@ object ArtistTakeover {
 
     /** How long it lasts, fades included. */
     const val DURATION_MS = 10_000L
+
+    /** 5.5.2: during a festival theme it lasts 7 seconds, the same as one greeting. */
+    const val THEME_DURATION_MS = 7_000L
+
+    fun durationMs(themed: Boolean): Long = if (themed) THEME_DURATION_MS else DURATION_MS
     const val FADE_IN_MS = 1_100L
     const val FADE_OUT_MS = 1_100L
     const val EARLY_FADE_MS = 380L
@@ -77,9 +82,10 @@ object ArtistTakeover {
     /** Shuffles the lines so the same one doesn't come twice in a row. */
     class LinePicker(private val random: Random = Random.Default) {
         private var last = -1
-        fun next(): Int {
-            var i = random.nextInt(LINE_COUNT)
-            if (i == last) i = (i + 1) % LINE_COUNT
+        fun next(count: Int = LINE_COUNT): Int {
+            if (count <= 1) return 0.also { last = 0 }
+            var i = random.nextInt(count)
+            if (i == last) i = (i + 1) % count
             last = i
             return i
         }

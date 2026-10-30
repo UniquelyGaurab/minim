@@ -96,6 +96,11 @@
     <string name="boost_hint">Makes songs louder. Normal is about 20% louder, Loud about 35%.</string>
     <string name="opt_boost_normal">Normal</string>
     <string name="opt_boost_loud">Loud</string>
+    <string name="settings_bass">Bass boost</string>
+    <string name="bass_hint">Brings the kick and bassline forward. Warm is gentle, Heavy hits hardest.</string>
+    <string name="opt_bass_warm">Warm</string>
+    <string name="opt_bass_punchy">Punchy</string>
+    <string name="opt_bass_heavy">Heavy</string>
     <string name="settings_fade">Track fade</string>
     <string name="settings_haptics">Haptic feedback</string>
     <string name="opt_on">On</string>

@@ -2,6 +2,17 @@
 
 Every Minim release, newest first. Download any of them from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page.
 
+## 5.5.2 (2026-10-30)
+
+- **Festival themes:** during a festival, Home gets a full-screen wallpaper, colours taken from it, the festival's own greetings and a festive like burst. First up is **Diwali, 1 to 10 November**, with gold and orange sparks when you like a song
+- **Bass boost:** a new row in Settings under Volume boost, with Off, Warm, Punchy and Heavy. It brings the kick and bassline forward without muddying voices, and won't crackle even with Volume boost on Loud
+- **Diwali greetings:** during Diwali only the Diwali lines rotate, every 7 seconds, and the first one you see matches the time of day. Diwali day (8 November) has its own lines, and the top artist takeover gets Diwali lines too
+- **Wallpaper edge to edge:** on Home the wallpaper goes right behind the clock and battery and behind the navigation bar, and those icons turn light or dark to stay readable
+- **Other screens keep their colours:** Settings, Now Playing, Search, Artist pages and lists opened from Home show their own colour behind the clock and navigation bar, fading in as they open, so the wallpaper never flashes through
+- **Preview a festival early:** in Settings, tap the version number 7 times to turn the next festival on now. Long-press the version during the preview to see the festival day's lines. Tap 7 times again to turn it off
+
+Themes come from the `themes` folder in this repo, so new festivals arrive without an update. If a theme can't be downloaded, Home stays as it is and the usual greetings carry on.
+
 ## 5.5.1 (2026-10-28)
 
 - **Mini player to Now Playing:** the pill now turns into Now Playing. Swipe up and it follows your finger, swipe down or press Back and it shrinks back into the pill

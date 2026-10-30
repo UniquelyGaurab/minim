@@ -13,7 +13,12 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import android.content.Context
+import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
@@ -28,9 +33,12 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var trackFadeController: TrackFadeController? = null
     private var volumeBoostController: VolumeBoostController? = null
+    /** 5.5.2 (update 40): Minim's own bass boost, inside ExoPlayer's audio chain. */
+    private var bassBoost: BassBoostAudioProcessor? = null
     private val audioSettingsListener: () -> Unit = {
         trackFadeController?.refresh()
         volumeBoostController?.apply()
+        bassBoost?.setStage(MinimApp.instance.preferences.bassBoost)
     }
     lateinit var player: ExoPlayer
         private set
@@ -80,7 +88,23 @@ class PlaybackService : MediaSessionService() {
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .build()
 
-        player = ExoPlayer.Builder(this)
+        // 5.5.2 (update 40): the bass boost runs on the decoded audio, before the volume boost
+        // (on the output) and the fade (player volume); it's always in the chain so changing the
+        // stage only glides, never reconfigures
+        val bass = BassBoostAudioProcessor(app.preferences.bassBoost).also { bassBoost = it }
+        val renderersFactory = object : DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean
+            ): AudioSink = DefaultAudioSink.Builder(context)
+                .setEnableFloatOutput(enableFloatOutput)
+                .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                .setAudioProcessors(arrayOf<AudioProcessor>(bass))
+                .build()
+        }
+
+        player = ExoPlayer.Builder(this, renderersFactory)
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(this)
                     .setDataSourceFactory(streamDataSourceFactory)
@@ -180,6 +204,7 @@ class PlaybackService : MediaSessionService() {
         trackFadeController = null
         volumeBoostController?.release()
         volumeBoostController = null
+        bassBoost = null
         mediaSession?.run {
             player.release()
             release()

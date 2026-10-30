@@ -102,17 +102,23 @@ class HeartDrawable(private val density: Float) : Drawable() {
     }
 }
 
-/** 5.5.0: the 5-6 tiny dots that pop out of the heart on a like, drawn in the screen's overlay. */
-private class BurstDrawable(
+/**
+ * 5.5.0: the 5-6 tiny dots that pop out of the heart on a like, drawn in the screen's overlay.
+ * 5.5.2: during a festival theme they can be another shape (sparks, petals, snow, hearts) and
+ * take turns through the festival's colours.
+ */
+internal class BurstDrawable(
     private val cx: Float,
     private val cy: Float,
     private val startR: Float,
     private val endR: Float,
     private val dotR: Float,
-    color: Int
+    colors: List<Int>,
+    private val shape: String = "dots"
 ) : Drawable() {
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
-    private val baseAlpha = Color.alpha(color)
+    private val cols = colors.ifEmpty { listOf(Color.WHITE) }
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val heart = android.graphics.Path()
     var t = 0f
         set(v) { field = v; invalidateSelf() }
 
@@ -120,8 +126,55 @@ private class BurstDrawable(
         for (i in 0 until HeartMotion.BURST_DOTS) {
             val d = HeartMotion.burstDot(i, t, startR, endR, dotR)
             if (d.radius <= 0.1f || d.alpha <= 0f) continue
-            paint.alpha = (baseAlpha * d.alpha).toInt()
-            canvas.drawCircle(cx + d.dx, cy + d.dy, d.radius, paint)
+            val c = cols[i % cols.size]
+            paint.color = c
+            paint.alpha = (Color.alpha(c) * d.alpha).toInt()
+            val x = cx + d.dx
+            val y = cy + d.dy
+            val r = d.radius
+            val len = Math.hypot(d.dx.toDouble(), d.dy.toDouble()).toFloat().coerceAtLeast(0.001f)
+            val ux = d.dx / len
+            val uy = d.dy / len
+            when (shape) {
+                "sparks" -> {
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = r * 0.9f
+                    paint.strokeCap = Paint.Cap.ROUND
+                    canvas.drawLine(x - ux * r * 1.6f, y - uy * r * 1.6f, x + ux * r * 1.6f, y + uy * r * 1.6f, paint)
+                }
+                "petals" -> {
+                    paint.style = Paint.Style.FILL
+                    canvas.save()
+                    canvas.rotate(Math.toDegrees(Math.atan2(uy.toDouble(), ux.toDouble())).toFloat(), x, y)
+                    canvas.drawOval(x - r * 1.5f, y - r * 0.75f, x + r * 1.5f, y + r * 0.75f, paint)
+                    canvas.restore()
+                }
+                "snow" -> {
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = r * 0.5f
+                    paint.strokeCap = Paint.Cap.ROUND
+                    for (k in 0 until 3) {
+                        val a = Math.PI / 3 * k + Math.PI / 2
+                        val ax = (Math.cos(a) * r * 1.5f).toFloat()
+                        val ay = (Math.sin(a) * r * 1.5f).toFloat()
+                        canvas.drawLine(x - ax, y - ay, x + ax, y + ay, paint)
+                    }
+                }
+                "hearts" -> {
+                    paint.style = Paint.Style.FILL
+                    val h = r * 1.4f
+                    heart.reset()
+                    heart.moveTo(x, y + h)
+                    heart.cubicTo(x - h * 2f, y - h * 0.2f, x - h * 0.9f, y - h * 1.6f, x, y - h * 0.5f)
+                    heart.cubicTo(x + h * 0.9f, y - h * 1.6f, x + h * 2f, y - h * 0.2f, x, y + h)
+                    heart.close()
+                    canvas.drawPath(heart, paint)
+                }
+                else -> {
+                    paint.style = Paint.Style.FILL
+                    canvas.drawCircle(x, y, r, paint)
+                }
+            }
         }
     }
 
@@ -245,6 +298,10 @@ class HeartFx(
      * The full like / unlike on the heart the user touched: spring (or shrink), ink, and for a
      * like the dot burst in [burstColor]. Haptics are the caller's (crisp on like, soft on unlike).
      */
+    /** 5.5.2: the festival theme's burst (shape and colours), or null for the normal dots. */
+    @Volatile
+    var burstStyle: com.minim.music.data.themes.ThemeBurst? = null
+
     fun play(view: ImageView, liked: Boolean, burstColor: Int) {
         setLiked(view, liked, animate = true)
         if (!animationsOn() || !view.isShown) {
@@ -278,7 +335,9 @@ class HeartFx(
         val c = centreIn(view) ?: return
         // The heart icon's own radius on screen (its 24dp box inside the padding)
         val icon = (view.width - view.paddingLeft - view.paddingRight).coerceAtLeast(1) / 2f
-        val d = BurstDrawable(c.first, c.second, icon * 1.1f, icon * 2.3f, 2.2f * density, color)
+        val style = burstStyle
+        val colors = style?.colors?.takeIf { it.isNotEmpty() } ?: listOf(color)
+        val d = BurstDrawable(c.first, c.second, icon * 1.1f, icon * 2.3f, 2.2f * density, colors, style?.shape ?: "dots")
         d.setBounds(0, 0, overlayHost.width, overlayHost.height)
         overlayHost.overlay.add(d)
         ValueAnimator.ofFloat(0f, 1f).apply {

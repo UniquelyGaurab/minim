@@ -105,6 +105,18 @@ class AppPreferences(context: Context) {
             audioSettingsListeners.forEach { it() }
         }
 
+    /**
+     * 5.5.2 (update 40): bass boost stage (0 = Off, 1 = Warm, 2 = Punchy, 3 = Heavy), Minim's own
+     * DSP (playback/BassBoost.kt). Default Off.
+     */
+    var bassBoost: Int
+        get() = prefs.getInt(KEY_BASS_BOOST, BASS_OFF).let { if (it in BASS_OFF..BASS_HEAVY) it else BASS_OFF }
+        set(value) {
+            val valid = if (value in BASS_OFF..BASS_HEAVY) value else BASS_OFF
+            prefs.edit().putInt(KEY_BASS_BOOST, valid).apply()
+            audioSettingsListeners.forEach { it() }
+        }
+
     private val audioSettingsListeners = java.util.concurrent.CopyOnWriteArraySet<() -> Unit>()
 
     /** Called (on the caller's thread, the main thread for Settings) when volume boost or track fade changes. */
@@ -279,6 +291,11 @@ class AppPreferences(context: Context) {
         const val BOOST_OFF = 0
         const val BOOST_NORMAL = 1
         const val BOOST_LOUD = 2
+        private const val KEY_BASS_BOOST = "bass_boost"
+        const val BASS_OFF = 0
+        const val BASS_WARM = 1
+        const val BASS_PUNCHY = 2
+        const val BASS_HEAVY = 3
         private const val KEY_HAPTICS = "haptics_enabled"
         private const val KEY_LYRICS_OFFSET = "lyrics_offset_ms"
 

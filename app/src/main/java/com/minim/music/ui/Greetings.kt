@@ -119,6 +119,25 @@ object Greetings {
     @Volatile
     var remote: RemoteGreetingFile = RemoteGreetingFile.EMPTY
 
+    /**
+     * 5.5.2: the festival theme's greetings while one is on (or previewed), else null. While set,
+     * the regular greetings (built-in and from GitHub) pause and only these rotate; they come back
+     * on their own when the festival ends. Only set once its file is on the phone, so Home never
+     * goes blank.
+     */
+    @Volatile
+    var theme: RemoteGreetingFile? = null
+
+    /** 5.5.2: the festival's whole greetings set (its top artist takeover lines too), or null. */
+    @Volatile
+    var themeSet: com.minim.music.data.themes.ThemeGreetingSet? = null
+
+    /** The greetings in use: the festival's while one is on, else the regular file. */
+    val active: RemoteGreetingFile get() = theme ?: remote
+
+    /** Whether a festival's greetings are in use (the regular ones paused). */
+    val themeOn: Boolean get() = theme != null
+
     fun isAnytime(index: Int): Boolean = index in ANYTIME_BASE until ANYTIME_BASE + RemoteGreetingsParser.MAX_ENTRIES
 
     fun isStat(index: Int): Boolean = index in STAT_BASE until STAT_BASE + RemoteGreetingsParser.MAX_ENTRIES
@@ -127,7 +146,7 @@ object Greetings {
 
     fun isRemote(index: Int): Boolean = isAnytime(index) || isStat(index) || isOccasion(index)
 
-    fun remoteGreeting(id: Int, file: RemoteGreetingFile = remote): RemoteGreeting? = when {
+    fun remoteGreeting(id: Int, file: RemoteGreetingFile = active): RemoteGreeting? = when {
         isAnytime(id) -> file.anytime.getOrNull(id - ANYTIME_BASE)
         isStat(id) -> file.stats.getOrNull(id - STAT_BASE)
         isOccasion(id) -> file.occasions.getOrNull(id - OCCASION_BASE)
@@ -143,7 +162,7 @@ object Greetings {
         id: Int,
         name: String,
         now: Calendar = Calendar.getInstance(),
-        file: RemoteGreetingFile = remote,
+        file: RemoteGreetingFile = active,
         facts: GreetingFacts = GreetingFacts()
     ): Pair<String, String>? {
         val g = remoteGreeting(id, file) ?: return null
@@ -156,7 +175,7 @@ object Greetings {
         facts: GreetingFacts,
         name: String,
         now: Calendar = Calendar.getInstance(),
-        file: RemoteGreetingFile = remote
+        file: RemoteGreetingFile = active
     ): Boolean = when {
         isRemote(id) -> remoteLines(id, name, now, file, facts) != null
         id == TIME_NAMED -> name.isNotBlank()
@@ -288,7 +307,7 @@ object Greetings {
      */
     class Rotation(
         private val random: Random = Random.Default,
-        private val remoteSource: () -> RemoteGreetingFile = { remote }
+        private val remoteSource: () -> RemoteGreetingFile = { active }
     ) {
         private var file: RemoteGreetingFile? = null
         private var regularIds: List<Int> = REGULAR_IDS
@@ -305,7 +324,9 @@ object Greetings {
             val f = remoteSource()
             if (f !== file) {
                 file = f
-                regularIds = REGULAR_IDS + f.anytime.indices.map { ANYTIME_BASE + it }
+                // 5.5.2: a festival's lines replace the regular ones (time-based included)
+                val anytimeIds = f.anytime.indices.map { ANYTIME_BASE + it }
+                regularIds = if (f.exclusive && anytimeIds.isNotEmpty()) anytimeIds else REGULAR_IDS + anytimeIds
                 regular = ShuffleBag(regularIds.size, random)
                 statIds = f.stats.indices.map { STAT_BASE + it }
                 stats = if (statIds.isEmpty()) null else ShuffleBag(statIds.size, random)
@@ -380,8 +401,25 @@ object Greetings {
                     return id
                 }
             }
+            // 5.5.2: during a festival, the line on screen again beats leaving the festival
+            if (file?.exclusive == true && last != TIME_BASED && last in ids && fits(last)) return last
             last = TIME_BASED
             return TIME_BASED
+        }
+
+        /**
+         * 5.5.2: the greeting shown when the app opens. Normally the built-in time-based one; during
+         * a festival one of its time-of-day lines (those with "hours") that fits now, else any of its
+         * lines that fits, else the time-based one. Call [markShown] with it, like before.
+         */
+        fun opener(fits: (Int) -> Boolean): Int {
+            val f = sync()
+            if (!f.exclusive) return TIME_BASED
+            val timed = f.anytime.indices.filter { f.anytime[it].rule.fromHour >= 0 }
+                .map { ANYTIME_BASE + it }.filter { fits(it) }
+            if (timed.isNotEmpty()) return timed[random.nextInt(timed.size)]
+            val any = regularIds.filter { it != TIME_BASED && it != TIME_NAMED && fits(it) }
+            return if (any.isNotEmpty()) any[random.nextInt(any.size)] else TIME_BASED
         }
     }
 

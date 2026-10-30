@@ -158,6 +158,14 @@ class MinimApp : Application() {
         discoverEngine = com.minim.music.data.discover.DiscoverEngine(this, database, sourceAdapter)
         sleepTimerManager = SleepTimerManager(playbackController)
         syncRemoteGreetings()
+        // 5.5.2: the festival theme from what's on the phone first (tiny files), so the first
+        // greeting is already the festival's, then a check for updates in the background
+        try {
+            publishTheme(themeSync.state())
+        } catch (t: Throwable) {
+            android.util.Log.w("MinimApp", "themes", t)
+        }
+        syncThemes()
         updates = com.minim.music.data.update.AppUpdates(this, okHttpClient)
         updates.cleanUp()
         try {
@@ -261,6 +269,69 @@ class MinimApp : Application() {
         } catch (e: Exception) {
             // Greetings are optional
         }
+    }
+
+    // ---- 5.5.2: festival themes -----------------------------------------------------------------
+
+    /** What Home should look like now (festival, preview, its greetings and wallpaper). */
+    val themeState = kotlinx.coroutines.flow.MutableStateFlow(com.minim.music.data.themes.ThemeState.NONE)
+
+    private val themesExecutor by lazy {
+        java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "minim-themes").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }
+        }
+    }
+
+    private val themeSync by lazy {
+        com.minim.music.data.themes.ThemeSync(
+            com.minim.music.data.themes.ThemeStore(File(filesDir, "themes")),
+            com.minim.music.data.themes.OkHttpThemeFetcher(okHttpClient)
+        )
+    }
+
+    private val mainHandler by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
+
+    private fun publishTheme(state: com.minim.music.data.themes.ThemeState) {
+        val set = state.greetings
+        Greetings.themeSet = set
+        // Only once the festival's greetings are on the phone do the regular ones pause
+        Greetings.theme = set?.file?.takeIf { it.size > 0 }
+        themeState.value = state
+    }
+
+    private fun onThemes(block: () -> Unit) {
+        try {
+            themesExecutor.execute {
+                try {
+                    block()
+                } catch (t: Throwable) {
+                    android.util.Log.w("MinimApp", "themes", t)
+                }
+            }
+        } catch (e: Exception) {
+            // Themes are optional
+        }
+    }
+
+    /**
+     * Checks themes.json (every 10 minutes while the app is open, like the greetings) and the files
+     * of festivals starting within 2 days, then works out today's theme. Also re-checks the date, so
+     * a festival starts at midnight without a restart. Returns at once.
+     */
+    fun syncThemes(force: Boolean = false) = onThemes { publishTheme(themeSync.run(force)) }
+
+    /** 7 taps on the version in Settings: the festival preview on or off. [done] runs on the main thread. */
+    fun toggleThemePreview(done: (com.minim.music.data.themes.PreviewResult) -> Unit) = onThemes {
+        val (result, state) = themeSync.togglePreview()
+        publishTheme(state)
+        mainHandler.post { done(result) }
+    }
+
+    /** Long press on the version during a preview: the festival's big day on or off. */
+    fun toggleThemeBigDay(done: (com.minim.music.data.themes.PreviewResult) -> Unit) = onThemes {
+        val (result, state) = themeSync.toggleBigDay()
+        publishTheme(state)
+        mainHandler.post { done(result) }
     }
 
     override fun onTrimMemory(level: Int) {

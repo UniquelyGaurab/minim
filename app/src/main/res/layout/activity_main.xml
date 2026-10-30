@@ -7,6 +7,26 @@
     android:tag="bg">
 
     <!--
+      5.5.2: a festival theme's wallpaper behind Home (themes/themes.json in the public repo). Like
+      the takeover it reaches behind the status and navigation bars; it sits under every screen
+      and fades out when another tab opens.
+    -->
+    <FrameLayout
+        android:id="@+id/home_theme"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="noHideDescendants"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/home_theme_photo"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="centerCrop" />
+    </FrameLayout>
+
+    <!--
       v4.9.3: top artist takeover. Sits under Home (whose background goes see-through for those
       10 seconds) and reaches up behind the status bar and down behind the navigation bar.
     -->
@@ -30,6 +50,34 @@
             android:id="@+id/home_takeover_wash"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:importantForAccessibility="no" />
+    </FrameLayout>
+
+    <!--
+      5.5.2 (update 40): the strips behind the status bar and the navigation bar, in the app's
+      colour, over the festival wallpaper (and the takeover photo) whenever a screen is opened
+      over Home. They fade in and out with that screen's animation, so Settings, Now Playing,
+      Search and the rest never show the wallpaper behind the clock or the nav bar.
+    -->
+    <FrameLayout
+        android:id="@+id/home_bar_covers"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="noHideDescendants"
+        android:visibility="gone">
+
+        <View
+            android:id="@+id/home_bar_cover_top"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_gravity="top"
+            android:importantForAccessibility="no" />
+
+        <View
+            android:id="@+id/home_bar_cover_bottom"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_gravity="bottom"
             android:importantForAccessibility="no" />
     </FrameLayout>
 

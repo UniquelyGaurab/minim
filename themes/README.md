@@ -11,7 +11,7 @@ Everything lives in [`themes.json`](themes.json), plus one folder per festival f
 
 **Live now:** Diwali, 1 to 10 November 2026, with its own [greetings file](diwali/greetings.json) and special lines on 8 November.
 
-**Heads-up:** phones only use themes once they have the Minim update that reads this folder. Until then these files do nothing.
+**Heads-up:** phones use themes from Minim 5.5.2 on. Older versions ignore these files.
 
 ## Add a festival from your phone
 
