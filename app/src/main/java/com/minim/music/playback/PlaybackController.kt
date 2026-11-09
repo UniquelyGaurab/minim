@@ -118,6 +118,22 @@ class PlaybackController(
             }
         }
 
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int
+        ) {
+            // 5.8.3 u55: a repeat-one loop keeps the same item, so the controller sends no media
+            // item transition for it, only this. Each loop is a new play.
+            // Same place in the queue before and after: the same song again (repeat one, or a
+            // queue of one on repeat all)
+            val id = mediaController?.currentMediaItem?.mediaId
+            val sameItem = oldPosition.mediaItemIndex == newPosition.mediaItemIndex
+            if (RepeatLoop.isLoopDiscontinuity(reason, if (sameItem) id else null, id)) {
+                startNewLoop(id)
+            }
+        }
+
         override fun onPlayerError(error: PlaybackException) {
             // v4.9.5: PlaybackService is quietly restarting the song after a YouTube 403
             val mediaId = mediaController?.currentMediaItem?.mediaId
@@ -167,9 +183,20 @@ class PlaybackController(
             } catch (_: Exception) {
                 null
             }
+            // 5.8.1: no lyrics found, but Gemini wrote some for this song before: those show
+            // (saved on the phone, so no request). Real lyrics always win when there are any.
+            val aiSaved = if (lyrics == null || lyrics.lines.none { it.text.isNotBlank() }) {
+                try {
+                    com.minim.music.MinimApp.instance.aiLyrics.saved(track.id)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Throwable) {
+                    null
+                }
+            } else null
             if (lyricsTrackId == track.id) {
                 // An empty result means "no lyrics found" (shown as unavailable), not "still loading"
-                _lyricsState.value = lyrics ?: LyricsData(
+                _lyricsState.value = aiSaved ?: lyrics ?: LyricsData(
                     trackId = track.id,
                     lines = emptyList(),
                     isSynced = false,
@@ -178,6 +205,15 @@ class PlaybackController(
                 )
             }
         }
+    }
+
+    /** 5.8.1: Gemini finished [data] for [trackId]; it shows if that song is still the one playing. */
+    fun showAiLyrics(trackId: String, data: LyricsData) {
+        if (lyricsTrackId != trackId) return
+        val now = _lyricsState.value
+        // only over "none found" or older AI lyrics, never over real ones
+        if (now != null && now.lines.any { it.text.isNotBlank() } && now.providerName != com.minim.music.data.ai.AI_LYRICS_PROVIDER) return
+        _lyricsState.value = data
     }
 
     // ---- 5.7.0 u46: captions for stories uploads -------------------------------------------------
@@ -588,6 +624,11 @@ class PlaybackController(
     private var lastCreditAt = 0L
     private var lastFlushAt = 0L
     private val pendingListen = LinkedHashMap<String, LibraryDatabase.ListenAdd>()
+    /** 5.7.0 u51: tape listening waiting to be saved. */
+    private val pendingTapeListen = LinkedHashMap<String, LibraryDatabase.TapeListenAdd>()
+
+    /** 1.5f -> 150. */
+    private fun speedPctOf(speed: Float): Int = (speed * 100f + 0.5f).toInt().coerceIn(25, 400)
 
     private val _playsVersion = MutableStateFlow(0)
     /** Goes up each time a play is counted, so Recents and Discover can refresh. */
@@ -596,6 +637,24 @@ class PlaybackController(
     private val _listenVersion = MutableStateFlow(0)
     /** v4.9: goes up each time listening time is saved, so the live Stats can refresh. */
     val listenVersion: StateFlow<Int> = _listenVersion.asStateFlow()
+
+    /** 5.8.3 u55: where the tick last saw the song (for spotting a repeat-one loop), -1 before. */
+    private var lastTickPos = -1L
+
+    /**
+     * 5.8.3 u55: the same song starting over (repeat one). What was heard so far stays with the
+     * loop that just ended; the new loop starts from zero and counts again after 30 seconds.
+     */
+    private fun startNewLoop(mediaId: String?) {
+        val c = mediaController
+        val durMs = c?.duration?.takeIf { it > 0 } ?: ((listenTrack?.durationSec ?: 0L) * 1000L)
+        if (!RepeatLoop.shouldStartNewLoop(mediaId != null && mediaId == listenId, listenedMs, durMs)) return
+        val track = listenTrack
+        resetListen(mediaId)
+        // Same song: keep crediting it without a gap
+        listenTrack = track
+        lastTickPos = c?.currentPosition ?: -1L
+    }
 
     private fun resetListen(mediaId: String?) {
         // What was heard of the previous song since the last tick still belongs to it
@@ -606,6 +665,7 @@ class PlaybackController(
         listenedMs = 0L
         listenCounted = false
         listenPlayRowId = -1L
+        lastTickPos = -1L
         listenSession++
     }
 
@@ -617,8 +677,21 @@ class PlaybackController(
         val step = (nowRt - since).coerceIn(0L, MAX_CREDIT_STEP_MS)
         if (step <= 0L) return
         val track = listenTrack ?: return
-        // 5.7.0 u44: listening to a stories upload isn't song listening (no time, no counted play)
-        if (com.minim.music.data.stories.StoryTracks.isStory(track)) return
+        // 5.7.0 u44: listening to a tape isn't song listening. 5.7.0 u51: it's tape listening,
+        // saved in its own tables (real time heard, with the speed it played at).
+        if (com.minim.music.data.stories.StoryTracks.isStory(track)) {
+            listenedMs += step
+            val speedPct = speedPctOf(mediaController?.playbackParameters?.speed ?: 1f)
+            val channelId = com.minim.music.data.stories.StoryTracks.channelIdOf(track).orEmpty()
+            val endWall = System.currentTimeMillis()
+            for (slice in com.minim.music.data.stats.ListenSplit.split(endWall - step, endWall)) {
+                val key = "${slice.day}|${slice.hour}|${track.id}|$speedPct"
+                val old = pendingTapeListen[key]
+                pendingTapeListen[key] = if (old == null) LibraryDatabase.TapeListenAdd(slice, track, channelId, speedPct)
+                else old.copy(slice = old.slice.copy(ms = old.slice.ms + slice.ms))
+            }
+            return
+        }
         listenedMs += step
         val endWall = System.currentTimeMillis()
         for (slice in com.minim.music.data.stats.ListenSplit.split(endWall - step, endWall)) {
@@ -632,6 +705,17 @@ class PlaybackController(
     /** Saves the pending listening time (and the counted play's real time so far). */
     private fun flushListen() {
         lastFlushAt = SystemClock.elapsedRealtime()
+        if (pendingTapeListen.isNotEmpty()) {
+            val tapeAdds = pendingTapeListen.values.toList()
+            pendingTapeListen.clear()
+            scope.launch {
+                try {
+                    database.addTapeListenTime(tapeAdds)
+                    _listenVersion.value = _listenVersion.value + 1
+                } catch (_: Exception) {
+                }
+            }
+        }
         if (pendingListen.isEmpty()) return
         val adds = pendingListen.values.toList()
         pendingListen.clear()
@@ -679,6 +763,13 @@ class PlaybackController(
                     lastCreditAt = SystemClock.elapsedRealtime()
                 }
                 listenTrack = Track.fromMediaItem(item)
+                // 5.8.3 u55: backup for a missed loop: back at the start after being at the end
+                val pos = c.currentPosition
+                val loopDur = if (c.duration > 0) c.duration else (listenTrack?.durationSec ?: 0L) * 1000L
+                if (RepeatLoop.isLoopByPosition(c.repeatMode == Player.REPEAT_MODE_ONE, lastTickPos, pos, loopDur)) {
+                    startNewLoop(item.mediaId)
+                }
+                lastTickPos = pos
                 val now = SystemClock.elapsedRealtime()
                 creditListen(now)
                 if (now - lastFlushAt >= LISTEN_FLUSH_MS) flushListen()
@@ -691,6 +782,18 @@ class PlaybackController(
                     listenCounted = true
                     val heard = listenedMs
                     val session = listenSession
+                    if (com.minim.music.data.stories.StoryTracks.isStory(track)) {
+                        // 5.7.0 u51: a tape counts after 30 s heard too, in its own table
+                        val channelId = com.minim.music.data.stories.StoryTracks.channelIdOf(track).orEmpty()
+                        launch {
+                            try {
+                                database.recordTapePlay(track, channelId)
+                                _listenVersion.value = _listenVersion.value + 1
+                            } catch (_: Exception) {
+                            }
+                        }
+                        continue
+                    }
                     launch {
                         try {
                             val rowId = database.recordCountedPlay(track, heard)

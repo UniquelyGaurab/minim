@@ -27,6 +27,9 @@ object NowPlayingLyricSlot {
 
     fun isTappable(mode: Mode): Boolean = mode == Mode.LINES
 
+    /** 5.8.0 (update 52): the Now Playing lyric area opens it for any song, lyrics or not. */
+    fun slotOpensFullscreen(mode: Mode, isStory: Boolean): Boolean = mode == Mode.LINES || !isStory
+
     // ------------------------------------------------------------------------------------------
     // v4.9.9 part 1: narrower lines, Flow and the line change animation
     // ------------------------------------------------------------------------------------------

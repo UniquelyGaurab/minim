@@ -153,6 +153,21 @@ object ChannelVideos {
         followed.any { it.id == channelId || (channelId.isBlank() && NewToYou.normName(it.name) == NewToYou.normName(channelName)) }
 
     /** A tape's channel, from its id when the tape has one, else by name among the ones you follow. */
+    /**
+     * 5.7.0 u51: a channel from the Stats tab (its name, and its id when the tape had one).
+     * Without an id, only a followed channel with that name can open.
+     */
+    fun channelFor(name: String, channelId: String, followed: List<StoryChannel>): StoryChannel? {
+        val id = channelId.takeIf { it.startsWith("UC") && it.length >= 12 }
+        if (id != null) {
+            return followed.firstOrNull { it.id == id }
+                ?: StoryChannel(id = id, name = name, url = "https://www.youtube.com/channel/$id")
+        }
+        val n = NewToYou.normName(name)
+        if (n.isEmpty()) return null
+        return followed.firstOrNull { NewToYou.normName(it.name) == n }
+    }
+
     fun channelFor(track: Track, followed: List<StoryChannel>): StoryChannel? {
         val id = StoryTracks.channelIdOf(track)
         if (id != null) {

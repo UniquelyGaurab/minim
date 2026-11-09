@@ -73,6 +73,95 @@
         android:textSize="16sp"
         android:visibility="gone" />
 
+    <!-- 5.8.1 (update 53): Gemini lyrics. The panel takes the middle when a song has no lyrics:
+         the offer, the "Listening..." wait (cover-colour bars + Cancel) and short error notes.
+         The AI line sits just above the bar while AI lyrics show, and the regenerate button top
+         left (FullscreenLyrics places both and colours them in the lyric ink). -->
+    <LinearLayout
+        android:id="@+id/fs_ai_panel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:alpha="0"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingStart="36dp"
+        android:paddingEnd="36dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/fs_ai_head"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/poppins_medium"
+            android:gravity="center"
+            android:maxWidth="320dp"
+            android:textSize="16sp" />
+
+        <com.minim.music.ui.AiListeningView
+            android:id="@+id/fs_ai_wait"
+            android:layout_width="72dp"
+            android:layout_height="40dp"
+            android:importantForAccessibility="no"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/fs_ai_action"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:fontFamily="@font/poppins_semibold"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:minHeight="44dp"
+            android:paddingStart="22dp"
+            android:paddingEnd="22dp"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/fs_ai_note"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:fontFamily="@font/poppins_regular"
+            android:gravity="center"
+            android:maxWidth="280dp"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/fs_ai_badge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:alpha="0"
+        android:fontFamily="@font/poppins_regular"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:text="@string/ai_lyrics_disclaimer"
+        android:textSize="11sp"
+        android:visibility="gone" />
+
+    <ImageView
+        android:id="@+id/fs_ai_redo"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="14dp"
+        android:layout_marginTop="6dp"
+        android:alpha="0"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:clickable="true"
+        android:contentDescription="@string/ai_lyrics_regenerate"
+        android:focusable="true"
+        android:padding="11dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_ai_redo"
+        android:visibility="gone" />
+
     <ImageView
         android:id="@+id/fs_pulse"
         android:layout_width="64dp"

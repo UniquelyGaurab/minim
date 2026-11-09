@@ -61,6 +61,7 @@ class LibraryDatabase(context: Context) :
         createV3Tables(db)
         createV4Sync(db)
         createV5Import(db)
+        createV6Tapes(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -70,6 +71,47 @@ class LibraryDatabase(context: Context) :
         if (oldVersion < 3) createV3Tables(db)
         if (oldVersion < 4) createV4Sync(db)
         if (oldVersion < 5) createV5Import(db)
+        if (oldVersion < 6) createV6Tapes(db)
+    }
+
+    /**
+     * 5.7.0 u51: tape stats, in their own tables so song stats, Recents and Discover never see
+     * them. Kept on this phone (not synced). [speed] is the playback speed x 100 (150 = 1.5x).
+     */
+    private fun createV6Tapes(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS tape_listen_time (
+                day INTEGER NOT NULL,
+                hour INTEGER NOT NULL,
+                video_id TEXT NOT NULL,
+                speed INTEGER NOT NULL DEFAULT 100,
+                title TEXT NOT NULL DEFAULT '',
+                channel TEXT NOT NULL DEFAULT '',
+                channel_id TEXT NOT NULL DEFAULT '',
+                thumbnail_url TEXT NOT NULL DEFAULT '',
+                duration_sec INTEGER NOT NULL DEFAULT 0,
+                ms INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (day, hour, video_id, speed)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS tape_plays (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                video_id TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                channel TEXT NOT NULL DEFAULT '',
+                channel_id TEXT NOT NULL DEFAULT '',
+                thumbnail_url TEXT NOT NULL DEFAULT '',
+                duration_sec INTEGER NOT NULL DEFAULT 0,
+                played_at INTEGER NOT NULL,
+                day INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_tape_plays_day ON tape_plays(day)")
     }
 
     /** 5.3.0: playlists.source = where an imported playlist came from ("spotify", "youtube", "text"). */
@@ -489,8 +531,193 @@ class LibraryDatabase(context: Context) :
         ids.mapNotNull { found[it] }
     }
 
-    suspend fun getDayStats(day: Int): com.minim.music.data.stats.DayStats =
-        com.minim.music.data.stats.StatsEngine.compute(day, getDayPlays(day), getDayListens(day))
+    /**
+     * One day's stats: songs, plus (5.7.0 u51) its tapes, with the peak hour from both.
+     * Song numbers are worked out exactly as before.
+     */
+    suspend fun getDayStats(day: Int): com.minim.music.data.stats.DayStats {
+        val plays = getDayPlays(day)
+        val listens = getDayListens(day)
+        val music = com.minim.music.data.stats.StatsEngine.compute(day, plays, listens)
+        val tapePlays = try { getDayTapePlays(day) } catch (_: Exception) { emptyList() }
+        val tapeListens = try { getDayTapeListens(day) } catch (_: Exception) { emptyList() }
+        val tapes = com.minim.music.data.stats.TapeStats.compute(tapePlays, tapeListens)
+        return com.minim.music.data.stats.TapeStats.combine(
+            music, tapes,
+            com.minim.music.data.stats.StatsEngine.hourMs(plays, listens),
+            com.minim.music.data.stats.TapeStats.hourMs(tapeListens)
+        )
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // 5.8.3 u55: recap extras (first listens, hearted today, all-time plays)
+    // ------------------------------------------------------------------------------------------
+
+    /** Of [ids], the tracks that already had a play before [beforeMs]. */
+    suspend fun getTracksPlayedBefore(ids: Collection<String>, beforeMs: Long): Set<String> = withContext(Dispatchers.IO) {
+        val out = HashSet<String>()
+        if (ids.isEmpty()) return@withContext out
+        // SQLite caps bound arguments, so ask in chunks
+        for (chunk in ids.distinct().chunked(400)) {
+            val marks = chunk.joinToString(",") { "?" }
+            val args = (chunk + beforeMs.toString()).toTypedArray()
+            readableDatabase.rawQuery(
+                "SELECT DISTINCT track_id FROM plays WHERE track_id IN ($marks) AND played_at < ?", args
+            ).use { c -> while (c.moveToNext()) out.add(c.getString(0)) }
+        }
+        out
+    }
+
+    /** Songs (not tapes) hearted between [fromMs] and [toMs], in the order they were hearted. */
+    suspend fun getHeartedBetween(fromMs: Long, toMs: Long): List<com.minim.music.data.stats.RecapSong> = withContext(Dispatchers.IO) {
+        val out = ArrayList<com.minim.music.data.stats.RecapSong>()
+        readableDatabase.rawQuery(
+            """
+            SELECT id, title, artist, thumbnail_url FROM tracks
+            WHERE is_liked = 1 AND source_url NOT LIKE '%minim=story%' AND liked_at >= ? AND liked_at < ?
+            ORDER BY liked_at ASC
+            """.trimIndent(),
+            arrayOf(fromMs.toString(), toMs.toString())
+        ).use { c ->
+            while (c.moveToNext()) {
+                out.add(com.minim.music.data.stats.RecapSong(c.getString(0), c.getString(1).orEmpty(), c.getString(2).orEmpty(), c.getString(3).orEmpty()))
+            }
+        }
+        out
+    }
+
+    /** Every counted play of [trackId] before [beforeMs]. */
+    suspend fun countPlaysBefore(trackId: String, beforeMs: Long): Int = withContext(Dispatchers.IO) {
+        readableDatabase.rawQuery(
+            "SELECT COUNT(*) FROM plays WHERE track_id = ? AND played_at < ?", arrayOf(trackId, beforeMs.toString())
+        ).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // 5.7.0 u51: tape stats
+    // ------------------------------------------------------------------------------------------
+
+    /** Time heard of one tape inside one hour, at one speed (x 100). */
+    data class TapeListenAdd(
+        val slice: com.minim.music.data.stats.ListenSlice,
+        val track: Track,
+        val channelId: String,
+        val speedPct: Int
+    )
+
+    suspend fun addTapeListenTime(adds: List<TapeListenAdd>) = withContext(Dispatchers.IO) {
+        if (adds.isEmpty()) return@withContext
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            for (a in adds) {
+                if (a.slice.ms <= 0L) continue
+                db.execSQL(
+                    "INSERT OR IGNORE INTO tape_listen_time (day, hour, video_id, speed, ms) VALUES (?, ?, ?, ?, 0)",
+                    arrayOf<Any>(a.slice.day, a.slice.hour, a.track.id, a.speedPct)
+                )
+                db.execSQL(
+                    """
+                    UPDATE tape_listen_time SET ms = ms + ?, title = ?, channel = ?,
+                        channel_id = CASE WHEN ? <> '' THEN ? ELSE channel_id END,
+                        thumbnail_url = ?, duration_sec = ?
+                    WHERE day = ? AND hour = ? AND video_id = ? AND speed = ?
+                    """.trimIndent(),
+                    arrayOf<Any>(
+                        a.slice.ms, a.track.title, a.track.artist, a.channelId, a.channelId,
+                        a.track.thumbnailUrl, a.track.durationSec,
+                        a.slice.day, a.slice.hour, a.track.id, a.speedPct
+                    )
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    /** A tape just passed 30 seconds heard. */
+    suspend fun recordTapePlay(track: Track, channelId: String, playedAt: Long = System.currentTimeMillis()): Long =
+        withContext(Dispatchers.IO) {
+            val v = ContentValues().apply {
+                put("video_id", track.id)
+                put("title", track.title)
+                put("channel", track.artist)
+                put("channel_id", channelId)
+                put("thumbnail_url", track.thumbnailUrl)
+                put("duration_sec", track.durationSec)
+                put("played_at", playedAt)
+                put("day", com.minim.music.data.stats.Days.keyOf(playedAt))
+            }
+            writableDatabase.insert("tape_plays", null, v)
+        }
+
+    suspend fun getDayTapePlays(day: Int): List<com.minim.music.data.stats.TapePlayRow> = withContext(Dispatchers.IO) {
+        val start = com.minim.music.data.stats.Days.startMs(day)
+        val end = com.minim.music.data.stats.Days.endMs(day)
+        val list = ArrayList<com.minim.music.data.stats.TapePlayRow>()
+        readableDatabase.rawQuery(
+            """
+            SELECT video_id, title, channel, channel_id, thumbnail_url, duration_sec, played_at
+            FROM tape_plays WHERE played_at >= ? AND played_at < ? ORDER BY played_at
+            """.trimIndent(),
+            arrayOf(start.toString(), end.toString())
+        ).use { c ->
+            while (c.moveToNext()) {
+                list += com.minim.music.data.stats.TapePlayRow(
+                    c.getString(0), c.getString(1) ?: "", c.getString(2) ?: "", c.getString(3) ?: "",
+                    c.getString(4) ?: "", c.getLong(5), c.getLong(6)
+                )
+            }
+        }
+        list
+    }
+
+    suspend fun getDayTapeListens(day: Int): List<com.minim.music.data.stats.TapeListenRow> = withContext(Dispatchers.IO) {
+        val list = ArrayList<com.minim.music.data.stats.TapeListenRow>()
+        readableDatabase.rawQuery(
+            """
+            SELECT video_id, title, channel, channel_id, thumbnail_url, duration_sec, hour, speed, ms
+            FROM tape_listen_time WHERE day = ?
+            """.trimIndent(),
+            arrayOf(day.toString())
+        ).use { c ->
+            while (c.moveToNext()) {
+                list += com.minim.music.data.stats.TapeListenRow(
+                    c.getString(0), c.getString(1) ?: "", c.getString(2) ?: "", c.getString(3) ?: "",
+                    c.getString(4) ?: "", c.getLong(5), c.getInt(6), c.getInt(7), c.getLong(8)
+                )
+            }
+        }
+        list
+    }
+
+    /** Tape time heard per day (for the day streak, added to the song time). */
+    suspend fun getTapeDayTotals(fromDay: Int, toDay: Int): Map<Int, Long> = withContext(Dispatchers.IO) {
+        val out = HashMap<Int, Long>()
+        readableDatabase.rawQuery(
+            "SELECT day, SUM(ms) FROM tape_listen_time WHERE day >= ? AND day <= ? GROUP BY day",
+            arrayOf(fromDay.toString(), toDay.toString())
+        ).use { c ->
+            while (c.moveToNext()) out[c.getInt(0)] = c.getLong(1)
+        }
+        out
+    }
+
+    /** Past days (before [today]) with tape history: a played tape or a minute heard. */
+    private fun tapeHistoryDays(today: Int, fromDay: Int): Set<Int> {
+        val days = HashSet<Int>()
+        readableDatabase.rawQuery(
+            "SELECT DISTINCT day FROM tape_plays WHERE day >= ? AND day < ?",
+            arrayOf(fromDay.toString(), today.toString())
+        ).use { c -> while (c.moveToNext()) days.add(c.getInt(0)) }
+        readableDatabase.rawQuery(
+            "SELECT day FROM tape_listen_time WHERE day >= ? AND day < ? GROUP BY day HAVING SUM(ms) >= " +
+                com.minim.music.data.stats.StatsEngine.HISTORY_MS,
+            arrayOf(fromDay.toString(), today.toString())
+        ).use { c -> while (c.moveToNext()) days.add(c.getInt(0)) }
+        return days
+    }
 
     /**
      * The most recent day before [today] with listening history (a counted play, or at least a
@@ -514,7 +741,8 @@ class LibraryDatabase(context: Context) :
         ).use { c ->
             if (c.moveToFirst()) fromListens = c.getInt(0)
         }
-        listOfNotNull(fromPlays, fromListens).let { com.minim.music.data.stats.RecapRules.recapDay(today, it) }
+        val fromTapes = try { tapeHistoryDays(today, 0).maxOrNull() } catch (_: Exception) { null }
+        listOfNotNull(fromPlays, fromListens, fromTapes).let { com.minim.music.data.stats.RecapRules.recapDay(today, it) }
     }
 
     /**
@@ -541,6 +769,7 @@ class LibraryDatabase(context: Context) :
         ).use { c ->
             while (c.moveToNext()) days.add(c.getInt(0))
         }
+        try { days.addAll(tapeHistoryDays(today, fromKey)) } catch (_: Exception) { }
         days.filter { it < today }.sortedDescending()
     }
 
@@ -1043,6 +1272,10 @@ class LibraryDatabase(context: Context) :
         writableDatabase.update("tracks", cv, null, null)
         writableDatabase.delete("plays", null, null)
         writableDatabase.delete("listen_time", null, null)
+        try {
+            writableDatabase.delete("tape_plays", null, null)
+            writableDatabase.delete("tape_listen_time", null, null)
+        } catch (_: Exception) { }
         writableDatabase.delete("tracks", "is_liked = 0 AND id NOT IN (SELECT track_id FROM playlist_tracks)", null)
     }
 
@@ -1091,6 +1324,6 @@ class LibraryDatabase(context: Context) :
 
     companion object {
         const val DB_NAME = "minim_library.db"
-        private const val DB_VERSION = 5
+        private const val DB_VERSION = 6
     }
 }

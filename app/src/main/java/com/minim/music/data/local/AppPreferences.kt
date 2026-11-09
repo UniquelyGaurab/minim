@@ -148,6 +148,11 @@ class AppPreferences(context: Context) {
         get() = prefs.getInt("recap_viewed_day", 0)
         set(value) = prefs.edit().putInt("recap_viewed_day", value).apply()
 
+    /** 5.8.2: whether the recap story plays the top song behind it (the sound button remembers). */
+    var recapSound: Boolean
+        get() = prefs.getBoolean("recap_sound", true)
+        set(value) = prefs.edit().putBoolean("recap_sound", value).apply()
+
     /** The recap day the popup was shown for (it shows once per recap). */
     var recapPopupDay: Int
         get() = prefs.getInt("recap_popup_day", 0)

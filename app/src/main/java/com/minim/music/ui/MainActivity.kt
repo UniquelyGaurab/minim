@@ -94,6 +94,10 @@ import com.minim.music.data.ai.ChatTools
 import com.minim.music.data.ai.GeminiChatSession
 import com.minim.music.data.ai.GeminiModels
 import com.minim.music.data.ai.GeminiRoute
+import com.minim.music.data.ai.isAiLyrics
+import com.minim.music.data.ai.GeminiEndpoint
+import com.minim.music.data.ai.AiLyricsSong
+import com.minim.music.data.ai.AiLyricsResult
 import com.minim.music.data.ai.AppCheckDebugToken
 import com.minim.music.data.ai.GeminiSettings
 import com.minim.music.data.ai.MinimActions
@@ -421,6 +425,8 @@ class MainActivity : AppCompatActivity() {
         if (::fsLyrics.isInitialized) fsLyrics.setHostVisible(true)
         // v4.9.9: the Now Playing lyric line's Flow frames too
         if (::npLyric.isInitialized) npLyric.setHostVisible(true)
+        // 5.8.2: the recap's song carries on with the story
+        recapMusic?.resume()
         // v4.9.8: an app open (cold start, or the app back from the background, even into a new
         // MainActivity) may run a quiet update check; see onAppOpenedForUpdates
         app.foreground.takeOpen()?.let { onAppOpenedForUpdates(it) }
@@ -470,6 +476,8 @@ class MainActivity : AppCompatActivity() {
         // v4.9.8 part 4: no Flow frames in the background
         if (::fsLyrics.isInitialized) fsLyrics.setHostVisible(false)
         if (::npLyric.isInitialized) npLyric.setHostVisible(false)
+        // 5.8.2: no recap song in the background
+        recapMusic?.pause()
         // v4.9: save what's been heard so far right away (the app may be closed from here)
         app.playbackController.flushListening()
         super.onStop()
@@ -3803,8 +3811,9 @@ class MainActivity : AppCompatActivity() {
             openQueue(from = v)
         }
         // v4.9.8: tap the lyric line for full screen lyrics (only while the song has lyrics)
+        // 5.8.0 (update 52): any song now, lyrics or not (the colour field); tapes still need captions
         npLyric.setOnClickListener { v ->
-            if (!NowPlayingLyricSlot.isTappable(npLyricMode)) return@setOnClickListener
+            if (!npLyricOpens()) return@setOnClickListener
             haptic(v)
             openFullscreenLyrics()
         }
@@ -3930,10 +3939,79 @@ class MainActivity : AppCompatActivity() {
                 ) { GeminiRoute.endpoint(ctx, settings) }
             }
             override fun tapHaptic(v: View) = haptic(v, HapticFeedbackConstants.CLOCK_TICK)
+            override val aiLyrics: FullscreenAiLyrics.Host = aiLyricsHost
         })
         fsLyrics.flowStyle = app.preferences.isFlowLyrics
         npLyric.flowStyle = app.preferences.isFlowLyrics
         npLyric.animationsOn = { animationsOn() }
+    }
+
+    /**
+     * 5.8.1 (update 53): Gemini lyrics. Only with your own key from Settings (never Minim's
+     * built-in route: the song's audio goes to your Google account, not Minim's), only on a tap.
+     * The request runs in the app, so it isn't lost if you close full screen lyrics.
+     */
+    private val aiLyricsHost = object : FullscreenAiLyrics.Host {
+        override suspend fun requestAiLyrics(songId: String, regenerate: Boolean): AiLyricsResult {
+            val settings = app.geminiSettings
+            val endpoint = settings.apiKey()?.takeIf { it.isNotBlank() }?.let { GeminiEndpoint.direct(settings.model, it) }
+            if (endpoint == null) {
+                // a copy saved earlier still shows without a key; a new one needs it
+                if (!regenerate) app.aiLyrics.saved(songId)?.let { saved ->
+                    app.playbackController.showAiLyrics(songId, saved)
+                    return AiLyricsResult.Done(saved)
+                }
+                return AiLyricsResult.NoKey
+            }
+            val track = app.playbackController.uiState.value.currentTrack?.takeIf { it.id == songId }
+                ?: aiSongs[songId]
+                ?: return AiLyricsResult.Unusable
+            val durMs = app.playbackController.uiState.value.durationMs.takeIf { it > 0 && track.id == app.playbackController.uiState.value.currentTrack?.id }
+                ?: track.durationSec * 1000L
+            val result = app.aiLyrics.generate(
+                AiLyricsSong(track.id, track.title, track.artist, durMs), endpoint, regenerate
+            )
+            if (result is AiLyricsResult.Done) app.playbackController.showAiLyrics(songId, result.lyrics)
+            return result
+        }
+        override fun isAiLyricsWorking(songId: String): Boolean = app.aiLyrics.isWorking(songId)
+        override fun cancelAiLyrics(songId: String) = app.aiLyrics.cancel(songId)
+        override fun openGeminiKeySettings() = openGeminiKeyFromLyrics()
+        override fun showNote(text: String) = this@MainActivity.showNote(text)
+        override fun tapHaptic(v: View) = haptic(v, HapticFeedbackConstants.CLOCK_TICK)
+        override fun animationsOn(): Boolean = this@MainActivity.animationsOn()
+        override fun canTap(): Boolean = isLyricsOpen
+    }
+
+    /** 5.8.1: songs the Gemini offer was shown for (title / artist / length for the request). */
+    private val aiSongs = HashMap<String, Track>()
+
+    /**
+     * 5.8.1: the Gemini offer is for the playing song when it's a song (not a tape) whose lookup
+     * found no lyrics, or one already showing AI lyrics (for Regenerate).
+     */
+    private fun updateAiLyricsSong(data: LyricsData?) {
+        val track = app.playbackController.uiState.value.currentTrack
+        val id = track?.takeIf {
+            data != null && data.trackId == it.id &&
+                !com.minim.music.data.stories.StoryTracks.isStory(it) &&
+                !com.minim.music.data.captions.CaptionLyrics.isCaptions(data) &&
+                (NowPlayingLyricSlot.mode(data) == NowPlayingLyricSlot.Mode.NONE || data.isAiLyrics())
+        }?.id
+        if (id != null && track != null) aiSongs[id] = track
+        fsLyrics.setAiSong(id)
+    }
+
+    /** 5.8.1: "Add key in Settings" from full screen lyrics: Settings, at the Gemini key. */
+    private fun openGeminiKeyFromLyrics() {
+        val needsKey = !app.geminiSettings.hasApiKey
+        closeLyrics(animate = false)
+        openSettings()
+        val header = findViewById<View>(R.id.set_gemini_header)
+        screenSettings.post {
+            (screenSettings as? ScrollView)?.smoothScrollTo(0, (header.top - dp(24f).toInt()).coerceAtLeast(0))
+        }
+        if (needsKey) showGeminiKeySheet()
     }
 
     /**
@@ -4354,7 +4432,8 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * v4.9.8 entry point for the full screen lyrics: the tap on the Now Playing lyric line and
-     * the Lyrics long press. Only songs with lyrics get here (NowPlayingLyricSlot blocks the rest).
+     * the Lyrics long press. 5.8.1: songs without lyrics get here too (the Gemini offer); tapes
+     * without captions don't (NowPlayingLyricSlot blocks them).
      */
     private fun openFullscreenLyrics() {
         if (app.playbackController.uiState.value.currentTrack == null) return
@@ -4965,6 +5044,8 @@ class MainActivity : AppCompatActivity() {
         if (fsLyrics.captionsMode != story) {
             fsLyrics.captionsMode = story
             renderCaptionPill(app.playbackController.captionChoice.value)
+            // 5.8.0 (update 52): songs open full screen lyrics without lyrics, tapes don't
+            applyNpLyricMode()
         }
         fsLyrics.onTrack(track.thumbnailUrl)
         // v4.9.8 part 4: a new song while Now Playing is open: get its full screen lyrics cover
@@ -5071,14 +5152,23 @@ class MainActivity : AppCompatActivity() {
         activeLyric = -1
         // Now Playing's line slot: empty until a synced line starts (and for unsynced lyrics);
         // v4.9.8: a faint "Lyrics not available" when the song has none
-        npLyricMode = NowPlayingLyricSlot.mode(data)
+        // 5.8.1: Gemini lyrics stay in full screen lyrics (where their AI line always shows); the
+        // Now Playing slot just says they're there, and a tap opens them
+        val ai = data.isAiLyrics()
+        val npData = if (ai && data != null) LyricsData(data.trackId, emptyList(), false, false, "none") else data
+        npLyricMode = NowPlayingLyricSlot.mode(npData)
         applyNpLyricMode()
         // v4.9.9: the line view fades out the old song's line in place (instant when it can't be seen)
-        npLyric.setLyrics(data, getString(
-            if (com.minim.music.data.captions.CaptionLyrics.isCaptions(data)) R.string.captions_none else R.string.np_lyrics_unavailable
+        npLyric.setLyrics(npData, getString(
+            when {
+                ai -> R.string.ai_lyrics_np_hint
+                com.minim.music.data.captions.CaptionLyrics.isCaptions(data) -> R.string.captions_none
+                else -> R.string.np_lyrics_unavailable
+            }
         ), animate = true)
         // v4.9.8: the full screen lyrics get the same lyrics (untimed ones show without highlighting)
         fsLyrics.setLyrics(data)
+        updateAiLyricsSong(data)
         if (data != null && data.isSynced && data.lines.isNotEmpty()) {
             updateLyricLine(app.playbackController.uiState.value.positionMs, animate = false)
         }
@@ -5109,11 +5199,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** v4.9.8: only a song with lyrics makes the slot tappable (and visible to TalkBack as a button). */
+    /** 5.8.0 (update 52): the lyric area opens full screen lyrics: lyrics, or any song (not a tape). */
+    private fun npLyricOpens(): Boolean {
+        if (NowPlayingLyricSlot.isTappable(npLyricMode)) return true
+        if (app.playbackController.uiState.value.currentTrack == null) return false
+        val story = ::fsLyrics.isInitialized && fsLyrics.captionsMode
+        return NowPlayingLyricSlot.slotOpensFullscreen(npLyricMode, story)
+    }
+
     private fun applyNpLyricMode() {
-        val tappable = NowPlayingLyricSlot.isTappable(npLyricMode)
+        val tappable = npLyricOpens()
         npLyric.isClickable = tappable
         npLyric.isFocusable = tappable
         npLyric.contentDescription = when {
+            NowPlayingLyricSlot.isTappable(npLyricMode) -> getString(R.string.np_open_lyrics)
+            // 5.8.1: AI lyrics open in full screen lyrics
+            tappable && npLyricMode == NowPlayingLyricSlot.Mode.NONE && lyrics.isAiLyrics() -> getString(R.string.ai_lyrics_np_hint)
+            // 5.8.0 (update 52): a song without lyrics still opens full screen lyrics (5.8.1: the Gemini offer)
+            tappable && npLyricMode == NowPlayingLyricSlot.Mode.NONE -> getString(R.string.np_lyrics_unavailable) + ". " + getString(R.string.np_open_lyrics)
             tappable -> getString(R.string.np_open_lyrics)
             // v4.9.9: the slot is a layout now, so TalkBack reads the message from here
             npLyricMode == NowPlayingLyricSlot.Mode.NONE -> getString(
@@ -5161,21 +5264,86 @@ class MainActivity : AppCompatActivity() {
             haptic(it)
             openRecapStory(atCard = false)
         }
-        // v4.9.2: today's live boxes are tappable (the recap boxes and "listened" are not)
+        // v4.9.2: today's live boxes are tappable. 5.7.0 u51: so are tapes, channels, listened,
+        // the top channel card, and the same boxes and cards in the recap.
         statsScreen.todaySongsBox.setOnClickListener {
             if ((todayStats?.songs ?: 0) <= 0) return@setOnClickListener
             haptic(it)
-            showTodaySongsSheet()
+            showStatsSongsSheet(todayStats?.day ?: return@setOnClickListener)
         }
         statsScreen.todayArtistsBox.setOnClickListener {
             if ((todayStats?.artists ?: 0) <= 0) return@setOnClickListener
             haptic(it)
-            showTodayArtistsSheet()
+            showStatsArtistsSheet(todayStats?.day ?: return@setOnClickListener)
+        }
+        statsScreen.todayTapesBox.setOnClickListener {
+            if ((todayStats?.tapes?.tapes ?: 0) <= 0) return@setOnClickListener
+            haptic(it)
+            showStatsTapesSheet(todayStats?.day ?: return@setOnClickListener)
+        }
+        statsScreen.todayChannelsBox.setOnClickListener {
+            if ((todayStats?.tapes?.channels ?: 0) <= 0) return@setOnClickListener
+            haptic(it)
+            showStatsChannelsSheet(todayStats?.day ?: return@setOnClickListener)
+        }
+        statsScreen.todayTimeBox.setOnClickListener {
+            val s = todayStats ?: return@setOnClickListener
+            if (s.totalMs <= 0L) return@setOnClickListener
+            haptic(it)
+            showStatsListenedSheet(s)
         }
         statsScreen.todayArtistCard.setOnClickListener {
             val name = statsScreen.todayTopArtistName ?: return@setOnClickListener
             haptic(it)
             openArtistByName(name)
+        }
+        statsScreen.todayChannelCard.setOnClickListener {
+            val c = statsScreen.todayTopChannelItem ?: return@setOnClickListener
+            haptic(it)
+            openStatsChannel(c.name, c.channelId)
+        }
+        statsScreen.recapSongsBox.setOnClickListener {
+            val s = recapStats ?: return@setOnClickListener
+            if (s.songs <= 0) return@setOnClickListener
+            haptic(it)
+            showStatsSongsSheet(s.day)
+        }
+        statsScreen.recapArtistsBox.setOnClickListener {
+            val s = recapStats ?: return@setOnClickListener
+            if (s.artists <= 0) return@setOnClickListener
+            haptic(it)
+            showStatsArtistsSheet(s.day)
+        }
+        statsScreen.recapTapesBox.setOnClickListener {
+            val s = recapStats ?: return@setOnClickListener
+            if (s.tapes.tapes <= 0) return@setOnClickListener
+            haptic(it)
+            showStatsTapesSheet(s.day)
+        }
+        statsScreen.recapChannelsBox.setOnClickListener {
+            val s = recapStats ?: return@setOnClickListener
+            if (s.tapes.channels <= 0) return@setOnClickListener
+            haptic(it)
+            showStatsChannelsSheet(s.day)
+        }
+        statsScreen.recapTopSongCard.setOnClickListener {
+            val song = statsScreen.recapTopSong ?: return@setOnClickListener
+            haptic(it)
+            lifecycleScope.launch {
+                val track = try { app.database.getTracksByIds(listOf(song.trackId)).firstOrNull() } catch (_: Exception) { null }
+                    ?: return@launch
+                app.playbackController.playRadio(track, listOf(track))
+            }
+        }
+        statsScreen.recapTopArtistCard.setOnClickListener {
+            val name = statsScreen.recapTopArtistName ?: return@setOnClickListener
+            haptic(it)
+            openArtistByName(name)
+        }
+        statsScreen.recapTopChannelCard.setOnClickListener {
+            val c = statsScreen.recapTopChannelItem ?: return@setOnClickListener
+            haptic(it)
+            openStatsChannel(c.name, c.channelId)
         }
         updateStatsBadges()
     }
@@ -5205,10 +5373,14 @@ class MainActivity : AppCompatActivity() {
                 todayS.topArtist?.name?.let { loadRecapArtistPhoto(it) }
                 // v4.9.2: day streak (10+ min a day; today under 10 min never breaks it)
                 val streakFrom = Days.key(Days.date(today).minusDays(DayStreak.MAX_DAYS.toLong()))
-                statsScreen.renderStreak(DayStreak.count(today, app.database.getDayTotals(streakFrom, today)))
+                // 5.7.0 u51: tapes count toward the streak too
+                val tapeTotals = try { app.database.getTapeDayTotals(streakFrom, today) } catch (_: Exception) { emptyMap() }
+                statsScreen.renderStreak(DayStreak.count(today, DayStreak.merge(app.database.getDayTotals(streakFrom, today), tapeTotals)))
                 statsScreen.renderQuietDay(pick.quietDay)
                 statsScreen.renderRecap(recapS)
                 recapS?.topArtist?.name?.let { loadRecapArtistPhoto(it) }
+                todayS.tapes.topChannel?.let { loadStatsChannelPhoto(it.key, it.name, it.channelId) }
+                recapS?.tapes?.topChannel?.let { loadStatsChannelPhoto(it.key, it.name, it.channelId) }
                 // Looking at the Stats tab counts as checking the recap
                 if (tab == Tab.STATS && recapS != null && !isWelcomeOpen) markRecapViewed(recapS)
                 updateStatsBadges()
@@ -5290,6 +5462,42 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** The recap's top artist photo: cached, else found like the Artist page finds it. */
+    /** 5.7.0 u51: a channel's photo for the stats cards (keyed by its name key). */
+    private val statsChannelPhotos = HashMap<String, String>()
+    private val statsChannelPhotoTried = HashSet<String>()
+
+    /** 5.7.0 u51: the photo of a channel from the Stats tab: a followed channel's, else its page's. */
+    private fun loadStatsChannelPhoto(key: String, name: String, channelId: String, onFound: ((String) -> Unit)? = null) {
+        val known = statsChannelPhotos[key]
+            ?: com.minim.music.data.stories.ChannelVideos.channelFor(name, channelId, app.storiesStore.channels)
+                ?.avatarUrl?.takeIf { it.isNotBlank() }
+        if (known != null) {
+            statsChannelPhotos[key] = known
+            if (::statsScreen.isInitialized) statsScreen.showChannelPhoto(key, known)
+            onFound?.invoke(known)
+            return
+        }
+        val ch = com.minim.music.data.stories.ChannelVideos.channelFor(name, channelId, app.storiesStore.channels) ?: return
+        if (!statsChannelPhotoTried.add(key)) return
+        lifecycleScope.launch {
+            val data = try { app.sourceAdapter.fetchChannelPage(ch) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+            val url = data?.channel?.avatarUrl?.takeIf { it.isNotBlank() } ?: return@launch
+            statsChannelPhotos[key] = url
+            if (::statsScreen.isInitialized) statsScreen.showChannelPhoto(key, url)
+            onFound?.invoke(url)
+        }
+    }
+
+    /** 5.7.0 u51: opens a channel from the Stats tab on its Channel page. */
+    private fun openStatsChannel(name: String, channelId: String) {
+        val ch = com.minim.music.data.stories.ChannelVideos.channelFor(name, channelId, app.storiesStore.channels)
+        if (ch == null) {
+            showNote(getString(R.string.stats_channel_unknown))
+            return
+        }
+        openChannelPage(ch)
+    }
+
     private fun loadRecapArtistPhoto(name: String) {
         app.preferences.artistPhoto(name)?.let {
             statsScreen.showArtistPhoto(name, it)
@@ -5931,13 +6139,18 @@ class MainActivity : AppCompatActivity() {
 
     private var todaySheetJob: Job? = null
 
-    /** Today's songs with how many times each was played; tapping one plays it. */
-    private fun showTodaySongsSheet() {
+    private fun isTodayKey(day: Int): Boolean = day == Days.keyOf(System.currentTimeMillis())
+
+    /** A stats sheet's title: "today's songs" for today, "songs" for the recap day. */
+    private fun statsSheetTitle(day: Int, todayRes: Int, otherRes: Int): String =
+        getString(if (isTodayKey(day)) todayRes else otherRes)
+
+    /** The songs played on [day] with how many times each was played; tapping one plays it. */
+    private fun showStatsSongsSheet(day: Int) {
         todaySheetJob?.cancel()
         todaySheetJob = lifecycleScope.launch {
-            val today = Days.keyOf(System.currentTimeMillis())
             val songs = try {
-                TodayLists.songs(app.database.getDayPlays(today), app.database.getDayListens(today))
+                TodayLists.songs(app.database.getDayPlays(day), app.database.getDayListens(day))
                     .take(TODAY_SHEET_MAX)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -5951,8 +6164,8 @@ class MainActivity : AppCompatActivity() {
             val rows = ArrayList<View>()
             openSheet { box ->
                 sheetHeading(
-                    box, getString(R.string.stats_today_songs_sheet),
-                    "${Days.label(today)} · ${statsScreen.playsText(total)}"
+                    box, statsSheetTitle(day, R.string.stats_today_songs_sheet, R.string.stats_songs_sheet),
+                    "${Days.label(day)} · ${statsScreen.playsText(total)}"
                 )
                 for (s in songs) {
                     val track = byId[s.trackId] ?: continue
@@ -5979,13 +6192,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Today's artists with how long each was heard; tapping one opens their Artist page. */
-    private fun showTodayArtistsSheet() {
+    /** The artists heard on [day] with how long each was heard; tapping one opens their Artist page. */
+    private fun showStatsArtistsSheet(day: Int) {
         todaySheetJob?.cancel()
         todaySheetJob = lifecycleScope.launch {
-            val today = Days.keyOf(System.currentTimeMillis())
             val artists = try {
-                TodayLists.artists(app.database.getDayPlays(today), app.database.getDayListens(today))
+                TodayLists.artists(app.database.getDayPlays(day), app.database.getDayListens(day))
                     .take(TODAY_SHEET_MAX)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -5997,8 +6209,8 @@ class MainActivity : AppCompatActivity() {
             val rows = ArrayList<View>()
             openSheet { box ->
                 sheetHeading(
-                    box, getString(R.string.stats_today_artists_sheet),
-                    "${Days.label(today)} · $count ${getString(if (count == 1) R.string.stats_artist_one else R.string.stats_artists)}"
+                    box, statsSheetTitle(day, R.string.stats_today_artists_sheet, R.string.stats_artists_sheet),
+                    "${Days.label(day)} · $count ${getString(if (count == 1) R.string.stats_artist_one else R.string.stats_artists)}"
                 )
                 for (a in artists) {
                     val row = sheetAction(box, R.drawable.ic_person, a.name, trailing = StatsFormat.duration(a.ms)) {
@@ -6013,13 +6225,130 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * 5.7.0 u51: the tapes played on [day], most time first, with the time heard. Tapping one plays
+     * it (picking up where you stopped), with the tapes after it in the list queued next.
+     */
+    private fun showStatsTapesSheet(day: Int) {
+        todaySheetJob?.cancel()
+        todaySheetJob = lifecycleScope.launch {
+            val tapes = try {
+                com.minim.music.data.stats.TapeStats.tapes(app.database.getDayTapePlays(day), app.database.getDayTapeListens(day))
+                    .take(TODAY_SHEET_MAX)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return@launch
+            }
+            if (tapes.isEmpty()) return@launch
+            val tracks = tapes.map {
+                com.minim.music.data.stories.StoryTracks.track(it.videoId, it.title, it.channel, it.durationSec, it.channelId.ifBlank { null })
+            }
+            val rows = ArrayList<View>()
+            openSheet { box ->
+                sheetHeading(
+                    box, statsSheetTitle(day, R.string.stats_today_tapes_sheet, R.string.stats_tapes_sheet),
+                    "${Days.label(day)} · ${statsScreen.tapesText(tapes.size)}"
+                )
+                tapes.forEachIndexed { i, t ->
+                    val row = layoutInflater.inflate(R.layout.item_sheet_song, box, false)
+                    val art = row.findViewById<ImageView>(R.id.song_art).apply { clipToOutline = true }
+                    row.findViewById<TextView>(R.id.song_title).text = t.title
+                    row.findViewById<TextView>(R.id.song_artist).text = t.channel
+                    val heard = StatsFormat.duration(t.ms)
+                    row.findViewById<TextView>(R.id.song_plays).text = heard
+                    row.contentDescription = "${t.title}, ${t.channel}, ${getString(R.string.stats_tape_heard, heard)}"
+                    app.artworkPipeline.loadInto(art, t.thumbnailUrl.ifBlank { com.minim.music.data.stories.StoryTracks.thumbnailUrl(t.videoId) }, dp(44f).toInt())
+                    row.clipToOutline = true
+                    row.setOnClickListener { v ->
+                        if (sheetClosing) return@setOnClickListener
+                        haptic(v)
+                        closeSheet { app.playbackController.playTrack(tracks[i], tracks.drop(i)) }
+                    }
+                    box.addView(row)
+                    rows += row
+                }
+            }
+            RowEntrance.playViews(rows)
+        }
+    }
+
+    /** 5.7.0 u51: the channels listened to on [day], with the time; tapping one opens its Channel page. */
+    private fun showStatsChannelsSheet(day: Int) {
+        todaySheetJob?.cancel()
+        todaySheetJob = lifecycleScope.launch {
+            val channels = try {
+                com.minim.music.data.stats.TapeStats.channels(app.database.getDayTapePlays(day), app.database.getDayTapeListens(day))
+                    .take(TODAY_SHEET_MAX)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return@launch
+            }
+            if (channels.isEmpty()) return@launch
+            val count = channels.size
+            val rows = ArrayList<View>()
+            openSheet { box ->
+                sheetHeading(
+                    box, statsSheetTitle(day, R.string.stats_today_channels_sheet, R.string.stats_channels_sheet),
+                    "${Days.label(day)} · $count ${getString(if (count == 1) R.string.stats_channel_one else R.string.stats_channels)}"
+                )
+                for (c in channels) {
+                    val row = sheetAction(box, R.drawable.ic_person, c.name, trailing = StatsFormat.duration(c.ms)) {
+                        closeSheet { openStatsChannel(c.name, c.channelId) }
+                    }
+                    showSheetChannelPhoto(row, c)
+                    rows += row
+                }
+            }
+            RowEntrance.playViews(rows)
+        }
+    }
+
+    /** 5.7.0 u51: "listened" tapped: songs and tapes time apart, and together. */
+    private fun showStatsListenedSheet(s: DayStats) {
+        if (s.totalMs <= 0L) return
+        val t = s.tapes
+        openSheet { box ->
+            sheetHeading(
+                box, statsSheetTitle(s.day, R.string.stats_today_listened_sheet, R.string.stats_listened_sheet),
+                listOfNotNull(Days.label(s.day), com.minim.music.data.stats.TapeStats.savedLine(t)).joinToString(" · ")
+            )
+            val rows = ArrayList<View>()
+            rows += sheetAction(box, R.drawable.ic_music_note, getString(R.string.stats_split_songs), trailing = StatsFormat.duration(s.timeMs)) {
+                if (s.songs > 0) closeSheet { showStatsSongsSheet(s.day) }
+            }
+            rows += sheetAction(box, R.drawable.ic_tapes, getString(R.string.stats_split_tapes), trailing = StatsFormat.duration(t.ms)) {
+                if (t.tapes > 0) closeSheet { showStatsTapesSheet(s.day) }
+            }
+            rows += sheetAction(box, R.drawable.ic_history, getString(R.string.stats_split_total), trailing = StatsFormat.duration(s.totalMs)) {
+                closeSheet()
+            }
+            RowEntrance.playViews(rows)
+        }
+    }
+
+    /** 5.7.0 u51: a channel's round photo in a sheet row's icon spot, when one can be found. */
+    private fun showSheetChannelPhoto(row: View, c: com.minim.music.data.stats.ChannelItem) {
+        loadStatsChannelPhoto(c.key, c.name, c.channelId) { url -> showSheetPhotoUrl(row, url) }
+    }
+
     /** v4.9.3: puts [name]'s round photo in a sheet row's icon spot, fading in once it's found. */
     private fun showSheetArtistPhoto(row: View, name: String) {
+        lifecycleScope.launch {
+            val url = artistPhotoUrl(name) ?: return@launch
+            showSheetPhotoUrl(row, url)
+        }
+    }
+
+    /** v4.9.3 (5.7.0 u51: shared with channel rows): a round photo from [url] in a sheet row's icon spot. */
+    private fun showSheetPhotoUrl(row: View, url: String) {
         val icon = row.findViewById<ImageView>(R.id.action_icon)
         val label = row.findViewById<TextView>(R.id.action_label)
         val sizePx = dp(30f).toInt()
+        if (icon.getTag(R.id.action_icon) == url) return
+        icon.setTag(R.id.action_icon, url)
         lifecycleScope.launch {
-            val url = artistPhotoUrl(name) ?: return@launch
             // v4.9.9: a photo already in memory shows at once, without the fade
             val fromMemory = app.artworkPipeline.cachedBitmap(url, dp(64f).toInt()) != null
             val bmp = try {
@@ -6163,9 +6492,11 @@ class MainActivity : AppCompatActivity() {
             sheetHeading(box, getString(R.string.recap_popup_title), Days.label(recap.day))
             val v = layoutInflater.inflate(R.layout.sheet_recap_popup, box, false)
             v.findViewById<TextView>(R.id.recap_popup_line).apply {
-                val songs = if (recap.songs == 1) "1 ${getString(R.string.stats_song_one)}"
+                var songs = if (recap.songs == 1) "1 ${getString(R.string.stats_song_one)}"
                 else "${recap.songs} ${getString(R.string.stats_songs)}"
-                text = getString(R.string.recap_popup_line, StatsFormat.duration(recap.timeMs), songs)
+                // 5.7.0 u51: songs and tapes together
+                if (recap.tapes.tapes > 0) songs += ", ${statsScreen.tapesText(recap.tapes.tapes)}"
+                text = getString(R.string.recap_popup_line, StatsFormat.duration(recap.totalMs), songs)
                 visibility = View.VISIBLE
             }
             v.findViewById<View>(R.id.recap_popup_dive_in).setOnClickListener {
@@ -6651,9 +6982,16 @@ class MainActivity : AppCompatActivity() {
         updateStatsBadges()
     }
 
+    /** 5.8.2: the top song behind the story, and whether the main player was playing before it. */
+    private var recapMusic: com.minim.music.playback.RecapMusic? = null
+    private var recapResumeMain = false
+
     /**
      * Opens the full-screen story for the current recap (or straight on its summary card). It
      * stays reachable from the Stats tab until a newer day replaces the recap.
+     *
+     * 5.8.2 (update 54): also works out the story's extra data (the day in hours, first and last
+     * song, the top five, the personality) and each slide's colours from its own cover or photo.
      */
     private fun openRecapStory(atCard: Boolean) {
         if (recapStory != null || recapStoryOpening) return
@@ -6662,34 +7000,124 @@ class MainActivity : AppCompatActivity() {
         recapStoryOpening = true
         lifecycleScope.launch {
             val dark = app.preferences.isDarkTheme
-            // Colours from the day's top song cover (black and white when there's no cover)
-            val storyPal = try {
-                RecapCard.palette(app.artworkPipeline, recap, dark)
+            val prep = try {
+                prepareRecapStory(recap, dark)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 recapStoryOpening = false
                 throw e
             } catch (_: Exception) {
-                Pal.build(0, dark)
+                RecapPrep(Pal.build(0, dark), RecapDay.NONE, emptyMap(), null, com.minim.music.data.stats.RecapMore.NONE)
             }
             recapStoryOpening = false
             if (isFinishing || isDestroyed || recapStory != null) return@launch
-            showRecapStory(recap, storyPal, atCard)
+            showRecapStory(recap, prep, atCard)
         }
     }
 
-    private fun showRecapStory(recap: DayStats, storyPal: Pal, atCard: Boolean) {
+    private class RecapPrep(
+        val pal: Pal,
+        val day: RecapDay,
+        val pals: Map<String, Pal>,
+        val topTrack: Track?,
+        /** 5.8.3 u55: first listens, hearted today, longest session, yesterday, streak, all-time. */
+        val more: com.minim.music.data.stats.RecapMore
+    )
+
+    private suspend fun prepareRecapStory(recap: DayStats, dark: Boolean): RecapPrep {
+        val artwork = app.artworkPipeline
+        // Colours from the day's top song cover (black and white when there's no cover)
+        val storyPal = try { RecapCard.palette(artwork, recap, dark) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { Pal.build(0, dark) }
+        val db = app.database
+        val day = try {
+            val plays = db.getDayPlays(recap.day)
+            val listens = db.getDayListens(recap.day)
+            val tapeListens = try { db.getDayTapeListens(recap.day) } catch (_: Exception) { emptyList() }
+            RecapDay.compute(recap, plays, listens, tapeListens)
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { RecapDay.NONE }
+        val more = try { recapMore(recap) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { com.minim.music.data.stats.RecapMore.NONE }
+        // Each slide's own colours: from its cover or photo
+        val urls = LinkedHashSet<String>()
+        day.first?.thumbnailUrl?.let { urls.add(it) }
+        more.firstListens.firstOrNull()?.thumbnailUrl?.let { urls.add(it) }
+        more.hearted.firstOrNull()?.thumbnailUrl?.let { urls.add(it) }
+        more.session?.firstThumb?.let { urls.add(it) }
+        recap.topArtist?.name?.let { app.preferences.artistPhoto(it) }?.let { urls.add(it) }
+        recap.tapes.topChannel?.let { statsChannelPhotos[it.key] }?.let { urls.add(it) }
+        recap.tapes.topTape?.thumbnailUrl?.let { urls.add(it) }
+        val pals = HashMap<String, Pal>()
+        for (u in urls) {
+            if (u.isBlank()) continue
+            try {
+                val seed = artwork.extractAccentForUrl(u)
+                if (seed != 0) pals[u] = Pal.build(seed, dark)
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {}
+        }
+        // 5.8.3 u55: no blurred cover anywhere in the recap, only solid colours from the covers
+        val top = recap.topSong?.let { s ->
+            val saved = try { db.getTracksByIds(listOf(s.trackId)).firstOrNull() } catch (_: Exception) { null }
+            saved ?: Track(s.trackId, s.title, s.artist, 0L, s.thumbnailUrl, "https://music.youtube.com/watch?v=${s.trackId}")
+        }
+        return RecapPrep(storyPal, day, pals, top, more)
+    }
+
+    /**
+     * 5.8.3 u55: the numbers behind the new recap slides. Each part fails on its own, so one bad
+     * query only hides its own slide.
+     */
+    private suspend fun recapMore(recap: DayStats): com.minim.music.data.stats.RecapMore {
+        val db = app.database
+        val dayKey = recap.day
+        val start = Days.startMs(dayKey)
+        val end = Days.endMs(dayKey)
+        val plays = try { db.getDayPlays(dayKey) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { emptyList() }
+        val firstListens = try {
+            val before = db.getTracksPlayedBefore(plays.map { it.trackId }, start)
+            com.minim.music.data.stats.RecapMoreMath.firstListens(plays, before)
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { emptyList() }
+        val hearted = try { db.getHeartedBetween(start, end) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { emptyList() }
+        val session = com.minim.music.data.stats.RecapMoreMath.sessionForSlide(
+            com.minim.music.data.stats.RecapMoreMath.longestSession(plays)
+        )
+        val compare = try {
+            com.minim.music.data.stats.RecapMoreMath.compare(recap, db.getDayStats(Days.previous(dayKey)))
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+        val streak = try {
+            // The same day streak Stats shows (songs and tapes, 10+ minutes a day), as of that day
+            val from = Days.key(Days.date(dayKey).minusDays(DayStreak.MAX_DAYS.toLong()))
+            val tapeTotals = try { db.getTapeDayTotals(from, dayKey) } catch (_: Exception) { emptyMap() }
+            com.minim.music.data.stats.RecapMoreMath.streakAsOf(dayKey, DayStreak.merge(db.getDayTotals(from, dayKey), tapeTotals))
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { 0 }
+        val allTime = recap.topSong?.let { s ->
+            try { db.countPlaysBefore(s.trackId, end) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { 0 }
+        } ?: 0
+        return com.minim.music.data.stats.RecapMore(firstListens, hearted, session, compare, streak, allTime)
+    }
+
+    private fun showRecapStory(recap: DayStats, prep: RecapPrep, atCard: Boolean) {
         val host = findViewById<ViewGroup>(android.R.id.content) ?: return
         if (::sheetRoot.isInitialized && sheetRoot.visibility == View.VISIBLE) closeSheet()
         hideKeyboard()
+        val storyPal = prep.pal
         val photo = recap.topArtist?.name?.let { app.preferences.artistPhoto(it) }
+        val persona = RecapPersonality.pick(recap, prep.day)
+        val top = prep.topTrack
+        val soundOn = app.preferences.recapSound
+        var saving = false
+        var savedPlaylist: String? = null
         val story = RecapStory(
             context = this,
             stats = recap,
+            day = prep.day,
             pal = storyPal,
+            pals = prep.pals,
+            more = prep.more,
             artwork = app.artworkPipeline,
             artistPhotoUrl = photo,
+            channelPhotoUrl = recap.tapes.topChannel?.let { statsChannelPhotos[it.key] },
             roast = RecapRoast.line(recap),
+            persona = persona,
             startAtCard = atCard,
+            soundOn = if (top != null) soundOn else null,
             tick = { haptic(it, HapticFeedbackConstants.CLOCK_TICK) },
             onBars = { light ->
                 recapStoryLightBars = light
@@ -6697,21 +7125,112 @@ class MainActivity : AppCompatActivity() {
             },
             onShare = { bmp -> shareRecapCard(bmp, recap.day) },
             onSave = { bmp -> requestSaveRecapCard(bmp, recap.day) },
+            onSavePlaylist = {
+                val done = savedPlaylist
+                if (done != null) {
+                    recapStoryNote(getString(R.string.recap_playlist_saved, done))
+                } else if (!saving) {
+                    saving = true
+                    lifecycleScope.launch {
+                        val name = saveRecapPlaylist(recap, prep.day)
+                        saving = false
+                        if (name != null) savedPlaylist = name
+                        recapStoryNote(if (name != null) getString(R.string.recap_playlist_saved, name) else getString(R.string.recap_playlist_failed))
+                    }
+                }
+            },
+            onPlayTop = {
+                val t = top ?: return@RecapStory
+                // The song for real: the story closes and it plays from the start, with its radio
+                recapResumeMain = false
+                stopRecapMusic()
+                recapStory?.close()
+                app.playbackController.playRadio(t, listOf(t))
+            },
+            onOpenArtist = {
+                val name = recap.topArtist?.name ?: return@RecapStory
+                recapStory?.close()
+                openArtistByName(name)
+            },
+            onSound = { on ->
+                app.preferences.recapSound = on
+                recapMusic?.setMuted(!on)
+            },
             onClosed = { onRecapStoryClosed() }
         )
         recapStory = story
         // Above everything (root's screens, sheets and notes), right up behind the system bars
         host.addView(story, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        startRecapMusic(top, soundOn)
         recapCardJob?.cancel()
         recapCardJob = lifecycleScope.launch {
             val bmp = try {
-                RecapCard.build(this@MainActivity, app.artworkPipeline, recap, storyPal, photo)
+                RecapCard.build(
+                    this@MainActivity, app.artworkPipeline, recap, storyPal,
+                    if (recap.topArtist == null) recap.tapes.topChannel?.let { statsChannelPhotos[it.key] } else photo,
+                    persona
+                )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {
                 null
             }
             if (bmp != null && recapStory === story) story.setCard(bmp)
+        }
+    }
+
+    /** 5.8.2: pauses what was playing and plays the top song behind the story. */
+    private fun startRecapMusic(top: Track?, soundOn: Boolean) {
+        stopRecapMusic()
+        if (top == null) return
+        val pc = app.playbackController
+        recapResumeMain = pc.uiState.value.isPlaying
+        if (recapResumeMain) pc.pause()
+        val m = try { com.minim.music.playback.RecapMusic(this) } catch (_: Exception) { null } ?: return
+        recapMusic = m
+        m.setMuted(!soundOn)
+        m.play(top)
+    }
+
+    /** Fades the story's song out; whatever was playing before picks back up after it. */
+    private fun stopRecapMusic() {
+        val m = recapMusic ?: return
+        recapMusic = null
+        val resume = recapResumeMain
+        recapResumeMain = false
+        m.stop {
+            val pc = app.playbackController
+            if (resume && !pc.uiState.value.isPlaying) pc.togglePlayPause()
+        }
+    }
+
+    /**
+     * 5.8.2: "save as playlist": the day's top songs (best first, up to 25) as a new playlist in
+     * the library. Returns its name, or null when it couldn't be made.
+     */
+    private suspend fun saveRecapPlaylist(recap: DayStats, day: RecapDay): String? {
+        val ids = day.ranked.ifEmpty { listOfNotNull(recap.topSong?.trackId) }
+        if (ids.isEmpty()) return null
+        return try {
+            val tracks = app.database.getTracksByIds(ids)
+            if (tracks.isEmpty()) return null
+            val base = RecapDay.playlistName(recap.day)
+            var name = base
+            var id = app.database.createPlaylist(name)
+            var n = 2
+            while (id == -1L && n <= 20) {
+                name = "$base $n"
+                id = app.database.createPlaylist(name)
+                n++
+            }
+            if (id == -1L) return null
+            app.database.addTracksToPlaylist(id, tracks)
+            refreshData()
+            name
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -6722,6 +7241,7 @@ class MainActivity : AppCompatActivity() {
         recapCardJob?.cancel()
         recapCardJob = null
         pendingRecapSave = null
+        stopRecapMusic()
         updateSystemBars()
         updateStatsBadges()
         checkRecapPopup()
@@ -9112,6 +9632,13 @@ class MainActivity : AppCompatActivity() {
         // a rotation or theme change keeps it
         if (isFinishing && !isChangingConfigurations) app.wipeGeminiChat()
         if (::geminiChat.isInitialized) geminiChat.detach()
+        // 5.8.2: the recap's song never outlives the screen it belongs to
+        recapMusic?.let { m ->
+            recapMusic = null
+            m.release()
+            if (recapResumeMain && !app.playbackController.uiState.value.isPlaying) app.playbackController.togglePlayPause()
+            recapResumeMain = false
+        }
         super.onDestroy()
     }
 

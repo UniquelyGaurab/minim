@@ -24,6 +24,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.minim.music.R
 import com.minim.music.data.ai.LyricLanguage
+import com.minim.music.data.ai.isAiLyrics
 import com.minim.music.data.model.LyricsData
 import com.minim.music.util.ArtworkPipeline
 import kotlinx.coroutines.CoroutineScope
@@ -81,6 +82,8 @@ class FullscreenLyrics(
         fun seekLabel(fraction: Float): String
         /** 5.7.0: the light tick when the dragged bar reaches either end. */
         fun edgeTick(v: View)
+        /** 5.8.1: Gemini lyrics (the offer, the request and the saved copies). */
+        val aiLyrics: FullscreenAiLyrics.Host
     }
 
     enum class State { CLOSED, OPENING, OPEN, CLOSING }
@@ -137,6 +140,18 @@ class FullscreenLyrics(
     }
 
     private val layoutManager = LinearLayoutManager(overlay.context)
+
+    /** 5.8.1 (update 53): Gemini lyrics for songs without any. */
+    val ai = FullscreenAiLyrics(overlay, scope, host.aiLyrics)
+
+    /**
+     * 5.8.1: the song the Gemini offer is for: set for a song (not a tape) whose lyrics lookup
+     * found none, or that's showing saved AI lyrics. Null hides the offer.
+     */
+    fun setAiSong(id: String?) {
+        ai.setSong(id)
+        refreshMessage()
+    }
 
     var state: State = State.CLOSED
         private set
@@ -225,7 +240,12 @@ class FullscreenLyrics(
         bar.onEdge = { host.edgeTick(bar) }
         seekPill.background = seekPillBg
         overlay.excludeView = bar
-        overlay.moreExcluded = listOf(translateBtn, translateNote, captionPill)
+        overlay.moreExcluded = listOf(translateBtn, translateNote, captionPill, ai.panel, ai.redo)
+        ai.onListHidden = { hidden ->
+            list.visibility = if (hidden) View.INVISIBLE else View.VISIBLE
+            translateBtn.visibility = if (!hidden && langPlan?.showButton == true) View.VISIBLE else View.GONE
+            if (hidden) hideTranslateNote()
+        }
         captionPill.setOnClickListener {
             if (state != State.OPEN || captionPill.visibility != View.VISIBLE) return@setOnClickListener
             host.tapHaptic(captionPill)
@@ -307,6 +327,8 @@ class FullscreenLyrics(
             refreshMessage()
         }
         onLyricsForTranslation(if (mode == NowPlayingLyricSlot.Mode.LINES && !isCaptions()) data else null)
+        ai.setShowingAi(mode == NowPlayingLyricSlot.Mode.LINES && data.isAiLyrics())
+        refreshMessage()
         if (state == State.CLOSED) return
         jumpToStart()
         if (state == State.OPEN && mode == NowPlayingLyricSlot.Mode.LINES) fadeInNewLines()
@@ -475,6 +497,7 @@ class FullscreenLyrics(
     /** The app palette changed (new song colours, dark mode): only the bar's start and the base. */
     fun onPalette(p: Pal) {
         backdrop.setBackgroundColor(p.bg)
+        ai.setCoverColors(p)
         if (shownUrl == null && isShowing) applyBaseInk(animate = true)
         if (isShowing) updateBarColors()
     }
@@ -485,8 +508,9 @@ class FullscreenLyrics(
 
     fun open() {
         if (isOpen) return
-        // 5.7.0 u46: captions open even when there are none (the CC button says "show me")
-        if (NowPlayingLyricSlot.mode(lyrics) != NowPlayingLyricSlot.Mode.LINES && !isCaptions()) return
+        // 5.7.0 u46: captions open even when there are none (the CC button says "show me").
+        // 5.8.1: songs open with none too (5.8.0's tap on the lyric area): the Gemini offer shows.
+        if (NowPlayingLyricSlot.mode(lyrics) != NowPlayingLyricSlot.Mode.LINES && !isCaptions() && ai.songId == null) return
         val fromClosed = state == State.CLOSED
         if (fromClosed && adapter.flow && adapter.synced && clock.hasSample) {
             // Flow may have moved lines on its own clock: start on the line that's really playing
@@ -621,6 +645,7 @@ class FullscreenLyrics(
         translateBtn.alpha = a
         translateNote.alpha = a
         captionPill.alpha = a
+        ai.setAlpha(a, lift)
     }
 
     /** Where Now Playing's bar is, relative to where this bar rests at the bottom. */
@@ -769,7 +794,14 @@ class FullscreenLyrics(
     /** The quiet line shown in place of lines: loading, or none for this song / upload. */
     private fun refreshMessage() {
         val mode = NowPlayingLyricSlot.mode(lyrics)
+        // 5.8.1: a song with no lyrics gets the Gemini offer in place of the quiet line
+        val offer = mode == NowPlayingLyricSlot.Mode.NONE && !isCaptions() && ai.songId != null
+        ai.setPanelWanted(offer)
         if (mode == NowPlayingLyricSlot.Mode.LINES) return
+        if (offer) {
+            hideMessage()
+            return
+        }
         val caps = isCaptions()
         showMessage(when {
             mode == NowPlayingLyricSlot.Mode.NONE && caps -> R.string.captions_none
@@ -1001,6 +1033,7 @@ class FullscreenLyrics(
             row.translation.ink = i
         }
         message.setTextColor(i)
+        ai.setInk(i)
         styleTranslateControls()
         pulse.imageTintList = ColorStateList.valueOf(i)
         updateBarColors()
@@ -1268,6 +1301,7 @@ class FullscreenLyrics(
                 translateNote.layoutParams = it
             }
         }
+        ai.place(insetTop, insetBottom, TRANSLATE_TOP_DP, dp(BAR_BOTTOM_DP + BAR_HEIGHT_DP + AI_BADGE_GAP_DP).toInt())
         val pillTop = top + dp(CAPTION_PILL_SHIFT_DP).toInt()
         (captionPill.layoutParams as? FrameLayout.LayoutParams)?.let {
             if (it.topMargin != pillTop) {
@@ -1298,6 +1332,8 @@ class FullscreenLyrics(
         const val TRANSLATING_PULSE_MS = 700L
         const val TRANSLATING_MIN_ALPHA = 0.4f
         const val TRANSLATE_TOP_DP = 6f
+        /** 5.8.1: the AI line's gap above the progress bar. */
+        const val AI_BADGE_GAP_DP = 2f
         const val TRANSLATE_NOTE_SHIFT_DP = 6f
         const val CAPTION_PILL_SHIFT_DP = 8f
         const val TRANSLATE_ON_FILL = 0x2E

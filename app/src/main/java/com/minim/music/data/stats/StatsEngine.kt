@@ -118,10 +118,14 @@ data class DayStats(
     val peakHour: Int,
     val streak: Streak?,
     /** Part of the time is the old-data estimate (plays from before 4.9.0). */
-    val estimated: Boolean
+    val estimated: Boolean,
+    /** 5.7.0 u51: the day's tapes (none on a music-only day). [timeMs] stays songs only. */
+    val tapes: TapeDay = TapeDay.NONE
 ) {
-    val isQuiet: Boolean get() = StatsEngine.isQuiet(timeMs, songs)
-    val hasHistory: Boolean get() = StatsEngine.hasHistory(timeMs, songs)
+    /** Songs and tapes together: what "listened" shows. */
+    val totalMs: Long get() = timeMs + tapes.ms
+    val isQuiet: Boolean get() = StatsEngine.isQuiet(totalMs, songs + tapes.tapes)
+    val hasHistory: Boolean get() = StatsEngine.hasHistory(totalMs, songs + tapes.tapes)
 
     companion object {
         fun empty(day: Int) = DayStats(day, 0L, 0, 0, null, null, -1, null, false)
@@ -169,6 +173,36 @@ object StatsEngine {
 
     internal fun artistKey(name: String): String =
         name.lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }
+
+    /** 5.7.0 u51: song listening per hour of the day, the same way [compute] adds it up. */
+    fun hourMs(plays: List<PlayRow>, listens: List<ListenRow>, zone: ZoneId = ZoneId.systemDefault()): LongArray {
+        val out = LongArray(24)
+        for (l in listens) if (l.ms > 0L && l.hour in 0..23) out[l.hour] += l.ms
+        for (p in plays) if (!p.tracked) out[Days.hourOf(p.playedAt, zone)] += estimateMs(p)
+        return out
+    }
+
+    /**
+     * 5.8.2: every counted song of the day, best first, ranked exactly like [compute]'s top song
+     * (plays, then real listening time, then the latest play). Feeds the recap's top-5 countdown.
+     */
+    fun rankSongs(plays: List<PlayRow>, listens: List<ListenRow>): List<TopSong> {
+        val sorted = plays.sortedBy { it.playedAt }
+        val songMs = HashMap<String, Long>()
+        for (l in listens) if (l.ms > 0L) songMs[l.trackId] = (songMs[l.trackId] ?: 0L) + l.ms
+        for (p in sorted) if (!p.tracked) songMs[p.trackId] = (songMs[p.trackId] ?: 0L) + estimateMs(p)
+        return sorted.groupBy { it.trackId }
+            .map { (id, ps) ->
+                val last = ps.last()
+                TopSong(id, last.title, last.artist, last.thumbnailUrl, ps.size, songMs[id] ?: 0L) to last.playedAt
+            }
+            .sortedWith(
+                compareByDescending<Pair<TopSong, Long>> { it.first.plays }
+                    .thenByDescending { it.first.ms }
+                    .thenByDescending { it.second }
+            )
+            .map { it.first }
+    }
 
     /** Everything one day's stats show, from its counted plays and its real listening time. */
     fun compute(

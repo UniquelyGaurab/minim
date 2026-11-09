@@ -22,21 +22,36 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * v4.9.1: the recap summary card, drawn straight onto a 1080 x 1920 (9:16) bitmap so it fits an
- * Instagram story exactly, and what's shared or saved is the same image the story shows.
- * "minim" on top with the date and day under it, the top song's cover, then the key numbers.
- * Colours: the palette built from the top song's cover.
+ * The recap summary card, drawn straight onto a 1080 x 1920 (9:16) bitmap so it fits a story
+ * exactly, and what's shared or saved is the same image the story shows.
+ *
+ * 5.8.2 (update 54): redesigned. 5.8.3 (update 55): the blurred glow is gone; the top is a solid
+ * band in a second shade of the cover's palette; a big cover with the day's listening personality as a pill on its corner;
+ * the top song under it; then time listened in large type with songs / artists / tapes beside it,
+ * the top artist, and a small "minim" mark. Left-aligned, Poppins, lots of empty space.
  */
 object RecapCard {
     const val W = 1080
     const val H = 1920
+    private const val M = 96f // side margin
+
+    /** 5.8.3 u55: where the solid top band ends (behind the middle of the big cover). */
+    const val BAND_BOTTOM = 666f
+
+    /** The top band: a second, solid shade of the cover's palette (never a blurred cover). */
+    fun bandColor(pal: Pal): Int = ColorUtils.blendARGB(pal.bg, pal.fg, 0.12f) or 0xFF000000.toInt()
 
     /** The story's and card's colours: the palette built from the day's top song cover. */
     suspend fun palette(artwork: ArtworkPipeline, s: DayStats, darkMode: Boolean): Pal {
-        val url = s.topSong?.thumbnailUrl?.takeIf { it.isNotBlank() }
+        val url = coverUrl(s)
         val seed = if (url != null) artwork.extractAccentForUrl(url) else 0
         return Pal.build(seed, darkMode)
     }
+
+    /** The top song's cover, or the top tape's picture on a day with only tapes. */
+    fun coverUrl(s: DayStats): String? =
+        s.topSong?.thumbnailUrl?.takeIf { it.isNotBlank() }
+            ?: s.tapes.topTape?.thumbnailUrl?.takeIf { it.isNotBlank() }
 
     /** Loads the cover and artist photo (either may be missing) and draws the card off the main thread. */
     suspend fun build(
@@ -44,13 +59,14 @@ object RecapCard {
         artwork: ArtworkPipeline,
         s: DayStats,
         pal: Pal,
-        artistPhotoUrl: String?
+        artistPhotoUrl: String?,
+        persona: RecapPersonality.Result? = null
     ): Bitmap = withContext(Dispatchers.Default) {
-        val cover = s.topSong?.thumbnailUrl?.takeIf { it.isNotBlank() }
-            ?.let { runCatching { artwork.loadBitmap(MusicArt.big(it), 560) }.getOrNull() }
+        val cover = coverUrl(s)
+            ?.let { runCatching { artwork.loadBitmap(MusicArt.big(it), 720) }.getOrNull() }
         val photo = artistPhotoUrl?.takeIf { it.isNotBlank() }
-            ?.let { runCatching { artwork.loadBitmap(it, 144) }.getOrNull() }
-        render(context, s, pal, cover, photo)
+            ?.let { runCatching { artwork.loadBitmap(it, 160) }.getOrNull() }
+        render(context, s, pal, cover, photo, persona)
     }
 
     fun render(
@@ -58,83 +74,134 @@ object RecapCard {
         s: DayStats,
         pal: Pal,
         cover: Bitmap?,
-        artistPhoto: Bitmap?
+        artistPhoto: Bitmap?,
+        persona: RecapPersonality.Result? = null
     ): Bitmap {
         val bmp = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         val bold = font(context, R.font.poppins_bold, Typeface.DEFAULT_BOLD)
         val semi = font(context, R.font.poppins_semibold, Typeface.DEFAULT_BOLD)
+        val medium = font(context, R.font.poppins_medium, Typeface.DEFAULT)
         val regular = font(context, R.font.poppins_regular, Typeface.DEFAULT)
-        val soft = ColorUtils.blendARGB(pal.bg, pal.fg, 0.08f)
+        // Text made sure to read on both the band and the bg, in Light and Dark mode
+        val band = bandColor(pal)
+        val fg = RecapInk.textOn(listOf(band, pal.bg), pal.fg)
+        val muted = RecapInk.readableOn(listOf(band, pal.bg), pal.muted, fg)
+        val soft = ColorUtils.blendARGB(pal.bg, fg, 0.08f)
+        val hair = ColorUtils.setAlphaComponent(fg, 36)
+        val right = W - M
+        val contentW = (W - 2 * M).toInt()
 
+        // 5.8.3 u55: no blurred cover. Two solid colours from the cover: a band in a second shade
+        // across the top, ending behind the middle of the big cover, over the palette's bg
         c.drawColor(pal.bg)
-        val cx = W / 2f
+        c.drawRect(0f, 0f, W.toFloat(), BAND_BOTTOM, Paint().apply { color = band })
 
-        // minim, then the date and day under the logo
-        // v4.9.2: small, regular weight wordmark (like the app header) so the cover stands out
-        text(c, "minim", cx, 200f, 52f, regular, pal.fg, W - 160)
-        text(c, Days.label(s.day), cx, 272f, 40f, regular, pal.muted, W - 160)
+        // Header: the day on the left, "my day in music" on the right
+        textStart(c, Days.label(s.day), M, 150f, 38f, medium, fg, 640)
+        textEnd(c, "my day in music", right, 150f, 32f, regular, muted, 360)
 
-        // Top song cover
-        val size = 560f
-        val top = 350f
-        val rect = RectF(cx - size / 2f, top, cx + size / 2f, top + size)
-        val song = s.topSong
+        // The big cover, with a soft shadow
+        val rect = RectF(M, 222f, right, 222f + (W - 2 * M))
+        val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = pal.bg
+            setShadowLayer(64f, 0f, 28f, ColorUtils.setAlphaComponent(0xFF000000.toInt(), 80))
+        }
+        c.drawRoundRect(rect, 40f, 40f, shadow)
         if (cover != null) {
-            roundImage(c, cover, rect, 56f)
+            roundImage(c, cover, rect, 40f)
         } else {
-            val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = soft }
-            c.drawRoundRect(rect, 56f, 56f, p)
-            text(c, "♪", cx, rect.centerY() + 70f, 200f, bold, pal.muted, 400)
+            c.drawRoundRect(rect, 40f, 40f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = soft })
+            text(c, "♪", rect.centerX(), rect.centerY() + 90f, 260f, bold, muted, 400)
         }
-        var y = top + size + 96f
+
+        // The listening personality, as a pill sitting on the cover's bottom-left corner
+        if (persona != null) {
+            val tp = paint(42f, semi, pal.bg)
+            val label = persona.label
+            val tw = tp.measureText(label)
+            val h = 96f
+            val dot = 16f
+            val left = M + 40f
+            val pill = RectF(left, rect.bottom - h / 2f, left + 44f + dot + 22f + tw + 44f, rect.bottom + h / 2f)
+            c.drawRoundRect(pill, h / 2f, h / 2f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = fg
+                setShadowLayer(30f, 0f, 10f, ColorUtils.setAlphaComponent(0xFF000000.toInt(), 60))
+            })
+            c.drawCircle(pill.left + 44f + dot / 2f, pill.centerY(), dot / 2f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = pal.bg })
+            c.drawText(label, pill.left + 44f + dot + 22f, pill.centerY() + 15f, tp)
+        }
+
+        // Top song (or the top tape on a day with only tapes)
+        val song = s.topSong
+        val tape = s.tapes.topTape
+        var y = rect.bottom + 132f
         if (song != null) {
-            text(c, "top song", cx, y - 26f - 30f, 32f, regular, pal.muted, W - 200)
-            text(c, song.title, cx, y + 20f, 56f, bold, pal.fg, W - 180)
+            textStart(c, "top song", M, y, 30f, regular, muted, contentW)
+            textStart(c, song.title, M, y + 74f, 64f, bold, fg, contentW)
             val plays = if (song.plays == 1) "1 play" else "${song.plays} plays"
-            text(c, "${song.artist}  ·  $plays", cx, y + 82f, 38f, regular, pal.muted, W - 200)
+            textStart(c, "${song.artist}  ·  $plays", M, y + 130f, 36f, regular, muted, contentW)
+        } else if (tape != null) {
+            textStart(c, "top tape", M, y, 30f, regular, muted, contentW)
+            textStart(c, tape.title, M, y + 74f, 64f, bold, fg, contentW)
+            textStart(c, tape.channel, M, y + 130f, 36f, regular, muted, contentW)
         }
 
-        // time / songs / artists
-        y = 1390f
-        val colW = (W - 160) / 3f
-        val values = listOf(
-            StatsFormat.duration(s.timeMs) to "listened",
-            s.songs.toString() to if (s.songs == 1) "song" else "songs",
-            s.artists.toString() to if (s.artists == 1) "artist" else "artists"
-        )
-        val box = RectF(80f, y - 130f, W - 80f, y + 90f)
-        c.drawRoundRect(box, 56f, 56f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = soft })
-        for ((i, v) in values.withIndex()) {
-            val x = 80f + colW * i + colW / 2f
-            text(c, v.first, x, y, 70f, bold, pal.fg, colW.toInt() - 20)
-            text(c, v.second, x, y + 56f, 34f, regular, pal.muted, colW.toInt() - 20)
+        // Time listened, large, with the counts stacked on the right
+        y = 1440f
+        c.drawRect(M, y, right, y + 2f, Paint().apply { color = hair })
+        textStart(c, "listened", M, y + 70f, 30f, regular, muted, 560)
+        textStart(c, StatsFormat.duration(s.totalMs), M, y + 178f, 112f, bold, fg, 600)
+        val counts = tiles(s).drop(1)
+        var cy = y + 78f + (3 - counts.size).coerceAtLeast(0) * 28f
+        for ((i, v) in counts.withIndex()) {
+            val face = if (i == 0) semi else regular
+            val col = if (i == 0) fg else muted
+            textEnd(c, "${v.first} ${v.second}", right, cy, 38f, face, col, 340)
+            cy += 56f
         }
 
-        // Top artist
-        val artist = s.topArtist
+        // Top artist (5.7.0 u51: the top channel on a day with tapes and no songs)
+        y = 1660f
+        c.drawRect(M, y, right, y + 2f, Paint().apply { color = hair })
+        val artist = pillPick(s)
         if (artist != null) {
-            val ay = 1610f
-            val r = 72f
-            val pillRect = RectF(80f, ay - r - 20f, W - 80f, ay + r + 20f)
-            c.drawRoundRect(pillRect, pillRect.height() / 2f, pillRect.height() / 2f,
-                Paint(Paint.ANTI_ALIAS_FLAG).apply { color = soft })
-            val photoRect = RectF(100f, ay - r, 100f + 2 * r, ay + r)
+            val r = 52f
+            val photoRect = RectF(M, y + 44f, M + 2 * r, y + 44f + 2 * r)
             if (artistPhoto != null) {
                 roundImage(c, artistPhoto, photoRect, r)
             } else {
-                c.drawOval(photoRect, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = pal.fg })
-                val initial = artist.name.trim().take(1).uppercase()
-                text(c, initial, photoRect.centerX(), ay + 24f, 70f, bold, pal.bg, 120)
+                c.drawOval(photoRect, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = fg })
+                text(c, artist.name.trim().take(1).uppercase(), photoRect.centerX(), photoRect.centerY() + 18f, 52f, bold, pal.bg, 90)
             }
-            val tx = photoRect.right + 36f
-            val maxW = (W - 120 - tx).toInt()
-            textStart(c, "top artist", tx, ay - 18f, 32f, regular, pal.muted, maxW)
-            textStart(c, artist.name, tx, ay + 44f, 52f, semi, pal.fg, maxW)
+            val tx = photoRect.right + 32f
+            val maxW = (right - tx).toInt()
+            textStart(c, artist.label, tx, photoRect.centerY() - 10f, 28f, regular, muted, maxW)
+            textStart(c, artist.name, tx, photoRect.centerY() + 40f, 46f, semi, fg, maxW)
         }
 
-        text(c, "my day on minim", cx, 1840f, 30f, regular, pal.muted, W - 200)
+        // Footer: the personality line, and the small minim mark
+        val line = persona?.line ?: ""
+        textStart(c, line, M, 1860f, 28f, regular, muted, 700)
+        textEnd(c, "minim", right, 1862f, 40f, medium, fg, 200)
         return bmp
+    }
+
+    /** 5.7.0 u51: the numbers row: listened (songs and tapes), songs, artists, and tapes when there were any. */
+    fun tiles(s: DayStats): List<Pair<String, String>> = buildList {
+        add(StatsFormat.duration(s.totalMs) to "listened")
+        add(s.songs.toString() to if (s.songs == 1) "song" else "songs")
+        add(s.artists.toString() to if (s.artists == 1) "artist" else "artists")
+        if (s.tapes.tapes > 0) add(s.tapes.tapes.toString() to if (s.tapes.tapes == 1) "tape" else "tapes")
+    }
+
+    class PillPick(val name: String, val label: String, val isChannel: Boolean)
+
+    /** 5.7.0 u51: the pill at the bottom: the top artist, or the top channel when there's no artist. */
+    fun pillPick(s: DayStats): PillPick? {
+        s.topArtist?.let { return PillPick(it.name, "top artist", false) }
+        s.tapes.topChannel?.let { return PillPick(it.name, "top channel", true) }
+        return null
     }
 
     private fun font(context: Context, id: Int, fallback: Typeface): Typeface =
@@ -164,6 +231,12 @@ object RecapCard {
     }
 
     /** Center-cropped into [rect] with rounded corners ([radius] = half the size for a circle). */
+    private fun textEnd(c: Canvas, s: String, x: Float, baseline: Float, size: Float, face: Typeface, color: Int, maxW: Int) {
+        val p = paint(size, face, color).apply { textAlign = Paint.Align.RIGHT }
+        val t = TextUtils.ellipsize(s, p, maxW.toFloat(), TextUtils.TruncateAt.END).toString()
+        c.drawText(t, x, baseline, p)
+    }
+
     private fun roundImage(c: Canvas, src: Bitmap, rect: RectF, radius: Float) {
         val shader = BitmapShader(src, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
         val scale = maxOf(rect.width() / src.width, rect.height() / src.height)

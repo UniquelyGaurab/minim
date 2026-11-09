@@ -80,7 +80,8 @@ object TodayLists {
 }
 
 /**
- * v4.9.2: the day streak in the Stats tab: days in a row with at least 10 minutes on Minim.
+ * v4.9.2: the day streak in the Stats tab: days in a row with at least 10 minutes on Minim
+ * (5.7.0 u51: songs and tapes together).
  * Today counts once it reaches 10 minutes, but today being under 10 minutes never breaks the
  * streak: it only resets after a whole past day goes by under 10 minutes.
  */
@@ -89,6 +90,14 @@ object DayStreak {
 
     /** Longest look back (a year), so a broken clock can't loop forever. */
     const val MAX_DAYS = 400
+
+    /** 5.7.0 u51: songs and tapes per day added together, so any listening keeps the streak. */
+    fun merge(songs: Map<Int, Long>, tapes: Map<Int, Long>): Map<Int, Long> {
+        if (tapes.isEmpty()) return songs
+        val out = HashMap(songs)
+        for ((d, ms) in tapes) out[d] = (out[d] ?: 0L) + ms
+        return out
+    }
 
     /** [msByDay] = listening time per day (yyyymmdd); days not in it count as 0. */
     fun count(today: Int, msByDay: Map<Int, Long>): Int {

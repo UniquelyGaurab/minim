@@ -26,26 +26,22 @@ class RecapStoryLogicTest {
         key: Int = 20261021
     ) = DayStats(key, timeMs, songs, artists, song, artist, peak, streak, false)
 
-    @Test fun fullDayGetsEverySlideWithCardLast() {
+    @Test fun planWithoutStoryDataKeepsTheCoreSlides() {
+        // 5.8.2: the old peak and streak slides are gone (the day in hours and the artist line replace them)
         assertEquals(
-            listOf(Kind.TIME, Kind.SONG, Kind.ARTIST, Kind.PEAK, Kind.STREAK, Kind.ROAST, Kind.CARD),
-            RecapSlides.plan(day(), hasRoast = true)
+            listOf(Kind.INTRO, Kind.TIME, Kind.TOP5, Kind.ARTIST, Kind.ROAST, Kind.PERSONA, Kind.CARD),
+            RecapSlides.plan(day(), RecapDay.NONE, hasRoast = true)
         )
     }
 
-    @Test fun slidesWithoutDataAreSkipped() {
-        val plan = RecapSlides.plan(day(song = null, artist = null, peak = -1, streak = null), hasRoast = false)
-        assertEquals(listOf(Kind.TIME, Kind.CARD), plan)
-    }
-
-    @Test fun shortOrBlankStreakIsSkipped() {
-        assertTrue(Kind.STREAK !in RecapSlides.plan(day(streak = Streak("Anirudh", 2)), true))
-        assertTrue(Kind.STREAK !in RecapSlides.plan(day(streak = Streak(" ", 5)), true))
+    @Test fun barelyAnythingGetsIntroTimeAndCard() {
+        val plan = RecapSlides.plan(day(song = null, artist = null, peak = -1, streak = null), RecapDay.NONE, hasRoast = false)
+        assertEquals(listOf(Kind.INTRO, Kind.TIME, Kind.PERSONA, Kind.CARD), plan)
     }
 
     @Test fun emptyDayIsJustTheCard() {
         val empty = DayStats.empty(20261021)
-        assertEquals(listOf(Kind.CARD), RecapSlides.plan(empty, hasRoast = RecapRoast.line(empty) != null))
+        assertEquals(listOf(Kind.INTRO, Kind.CARD), RecapSlides.plan(empty, RecapDay.NONE, hasRoast = RecapRoast.line(empty) != null))
     }
 
     @Test fun roastIsNullOnlyWhenNothingPlayed() {

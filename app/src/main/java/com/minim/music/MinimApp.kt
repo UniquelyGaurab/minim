@@ -224,6 +224,32 @@ open class MinimApp : Application() {
         )
     }
 
+    /**
+     * 5.8.1: Gemini lyrics for songs that have none. Only ever with your own key, only when you
+     * tap. Saved lyrics live in the no-backup folder (this phone only, never synced); the audio
+     * is put together in the cache and deleted right after the request.
+     */
+    val aiLyrics: com.minim.music.data.ai.AiLyricsMaker by lazy {
+        com.minim.music.data.ai.AiLyricsMaker(
+            store = com.minim.music.data.ai.AiLyricsStore(File(noBackupFilesDir, "ai_lyrics")),
+            audio = com.minim.music.data.ai.PhoneSongAudio(
+                workDir = File(cacheDir, "ai_lyrics_audio"),
+                offline = { if (this::offlineStore.isInitialized) offlineStore else null },
+                options = { id, fresh -> sourceAdapter.audioOptionsBlocking(id, fresh) },
+                fetcher = com.minim.music.data.offline.ParallelFetcher(
+                    okHttpClient.newBuilder().cache(null)
+                        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                        .build()
+                ),
+            ),
+            requester = com.minim.music.data.ai.GeminiAudioRequester(okHttpClient),
+            scope = kotlinx.coroutines.CoroutineScope(
+                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+            ),
+        )
+    }
+
     /** 5.7.0: the Gemini shelf on the Search page, made at most once a day. */
     val geminiShelfMaker: com.minim.music.data.ai.GeminiShelfMaker by lazy {
         com.minim.music.data.ai.GeminiShelfMaker(
