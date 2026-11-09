@@ -102,7 +102,7 @@ Every line has a `text`, where `\n` splits the two lines. Keep each line under 4
 - `{name}` is the saved name. A line that uses it only shows when a name is set.
 - Word placeholders: `{song}`, `{artist}`, `{last}`, `{lastartist}`, `{topsong}`, `{topartist}`, `{likedsong}`, `{likedartist}`, `{playlist}`, `{bigplaylist}` and `{weekday}`.
 - Number placeholders: `{plays}`, `{today}`, `{liked}`, `{topsongplays}`, `{topartistplays}`, `{artists}`, `{likedartistsongs}`, `{playlists}` and `{bigplaylistsongs}`.
-- Conditions work too: `min`, `max`, `needs`, `hours`, `days`, `playing` and `liked`. The main [README](../README.md#listening-greetings-510) explains each one.
+- Conditions work too: `min`, `max`, `needs`, `hours`, `days`, `playing` and `liked`. [`greetings/README.md`](../greetings/README.md#listening-greetings-510) explains each one.
 - Don't add `from`, `to`, `day` or `year`. The festival's own dates apply to all its lines.
 
 While the festival is on, only its lines rotate. The regular, time-of-day and listening greetings pause. Use `hours` for morning or night lines, like `"hours": "5-11"`. Put a good number of `anytime` lines in, because `stats` lines only show when their data is there. If none of the festival's lines can show at that moment, or it has none, the regular greetings carry on.
