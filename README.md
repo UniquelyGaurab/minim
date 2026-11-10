@@ -78,6 +78,7 @@ A chat that finds, plays and queues songs, opens artist pages, explains or trans
 - **Rotating greetings** on Home, including lines about what you're playing and how much you've listened.
 - **Festival themes** with their own wallpaper, colours and greetings.
 - **Haptic feedback**, album art gestures and HD artwork.
+- **Tidy Settings** in eight short groups, with option pills that slide over when you pick one.
 
 ### Account
 

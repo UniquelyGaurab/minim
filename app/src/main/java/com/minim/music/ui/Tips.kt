@@ -25,7 +25,7 @@ object Tips {
         "Long-press a song to add it to a playlist.",   // 7  song menu: Search, Recents, lists
         "Change gestures and track fade in Settings.",  // 8
         "Switch Light or Dark in Settings.",            // 9
-        "Set a sleep timer in Settings.",               // 10
+        "Set a sleep timer on Now Playing.",            // 10 5.8.4: was "in Settings", it lives on Now Playing
         "Search has songs picked from what you play.",   // 11 5.7.0: tap opens Search (Discover's shelves)
         "Not into a picked song? Long-press it.",        // 12 v4.3: "Not interested" on a shelf song
         "In full screen lyrics, tap a line to jump there."  // 13 5.1.0: tap a synced line to seek
@@ -34,7 +34,7 @@ object Tips {
     val count: Int get() = all.size
 
     /** Indexes that open Settings when the tip is tapped. */
-    val settingsTips = setOf(8, 9, 10)
+    val settingsTips = setOf(8, 9)
 
     fun isTrue(index: Int, p: AppPreferences): Boolean = when (index) {
         2 -> p.gestureDoubleTapAction == AppPreferences.GESTURE_DTAP_PLAY_PAUSE

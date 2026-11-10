@@ -4007,10 +4007,7 @@ class MainActivity : AppCompatActivity() {
         val needsKey = !app.geminiSettings.hasApiKey
         closeLyrics(animate = false)
         openSettings()
-        val header = findViewById<View>(R.id.set_gemini_header)
-        screenSettings.post {
-            (screenSettings as? ScrollView)?.smoothScrollTo(0, (header.top - dp(24f).toInt()).coerceAtLeast(0))
-        }
+        scrollSettingsTo(findViewById(R.id.set_gemini_header))
         if (needsKey) showGeminiKeySheet()
     }
 
@@ -4709,10 +4706,8 @@ class MainActivity : AppCompatActivity() {
         option(R.id.set_fade_off) { p.crossfadeSeconds = 0 }
         option(R.id.set_fade_2) { p.crossfadeSeconds = 2 }
         option(R.id.set_fade_4) { p.crossfadeSeconds = 4 }
-        option(R.id.set_haptics_on) {
-            p.hapticsEnabled = true
-            haptic(findViewById(R.id.set_haptics_on))
-        }
+        // The tick for turning haptics on comes from option() itself, once it's on
+        option(R.id.set_haptics_on) { p.hapticsEnabled = true }
         option(R.id.set_haptics_off) { p.hapticsEnabled = false }
 
         // Lyrics timing: - / + in 50 ms steps (hold to repeat), tap the value to reset to +300 ms
@@ -4728,8 +4723,13 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.set_clear_cache).setOnClickListener {
             app.artworkPipeline.clearAllCaches()
             app.lyricsProvider.clearCache()
-            Toast.makeText(this, R.string.cache_cleared, Toast.LENGTH_SHORT).show()
+            haptic(it)
+            showNote(getString(R.string.cache_cleared))
         }
+
+        // 5.8.4 u56: the long privacy notes fold away under a short "What ..." line
+        setupFold(R.id.account_privacy_toggle, R.id.account_privacy_chev, R.id.account_privacy)
+        setupFold(R.id.set_gemini_privacy_toggle, R.id.set_gemini_privacy_chev, R.id.set_gemini_privacy)
 
         // "4.1.0 (build 5)": the version without the "-debug" ending, then the build number
         var version = ""
@@ -4740,11 +4740,9 @@ class MainActivity : AppCompatActivity() {
             build = info.longVersionCode.toInt()
         } catch (_: Exception) {
         }
-        findViewById<TextView>(R.id.set_about).text = getString(R.string.about_text, version, build)
-
-        // v4.9.6: "Check for updates" with the version beside it
-        findViewById<TextView>(R.id.set_check_updates_version).text =
-            getString(R.string.update_settings_version, version)
+        // 5.8.4 u56: "Minim 5.8.4", with the build and sources under it, and the update check beside
+        findViewById<TextView>(R.id.set_about).text = getString(R.string.about_version, version)
+        findViewById<TextView>(R.id.set_about_build).text = getString(R.string.about_build, build)
         findViewById<View>(R.id.set_check_updates).setOnClickListener {
             haptic(it)
             checkForUpdatesNow()
@@ -4802,11 +4800,62 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** A settings option pill: runs [action], then refreshes which pills are selected. */
+    /**
+     * A settings choice (one option of a SegmentRow): runs [action], then refreshes which options
+     * are selected, which slides the thumb. 5.8.4 u56: a light tick when the choice changes, the
+     * same tick as the lyrics timing steps (none when haptics were just turned off).
+     */
     private fun option(id: Int, action: () -> Unit) {
-        findViewById<View>(id).setOnClickListener {
+        findViewById<View>(id).setOnClickListener { v ->
+            val changed = !v.isSelected
             action()
             renderSettingsOptions()
+            if (changed) haptic(v, HapticFeedbackConstants.CLOCK_TICK)
+        }
+    }
+
+    /** 5.8.4 u56: a short line that folds a longer note open and shut, chevron turning with it. */
+    private fun setupFold(toggleId: Int, chevId: Int, bodyId: Int) {
+        val toggle = findViewById<View>(toggleId)
+        val chev = findViewById<View>(chevId)
+        val body = findViewById<View>(bodyId)
+        fun describe(open: Boolean) {
+            androidx.core.view.ViewCompat.setStateDescription(
+                toggle, getString(if (open) R.string.fold_open else R.string.fold_closed)
+            )
+        }
+        describe(false)
+        toggle.setOnClickListener { v ->
+            val open = body.visibility != View.VISIBLE
+            haptic(v)
+            if (animationsOn()) {
+                android.transition.TransitionManager.beginDelayedTransition(
+                    findViewById(R.id.settings_content),
+                    android.transition.AutoTransition().apply {
+                        duration = 220L
+                        interpolator = android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)
+                    }
+                )
+                chev.animate().rotation(if (open) 180f else 0f).setDuration(220L).start()
+            } else {
+                chev.rotation = if (open) 180f else 0f
+            }
+            body.visibility = if (open) View.VISIBLE else View.GONE
+            describe(open)
+        }
+    }
+
+    /** 5.8.4 u56: scrolls Settings so [target] (anywhere inside it) sits near the top. */
+    private fun scrollSettingsTo(target: View) {
+        screenSettings.post {
+            val content = findViewById<View>(R.id.settings_content)
+            var y = 0
+            var v: View? = target
+            while (v != null && v !== content) {
+                y += v.top
+                v = v.parent as? View
+            }
+            (screenSettings as? ScrollView)?.smoothScrollTo(0, (y - dp(24f).toInt()).coerceAtLeast(0))
         }
     }
 
@@ -8258,8 +8307,8 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val bytes = withContext(Dispatchers.IO) { app.offlineStore.bytesUsed() }
             val any = app.offlineStore.saved.value.isNotEmpty() || app.offline.busy
-            label.text = if (app.offlineStore.saved.value.isEmpty()) getString(R.string.offline_storage_none)
-            else getString(R.string.offline_storage, android.text.format.Formatter.formatShortFileSize(this@MainActivity, bytes))
+            label.text = if (app.offlineStore.saved.value.isEmpty()) getString(R.string.offline_size_none)
+            else android.text.format.Formatter.formatShortFileSize(this@MainActivity, bytes)
             removeAll.visibility = if (any) View.VISIBLE else View.GONE
         }
     }
@@ -9391,10 +9440,7 @@ class MainActivity : AppCompatActivity() {
 
         override fun openGeminiSettings() {
             openSettings()
-            val header = findViewById<View>(R.id.set_gemini_header)
-            screenSettings.post {
-                (screenSettings as? ScrollView)?.smoothScrollTo(0, (header.top - dp(24f).toInt()).coerceAtLeast(0))
-            }
+            scrollSettingsTo(findViewById(R.id.set_gemini_header))
         }
 
         override fun modelLabel(): String = geminiModelLabel()
@@ -9417,7 +9463,8 @@ class MainActivity : AppCompatActivity() {
     // ------------------------------------------------------------------------------------------
 
     private fun setupGeminiSettings() {
-        findViewById<View>(R.id.set_gemini_model_pick).setOnClickListener { v ->
+        // 5.8.4 u56: the whole Model row opens the picker, not just the name
+        findViewById<View>(R.id.set_gemini_model_row).setOnClickListener { v ->
             haptic(v)
             showGeminiModelSheet()
         }
@@ -9451,10 +9498,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderGeminiSettings() {
         val s = app.geminiSettings
-        findViewById<TextView>(R.id.set_gemini_model_pick).apply {
-            text = geminiModelLabel() + "  ▾"
-            contentDescription = getString(R.string.set_gemini_model) + ": " + geminiModelLabel()
-        }
+        findViewById<TextView>(R.id.set_gemini_model_pick).text = geminiModelLabel()
+        findViewById<View>(R.id.set_gemini_model_row).contentDescription =
+            getString(R.string.set_gemini_model_desc, geminiModelLabel())
         val key = if (s.hasApiKey) s.apiKey() else null
         findViewById<TextView>(R.id.set_gemini_key_status).text =
             if (key != null) getString(R.string.set_gemini_key_set, GeminiSettings.masked(key))

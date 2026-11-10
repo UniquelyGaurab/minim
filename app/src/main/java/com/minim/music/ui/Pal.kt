@@ -83,6 +83,7 @@ object Painter {
         if (tag != null) paintOne(view, tag, p)
         if (view is ProgressLine) view.setColors(p.fg, p.muted)
         if (view is AvatarView) view.setColors(p.fg)
+        if (view is SegmentRow) view.setColors(p.fg, p.bg)
         if (view is ViewGroup) {
             for (i in 0 until view.childCount) paint(view.getChildAt(i), p)
         }

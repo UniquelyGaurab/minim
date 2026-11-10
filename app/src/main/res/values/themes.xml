@@ -50,6 +50,63 @@
         <item name="android:fontFamily">@font/poppins_semibold</item>
         <item name="android:textSize">12sp</item>
     </style>
+    <!-- 5.8.4 u56: the Settings page. Group names, a label per setting, an optional one-line
+         hint, then a SegmentRow (one soft track, a sliding thumb) or a soft action pill. -->
+    <style name="MinimSet" />
+    <style name="MinimSet.Group" parent="MinimText.Semi">
+        <item name="android:textSize">18sp</item>
+        <item name="android:tag">text:fg</item>
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+    </style>
+    <style name="MinimSet.Label" parent="MinimText">
+        <item name="android:textSize">14sp</item>
+        <item name="android:tag">text:fg</item>
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">24dp</item>
+    </style>
+    <style name="MinimSet.Hint" parent="MinimText">
+        <item name="android:textSize">11.5sp</item>
+        <item name="android:lineSpacingExtra">2dp</item>
+        <item name="android:tag">text:muted</item>
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">3dp</item>
+    </style>
+    <style name="MinimSet.Segments">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">44dp</item>
+        <item name="android:layout_marginTop">12dp</item>
+    </style>
+    <style name="MinimSet.Seg" parent="MinimText">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:paddingStart">6dp</item>
+        <item name="android:paddingEnd">6dp</item>
+        <item name="android:tag">seg</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+    <style name="MinimSet.Action" parent="MinimText.Semi">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minHeight">40dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textSize">12.5sp</item>
+        <item name="android:paddingStart">18dp</item>
+        <item name="android:paddingEnd">18dp</item>
+        <item name="android:background">@drawable/shape_pill</item>
+        <item name="android:tag">fill:soft text:fg</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
     <style name="MinimText.Option">
         <item name="android:textSize">12sp</item>
         <item name="android:gravity">center</item>

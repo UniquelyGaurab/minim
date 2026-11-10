@@ -2,6 +2,20 @@
 
 Every Minim release, newest first. Download any of them from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page.
 
+## 5.8.4 (2026-11-10)
+
+- **Settings, regrouped:** the page is now eight short groups: You, Look, Sound, Lyrics, Gestures, Gemini, Storage and About. Each has a bold title with space around it, and each setting has one short label, with a one-line note only where it helps
+- **Sliding option pills:** every choice is one soft pill across the full width. Tap an option and the solid pill behind it slides over in its colours from the playing song's cover, with a light tick if Haptic feedback is on
+- **Things moved:** your name is under You, next to your account. Haptic feedback is under Gestures. Lyrics style and timing are Style and Timing under Lyrics. Offline songs and the image cache sit under Storage, each with its own button
+- **Privacy text folds away:** "What Minim can see" and "What gets sent" are short lines that open when you tap them
+- **Gemini model:** the whole Model row opens the picker
+- **About:** "Minim 5.8.4" sits next to Check for updates, with the build and sources on a small line under it
+- **Sleep timer tip:** the Home tip now says "Set a sleep timer on Now Playing.", where the timer actually is, and no longer opens Settings
+
+Every setting is still there and keeps its saved value.
+
+Download Minim-v5.8.4.apk from the release (Android 9 or newer). It installs over 5.8.3 and keeps your library, settings and account.
+
 ## 5.8.3 (2026-11-09)
 
 - **Gemini lyrics:** a song with no lyrics now shows "No lyrics for this one" with a **Get lyrics with Gemini** button. Tap it and Gemini listens to the song and writes synced lyrics, using your own AI Studio key and the model you picked in Settings. Five small bars move in the cover's colours while it says "Listening…", with Cancel. Nothing is sent until you tap, and without a key the button takes you straight to the key in Settings → Gemini

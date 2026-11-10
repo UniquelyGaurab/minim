@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 5.8.4 u56: Settings, the minim way. Was one long list of 17 equal headings with small
+     outline pills; now eight short groups (You, Look, Sound, Lyrics, Gestures, Gemini, Storage,
+     About), one label per setting, a one-line hint only where it helps, and every choice is a
+     SegmentRow: one soft track with a sliding thumb behind the chosen option (44dp tall, the
+     whole row width, so every option is easy to hit). Long privacy text folds away. All the old
+     ids are kept, so the settings code and the saved values are untouched. -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/screen_settings"
     android:layout_width="match_parent"
@@ -15,14 +21,15 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingStart="34dp"
+        android:paddingStart="30dp"
         android:paddingEnd="30dp"
-        android:paddingBottom="40dp">
+        android:paddingBottom="56dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginEnd="-12dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -31,876 +38,841 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:accessibilityHeading="true"
                 android:tag="text:fg"
                 android:text="@string/settings"
-                android:textSize="22sp" />
+                android:textSize="26sp" />
 
             <ImageView
                 android:id="@+id/settings_close"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/close"
-                android:padding="9dp"
+                android:padding="13dp"
                 android:src="@drawable/ic_close"
                 android:tag="tint:fg" />
         </LinearLayout>
 
-        <!-- v5.0: Account (optional Google sign-in for sync). Hidden in builds without Firebase. -->
+        <!-- You: account (hidden in builds without Firebase) and your name -->
         <LinearLayout
-            android:id="@+id/settings_account"
+            android:id="@+id/settings_group_you"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
             android:orientation="vertical">
 
             <TextView
-                style="@style/MinimText.Section"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="26dp"
-                android:tag="text:fg"
-                android:text="@string/account_title" />
+                style="@style/MinimSet.Group"
+                android:accessibilityHeading="true"
+                android:text="@string/settings_group_you" />
 
-            <!-- Signed out -->
             <LinearLayout
-                android:id="@+id/account_signed_out"
+                android:id="@+id/settings_account"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
+
+                <!-- Signed out -->
+                <LinearLayout
+                    android:id="@+id/account_signed_out"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        style="@style/MinimSet.Label"
+                        android:text="@string/account_title" />
+
+                    <TextView
+                        style="@style/MinimSet.Hint"
+                        android:text="@string/account_pitch" />
+
+                    <TextView
+                        android:id="@+id/account_sign_in"
+                        style="@style/MinimSet.Action"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="14dp"
+                        android:paddingStart="22dp"
+                        android:paddingEnd="22dp"
+                        android:tag="fill:fg text:bg"
+                        android:text="@string/account_sign_in"
+                        android:textSize="13sp" />
+                </LinearLayout>
+
+                <!-- Signed in -->
+                <LinearLayout
+                    android:id="@+id/account_signed_in"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="18dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <com.minim.music.ui.AvatarView
+                            android:id="@+id/account_avatar"
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:importantForAccessibility="no" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="14dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/account_name"
+                                style="@style/MinimText.Semi"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:singleLine="true"
+                                android:tag="text:fg"
+                                android:textSize="15sp" />
+
+                            <TextView
+                                android:id="@+id/account_status"
+                                style="@style/MinimSet.Hint"
+                                android:text="@string/account_sync_on" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- Why the last sync didn't go through (offline, refused, ...) -->
+                    <TextView
+                        android:id="@+id/account_sync_problem"
+                        style="@style/MinimSet.Hint"
+                        android:layout_marginTop="12dp"
+                        android:fontFamily="@font/poppins_semibold"
+                        android:tag="text:fg"
+                        android:visibility="gone" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="14dp"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/account_sign_out"
+                            style="@style/MinimSet.Action"
+                            android:layout_marginEnd="8dp"
+                            android:text="@string/account_sign_out" />
+
+                        <TextView
+                            android:id="@+id/account_delete"
+                            style="@style/MinimSet.Action"
+                            android:text="@string/account_delete" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Errors (offline, cancelled, no Google account, ...) -->
+                <TextView
+                    android:id="@+id/account_message"
+                    style="@style/MinimSet.Hint"
+                    android:layout_marginTop="10dp"
+                    android:fontFamily="@font/poppins_semibold"
+                    android:tag="text:fg"
+                    android:visibility="gone" />
+
+                <!-- What Minim can see: folded away, tap to read -->
+                <LinearLayout
+                    android:id="@+id/account_privacy_toggle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:layout_marginTop="6dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        style="@style/MinimText.Semi"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:tag="text:muted"
+                        android:text="@string/account_privacy_toggle"
+                        android:textSize="12sp" />
+
+                    <ImageView
+                        android:id="@+id/account_privacy_chev"
+                        android:layout_width="16dp"
+                        android:layout_height="16dp"
+                        android:layout_marginStart="4dp"
+                        android:importantForAccessibility="no"
+                        android:src="@drawable/ic_chevron_down"
+                        android:tag="tint:muted" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/account_privacy"
+                    style="@style/MinimSet.Hint"
+                    android:layout_width="match_parent"
+                    android:layout_marginTop="0dp"
+                    android:text="@string/account_privacy"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <TextView
+                style="@style/MinimSet.Label"
+                android:labelFor="@id/settings_name"
+                android:text="@string/settings_name" />
+
+            <EditText
+                android:id="@+id/settings_name"
+                style="@style/MinimText"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/shape_pill"
+                android:hint="@string/settings_name_hint"
+                android:imeOptions="actionDone"
+                android:importantForAutofill="no"
+                android:inputType="textPersonName|textCapWords"
+                android:maxLength="20"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:singleLine="true"
+                android:tag="fill:soft text:fg"
+                android:textCursorDrawable="@null"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <!-- Look -->
+        <LinearLayout
+            android:id="@+id/settings_group_look"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="48dp"
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/MinimSet.Group"
+                android:accessibilityHeading="true"
+                android:text="@string/settings_group_look" />
+
+            <TextView
+                style="@style/MinimSet.Label"
+                android:text="@string/settings_theme" />
+
+            <com.minim.music.ui.SegmentRow style="@style/MinimSet.Segments">
+
+                <TextView
+                    android:id="@+id/set_theme_light"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/theme_light" />
+
+                <TextView
+                    android:id="@+id/set_theme_dark"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/theme_dark" />
+            </com.minim.music.ui.SegmentRow>
+
+            <TextView
+                style="@style/MinimSet.Label"
+                android:text="@string/settings_colours" />
+
+            <TextView
+                style="@style/MinimSet.Hint"
+                android:text="@string/colours_hint" />
+
+            <com.minim.music.ui.SegmentRow style="@style/MinimSet.Segments">
+
+                <TextView
+                    android:id="@+id/set_colours_dynamic"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/colours_dynamic" />
+
+                <TextView
+                    android:id="@+id/set_colours_default"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/colours_default" />
+            </com.minim.music.ui.SegmentRow>
+        </LinearLayout>
+
+        <!-- Sound -->
+        <LinearLayout
+            android:id="@+id/settings_group_sound"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="48dp"
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/MinimSet.Group"
+                android:accessibilityHeading="true"
+                android:text="@string/settings_group_sound" />
+
+            <TextView
+                style="@style/MinimSet.Label"
+                android:text="@string/settings_boost" />
+
+            <TextView
+                style="@style/MinimSet.Hint"
+                android:text="@string/boost_hint_short" />
+
+            <com.minim.music.ui.SegmentRow style="@style/MinimSet.Segments">
+
+                <TextView
+                    android:id="@+id/set_boost_off"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_off" />
+
+                <TextView
+                    android:id="@+id/set_boost_normal"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_boost_normal" />
+
+                <TextView
+                    android:id="@+id/set_boost_loud"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_boost_loud" />
+            </com.minim.music.ui.SegmentRow>
+
+            <TextView
+                style="@style/MinimSet.Label"
+                android:text="@string/settings_bass" />
+
+            <TextView
+                style="@style/MinimSet.Hint"
+                android:text="@string/bass_hint_short" />
+
+            <com.minim.music.ui.SegmentRow style="@style/MinimSet.Segments">
+
+                <TextView
+                    android:id="@+id/set_bass_off"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_off" />
+
+                <TextView
+                    android:id="@+id/set_bass_warm"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_bass_warm" />
+
+                <TextView
+                    android:id="@+id/set_bass_punchy"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_bass_punchy" />
+
+                <TextView
+                    android:id="@+id/set_bass_heavy"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_bass_heavy" />
+            </com.minim.music.ui.SegmentRow>
+
+            <TextView
+                style="@style/MinimSet.Label"
+                android:text="@string/settings_fade" />
+
+            <TextView
+                style="@style/MinimSet.Hint"
+                android:text="@string/fade_hint" />
+
+            <com.minim.music.ui.SegmentRow style="@style/MinimSet.Segments">
+
+                <TextView
+                    android:id="@+id/set_fade_off"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_off" />
+
+                <TextView
+                    android:id="@+id/set_fade_2"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_fade_2" />
+
+                <TextView
+                    android:id="@+id/set_fade_4"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_fade_4" />
+            </com.minim.music.ui.SegmentRow>
+        </LinearLayout>
+
+        <!-- Lyrics -->
+        <LinearLayout
+            android:id="@+id/settings_group_lyrics"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="48dp"
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/MinimSet.Group"
+                android:accessibilityHeading="true"
+                android:text="@string/settings_group_lyrics" />
+
+            <TextView
+                style="@style/MinimSet.Label"
+                android:text="@string/settings_lyrics_style_short" />
+
+            <TextView
+                style="@style/MinimSet.Hint"
+                android:text="@string/lyrics_style_hint_short" />
+
+            <com.minim.music.ui.SegmentRow style="@style/MinimSet.Segments">
+
+                <TextView
+                    android:id="@+id/set_lyrics_flow"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_lyrics_flow" />
+
+                <TextView
+                    android:id="@+id/set_lyrics_line"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_lyrics_line" />
+            </com.minim.music.ui.SegmentRow>
+
+            <TextView
+                style="@style/MinimSet.Label"
+                android:text="@string/settings_lyrics_timing_short" />
+
+            <TextView
+                style="@style/MinimSet.Hint"
+                android:text="@string/lyrics_timing_hint" />
+
+            <!-- The stepper: − value +, on the same soft track as the choices -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/shape_pill"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:tag="fill:soft">
+
+                <TextView
+                    android:id="@+id/set_lyrics_minus"
+                    style="@style/MinimText.Semi"
+                    android:layout_width="64dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginBottom="0dp"
+                    android:clickable="true"
+                    android:contentDescription="@string/lyrics_timing_later"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:tag="text:fg"
+                    android:text="@string/lyrics_timing_minus"
+                    android:textSize="18sp" />
+
+                <TextView
+                    android:id="@+id/set_lyrics_value"
+                    style="@style/MinimText.Semi"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:clickable="true"
+                    android:contentDescription="@string/lyrics_timing_reset"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:tag="text:fg"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/set_lyrics_plus"
+                    style="@style/MinimText.Semi"
+                    android:layout_width="64dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginBottom="0dp"
+                    android:clickable="true"
+                    android:contentDescription="@string/lyrics_timing_earlier"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:tag="text:fg"
+                    android:text="@string/lyrics_timing_plus"
+                    android:textSize="18sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Gestures (on the album art in Now Playing) and haptics -->
+        <LinearLayout
+            android:id="@+id/settings_group_gestures"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="48dp"
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/MinimSet.Group"
+                android:accessibilityHeading="true"
+                android:text="@string/settings_group_gestures" />
+
+            <TextView
+                style="@style/MinimSet.Hint"
+                android:layout_marginTop="4dp"
+                android:text="@string/gestures_hint" />
+
+            <TextView
+                style="@style/MinimSet.Label"
+                android:layout_marginTop="20dp"
+                android:text="@string/gesture_swipe" />
+
+            <com.minim.music.ui.SegmentRow style="@style/MinimSet.Segments">
+
+                <TextView
+                    android:id="@+id/set_swipe_skip"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_skip" />
+
+                <TextView
+                    android:id="@+id/set_swipe_off"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_off" />
+            </com.minim.music.ui.SegmentRow>
+
+            <TextView
+                style="@style/MinimSet.Label"
+                android:text="@string/gesture_double_tap" />
+
+            <com.minim.music.ui.SegmentRow style="@style/MinimSet.Segments">
+
+                <TextView
+                    android:id="@+id/set_dtap_play"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_play_pause" />
+
+                <TextView
+                    android:id="@+id/set_dtap_like"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/like" />
+
+                <TextView
+                    android:id="@+id/set_dtap_off"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_off" />
+            </com.minim.music.ui.SegmentRow>
+
+            <TextView
+                style="@style/MinimSet.Label"
+                android:text="@string/gesture_long_press" />
+
+            <com.minim.music.ui.SegmentRow style="@style/MinimSet.Segments">
+
+                <TextView
+                    android:id="@+id/set_lpress_lyrics"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_lyrics" />
+
+                <TextView
+                    android:id="@+id/set_lpress_off"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_off" />
+            </com.minim.music.ui.SegmentRow>
+
+            <TextView
+                style="@style/MinimSet.Label"
+                android:text="@string/settings_haptics" />
+
+            <com.minim.music.ui.SegmentRow style="@style/MinimSet.Segments">
+
+                <TextView
+                    android:id="@+id/set_haptics_on"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_on" />
+
+                <TextView
+                    android:id="@+id/set_haptics_off"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/opt_off" />
+            </com.minim.music.ui.SegmentRow>
+        </LinearLayout>
+
+        <!-- Gemini: model (opens the picker sheet), your own key, the device token -->
+        <LinearLayout
+            android:id="@+id/settings_group_gemini"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="48dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/set_gemini_header"
+                style="@style/MinimSet.Group"
+                android:accessibilityHeading="true"
+                android:text="@string/set_gemini" />
+
+            <LinearLayout
+                android:id="@+id/set_gemini_privacy_toggle"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginTop="2dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    style="@style/MinimText.Semi"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:tag="text:muted"
+                    android:text="@string/set_gemini_privacy_toggle"
+                    android:textSize="12sp" />
+
+                <ImageView
+                    android:id="@+id/set_gemini_privacy_chev"
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:layout_marginStart="4dp"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_chevron_down"
+                    android:tag="tint:muted" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/set_gemini_privacy"
+                style="@style/MinimSet.Hint"
+                android:layout_width="match_parent"
+                android:layout_marginTop="0dp"
+                android:text="@string/set_gemini_privacy"
+                android:visibility="gone" />
+
+            <!-- Model: label on the left, the picked model on the right; the row opens the sheet -->
+            <LinearLayout
+                android:id="@+id/set_gemini_model_row"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="16dp"
+                android:background="@drawable/shape_pill"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="20dp"
+                android:paddingEnd="14dp"
+                android:tag="fill:soft">
 
                 <TextView
                     style="@style/MinimText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:lineSpacingExtra="3dp"
-                    android:tag="text:muted"
-                    android:text="@string/account_pitch"
-                    android:textSize="11sp" />
+                    android:importantForAccessibility="no"
+                    android:tag="text:fg"
+                    android:text="@string/set_gemini_model" />
 
                 <TextView
-                    android:id="@+id/account_sign_in"
+                    android:id="@+id/set_gemini_model_pick"
                     style="@style/MinimText.Semi"
-                    android:layout_width="wrap_content"
-                    android:layout_height="38dp"
-                    android:layout_marginTop="12dp"
-                    android:background="@drawable/shape_pill"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:paddingStart="20dp"
-                    android:paddingEnd="20dp"
-                    android:tag="fill:fg text:bg"
-                    android:text="@string/account_sign_in"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:gravity="end"
+                    android:importantForAccessibility="no"
+                    android:singleLine="true"
+                    android:tag="text:fg"
                     android:textSize="13sp" />
+
+                <ImageView
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_marginStart="6dp"
+                    android:importantForAccessibility="no"
+                    android:rotation="-90"
+                    android:src="@drawable/ic_chevron_down"
+                    android:tag="tint:muted" />
             </LinearLayout>
 
-            <!-- Signed in -->
+            <TextView
+                style="@style/MinimSet.Label"
+                android:text="@string/set_gemini_key" />
+
+            <TextView
+                android:id="@+id/set_gemini_key_status"
+                style="@style/MinimSet.Hint"
+                android:layout_width="match_parent" />
+
             <LinearLayout
-                android:id="@+id/account_signed_in"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/set_gemini_key_add"
+                    style="@style/MinimSet.Action"
+                    android:layout_marginEnd="8dp"
+                    android:text="@string/set_gemini_key_add" />
+
+                <TextView
+                    android:id="@+id/set_gemini_key_remove"
+                    style="@style/MinimSet.Action"
+                    android:text="@string/set_gemini_key_remove"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <!-- 5.3.2: App Check debug token for Minim's built-in Gemini (hidden without the Firebase file) -->
+            <LinearLayout
+                android:id="@+id/set_gemini_token_box"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:visibility="gone">
 
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <com.minim.music.ui.AvatarView
-                        android:id="@+id/account_avatar"
-                        android:layout_width="44dp"
-                        android:layout_height="44dp"
-                        android:importantForAccessibility="no" />
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="12dp"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:id="@+id/account_name"
-                            style="@style/MinimText.Semi"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:ellipsize="end"
-                            android:singleLine="true"
-                            android:tag="text:fg"
-                            android:textSize="15sp" />
-
-                        <TextView
-                            android:id="@+id/account_status"
-                            style="@style/MinimText"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="3dp"
-                            android:tag="text:muted"
-                            android:text="@string/account_sync_on"
-                            android:textSize="11sp" />
-                    </LinearLayout>
-                </LinearLayout>
-
-                <!-- 5.0.0 part 2c: why the last sync didn't go through (offline, refused, ...) -->
                 <TextView
-                    android:id="@+id/account_sync_problem"
-                    style="@style/MinimText.Semi"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:lineSpacingExtra="3dp"
-                    android:tag="text:fg"
-                    android:textSize="11sp"
-                    android:visibility="gone" />
+                    style="@style/MinimSet.Label"
+                    android:text="@string/set_gemini_token" />
+
+                <TextView
+                    android:id="@+id/set_gemini_token_value"
+                    style="@style/MinimSet.Hint"
+                    android:layout_width="match_parent"
+                    android:fontFamily="monospace" />
+
+                <TextView
+                    style="@style/MinimSet.Hint"
+                    android:layout_width="match_parent"
+                    android:text="@string/set_gemini_token_howto" />
+
+                <TextView
+                    android:id="@+id/set_gemini_token_copy"
+                    style="@style/MinimSet.Action"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/set_gemini_token_copy" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Storage: what Minim keeps on the phone, each with its own button -->
+        <LinearLayout
+            android:id="@+id/settings_group_storage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="48dp"
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/MinimSet.Group"
+                android:accessibilityHeading="true"
+                android:text="@string/settings_storage" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
+                android:minHeight="48dp"
+                android:orientation="horizontal">
 
                 <LinearLayout
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:orientation="horizontal">
+                    android:layout_weight="1"
+                    android:orientation="vertical">
 
                     <TextView
-                        android:id="@+id/account_sign_out"
-                        style="@style/MinimText.Option"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:focusable="true"
-                        android:text="@string/account_sign_out" />
+                        style="@style/MinimSet.Label"
+                        android:layout_marginTop="0dp"
+                        android:text="@string/settings_offline" />
 
                     <TextView
-                        android:id="@+id/account_delete"
-                        style="@style/MinimText.Option"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:focusable="true"
-                        android:text="@string/account_delete" />
+                        android:id="@+id/set_offline_storage"
+                        style="@style/MinimSet.Hint" />
                 </LinearLayout>
+
+                <TextView
+                    android:id="@+id/set_offline_remove_all"
+                    style="@style/MinimSet.Action"
+                    android:layout_marginStart="12dp"
+                    android:text="@string/offline_remove_all"
+                    android:visibility="gone" />
             </LinearLayout>
 
-            <!-- Errors (offline, cancelled, no Google account, ...) -->
-            <TextView
-                android:id="@+id/account_message"
-                style="@style/MinimText.Semi"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:lineSpacingExtra="3dp"
-                android:tag="text:fg"
-                android:textSize="11sp"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/account_privacy"
-                style="@style/MinimText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:lineSpacingExtra="3dp"
-                android:tag="text:muted"
-                android:text="@string/account_privacy"
-                android:textSize="11sp" />
-        </LinearLayout>
-
-        <!-- Your name -->
-        <TextView
-            style="@style/MinimText.Section"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="26dp"
-            android:tag="text:fg"
-            android:text="@string/settings_name" />
-
-        <EditText
-            android:id="@+id/settings_name"
-            style="@style/MinimText"
-            android:layout_width="match_parent"
-            android:layout_height="38dp"
-            android:layout_marginTop="10dp"
-            android:background="@drawable/shape_pill_outline"
-            android:hint="@string/settings_name_hint"
-            android:imeOptions="actionDone"
-            android:importantForAutofill="no"
-            android:inputType="textPersonName|textCapWords"
-            android:maxLength="20"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:singleLine="true"
-            android:tag="fill:fg text:fg"
-            android:textCursorDrawable="@null"
-            android:textSize="13sp" />
-
-        <!-- Theme -->
-        <TextView
-            style="@style/MinimText.Section"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="26dp"
-            android:tag="text:fg"
-            android:text="@string/settings_theme" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/set_theme_light"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/theme_light" />
-
-            <TextView
-                android:id="@+id/set_theme_dark"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/theme_dark" />
-        </LinearLayout>
-
-        <!-- v4.9.4: Colours (Dynamic from the song cover, or Default black and white) -->
-        <TextView
-            style="@style/MinimText.Section"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
-            android:tag="text:fg"
-            android:text="@string/settings_colours" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/set_colours_dynamic"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/colours_dynamic" />
-
-            <TextView
-                android:id="@+id/set_colours_default"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/colours_default" />
-        </LinearLayout>
-
-        <!-- Album art gestures -->
-        <TextView
-            style="@style/MinimText.Section"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
-            android:tag="text:fg"
-            android:text="@string/settings_gestures" />
-
-        <TextView
-            style="@style/MinimText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:tag="text:fg"
-            android:text="@string/gesture_swipe"
-            android:textSize="12sp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/set_swipe_skip"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_skip" />
-
-            <TextView
-                android:id="@+id/set_swipe_off"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_off" />
-        </LinearLayout>
-
-        <TextView
-            style="@style/MinimText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:tag="text:fg"
-            android:text="@string/gesture_double_tap"
-            android:textSize="12sp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/set_dtap_play"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_play_pause" />
-
-            <TextView
-                android:id="@+id/set_dtap_like"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/like" />
-
-            <TextView
-                android:id="@+id/set_dtap_off"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_off" />
-        </LinearLayout>
-
-        <TextView
-            style="@style/MinimText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:tag="text:fg"
-            android:text="@string/gesture_long_press"
-            android:textSize="12sp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/set_lpress_lyrics"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_lyrics" />
-
-            <TextView
-                android:id="@+id/set_lpress_off"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_off" />
-        </LinearLayout>
-
-        <!-- Volume boost (v4.4) -->
-        <TextView
-            style="@style/MinimText.Section"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
-            android:tag="text:fg"
-            android:text="@string/settings_boost" />
-
-        <TextView
-            style="@style/MinimText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:tag="text:muted"
-            android:text="@string/boost_hint"
-            android:textSize="11sp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/set_boost_off"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_off" />
-
-            <TextView
-                android:id="@+id/set_boost_normal"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_boost_normal" />
-
-            <TextView
-                android:id="@+id/set_boost_loud"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_boost_loud" />
-        </LinearLayout>
-
-        <!-- Bass boost (5.5.2, update 40): Minim's own low shelf + limiter -->
-        <TextView
-            style="@style/MinimText.Section"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
-            android:tag="text:fg"
-            android:text="@string/settings_bass" />
-
-        <TextView
-            style="@style/MinimText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:tag="text:muted"
-            android:text="@string/bass_hint"
-            android:textSize="11sp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/set_bass_off"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_off" />
-
-            <TextView
-                android:id="@+id/set_bass_warm"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_bass_warm" />
-
-            <TextView
-                android:id="@+id/set_bass_punchy"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_bass_punchy" />
-
-            <TextView
-                android:id="@+id/set_bass_heavy"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_bass_heavy" />
-        </LinearLayout>
-
-        <!-- Track fade -->
-        <TextView
-            style="@style/MinimText.Section"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
-            android:tag="text:fg"
-            android:text="@string/settings_fade" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/set_fade_off"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_off" />
-
-            <TextView
-                android:id="@+id/set_fade_2"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_fade_2" />
-
-            <TextView
-                android:id="@+id/set_fade_4"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_fade_4" />
-        </LinearLayout>
-
-        <!-- Haptic feedback (v4.2) -->
-        <TextView
-            style="@style/MinimText.Section"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
-            android:tag="text:fg"
-            android:text="@string/settings_haptics" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/set_haptics_on"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_on" />
-
-            <TextView
-                android:id="@+id/set_haptics_off"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_off" />
-        </LinearLayout>
-
-        <!-- Lyrics timing (v4.2.5) -->
-        <TextView
-            style="@style/MinimText.Section"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
-            android:tag="text:fg"
-            android:text="@string/settings_lyrics_timing" />
-
-        <TextView
-            style="@style/MinimText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:tag="text:muted"
-            android:text="@string/lyrics_timing_hint"
-            android:textSize="11sp" />
-
-        <!-- v4.9.7: centred rows must not use the pills' bottom margin. LinearLayout centres
-             with (space - height) / 2 + top - bottom margin, so the 8dp margin pulled the pills
-             4dp above the row and cut their tops off. The row keeps the 8dp gap below instead. -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:layout_marginBottom="8dp"
-            android:baselineAligned="false"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/set_lyrics_minus"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="0dp"
-                android:contentDescription="@string/lyrics_timing_later"
-                android:minWidth="44dp"
-                android:text="@string/lyrics_timing_minus"
-                android:textSize="16sp" />
-
-            <TextView
-                android:id="@+id/set_lyrics_value"
-                style="@style/MinimText.Semi"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="8dp"
-                android:clickable="true"
-                android:focusable="true"
-                android:gravity="center"
-                android:minWidth="84dp"
-                android:minHeight="34dp"
-                android:tag="text:fg"
-                android:textSize="14sp" />
-
-            <TextView
-                android:id="@+id/set_lyrics_plus"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="0dp"
-                android:contentDescription="@string/lyrics_timing_earlier"
-                android:minWidth="44dp"
-                android:text="@string/lyrics_timing_plus"
-                android:textSize="16sp" />
-        </LinearLayout>
-
-        <!-- Lyrics style (v4.9.8 part 4): Flow lights the full screen lyrics up word by word -->
-        <TextView
-            style="@style/MinimText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:tag="text:fg"
-            android:text="@string/settings_lyrics_style"
-            android:textSize="12sp" />
-
-        <TextView
-            style="@style/MinimText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:tag="text:muted"
-            android:text="@string/lyrics_style_hint"
-            android:textSize="11sp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/set_lyrics_flow"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_lyrics_flow" />
-
-            <TextView
-                android:id="@+id/set_lyrics_line"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/opt_lyrics_line" />
-        </LinearLayout>
-
-        <!-- 5.7.0 u47: the sleep timer moved to Now Playing's menu only -->
-
-        <!-- 5.2.0: Gemini chat. Model picker (a dropdown sheet) and your own AI Studio key -->
-        <TextView
-            android:id="@+id/set_gemini_header"
-            style="@style/MinimText.Section"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
-            android:tag="text:fg"
-            android:text="@string/set_gemini" />
-
-        <TextView
-            style="@style/MinimText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:tag="text:muted"
-            android:text="@string/set_gemini_privacy"
-            android:textSize="11sp" />
-
-        <TextView
-            style="@style/MinimText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:tag="text:fg"
-            android:text="@string/set_gemini_model"
-            android:textSize="13sp" />
-
-        <TextView
-            android:id="@+id/set_gemini_model_pick"
-            style="@style/MinimText.Option"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:ellipsize="end"
-            android:maxWidth="300dp"
-            android:singleLine="true" />
-
-        <TextView
-            style="@style/MinimText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:tag="text:fg"
-            android:text="@string/set_gemini_key"
-            android:textSize="13sp" />
-
-        <TextView
-            android:id="@+id/set_gemini_key_status"
-            style="@style/MinimText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:tag="text:muted"
-            android:textSize="11sp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/set_gemini_key_add"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/set_gemini_key_add" />
-
-            <TextView
-                android:id="@+id/set_gemini_key_remove"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/set_gemini_key_remove"
-                android:visibility="gone" />
-        </LinearLayout>
-
-        <!-- 5.3.2: App Check debug token for Minim's built-in Gemini (hidden without the Firebase file) -->
-        <LinearLayout
-            android:id="@+id/set_gemini_token_box"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:visibility="gone">
-
-            <TextView
-                style="@style/MinimText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:tag="text:fg"
-                android:text="@string/set_gemini_token"
-                android:textSize="13sp" />
-
-            <TextView
-                android:id="@+id/set_gemini_token_value"
-                style="@style/MinimText"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:fontFamily="monospace"
-                android:tag="text:muted"
-                android:textSize="11sp" />
+                android:layout_marginTop="16dp"
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
+                android:minHeight="48dp"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        style="@style/MinimSet.Label"
+                        android:layout_marginTop="0dp"
+                        android:text="@string/settings_cache" />
+
+                    <TextView
+                        style="@style/MinimSet.Hint"
+                        android:text="@string/cache_hint" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/set_clear_cache"
+                    style="@style/MinimSet.Action"
+                    android:layout_marginStart="12dp"
+                    android:text="@string/cache_clear" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- About: version and the update check side by side, then credits -->
+        <LinearLayout
+            android:id="@+id/settings_group_about"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="48dp"
+            android:orientation="vertical">
 
             <TextView
-                style="@style/MinimText"
+                style="@style/MinimSet.Group"
+                android:accessibilityHeading="true"
+                android:text="@string/settings_about" />
+
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:tag="text:muted"
-                android:text="@string/set_gemini_token_howto"
-                android:textSize="11sp" />
+                android:layout_marginTop="20dp"
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
+                android:minHeight="48dp"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/set_about"
+                        style="@style/MinimText.Semi"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:tag="text:fg"
+                        android:textSize="15sp" />
+
+                    <TextView
+                        android:id="@+id/set_about_build"
+                        style="@style/MinimSet.Hint" />
+                </LinearLayout>
+
+                <!-- v4.9.6: the only place to check for updates by hand (the check on every open is quiet) -->
+                <TextView
+                    android:id="@+id/set_check_updates"
+                    style="@style/MinimSet.Action"
+                    android:layout_marginStart="12dp"
+                    android:layout_marginBottom="0dp"
+                    android:text="@string/update_check" />
+            </LinearLayout>
 
             <TextView
-                android:id="@+id/set_gemini_token_copy"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="@string/set_gemini_token_copy" />
+                android:id="@+id/set_credits"
+                style="@style/MinimSet.Hint"
+                android:layout_marginTop="28dp"
+                android:lineSpacingExtra="4dp"
+                android:text="@string/about_credits" />
         </LinearLayout>
-
-        <!-- Storage -->
-        <TextView
-            style="@style/MinimText.Section"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
-            android:tag="text:fg"
-            android:text="@string/settings_storage" />
-
-        <TextView
-            android:id="@+id/set_clear_cache"
-            style="@style/MinimText.Option"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="@string/clear_cache" />
-
-        <!-- 5.4.0: songs saved offline: "Offline songs · 412 MB" and Remove all -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:baselineAligned="false"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/set_offline_storage"
-                style="@style/MinimText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="10dp"
-                android:alpha="0.6"
-                android:tag="text:fg"
-                android:textSize="12sp" />
-
-            <TextView
-                android:id="@+id/set_offline_remove_all"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="0dp"
-                android:text="@string/offline_remove_all"
-                android:visibility="gone" />
-        </LinearLayout>
-
-        <!-- About -->
-        <TextView
-            style="@style/MinimText.Section"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
-            android:tag="text:fg"
-            android:text="@string/settings_about" />
-
-        <!-- v4.9.6: the only place to check for updates by hand (the check on every open is quiet) -->
-        <!-- v4.9.7: no bottom margin on the pill in a centred row (see Lyrics timing) -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:layout_marginBottom="8dp"
-            android:baselineAligned="false"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/set_check_updates"
-                style="@style/MinimText.Option"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="0dp"
-                android:text="@string/update_check" />
-
-            <TextView
-                android:id="@+id/set_check_updates_version"
-                style="@style/MinimText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:alpha="0.6"
-                android:tag="text:fg"
-                android:textSize="12sp" />
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/set_about"
-            style="@style/MinimText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:lineSpacingExtra="3dp"
-            android:tag="text:fg"
-            android:textSize="11sp" />
-
-        <TextView
-            android:id="@+id/set_credits"
-            style="@style/MinimText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:layout_marginBottom="24dp"
-            android:lineSpacingExtra="3dp"
-            android:tag="text:fg"
-            android:text="@string/about_credits"
-            android:textSize="11sp" />
     </LinearLayout>
 </ScrollView>

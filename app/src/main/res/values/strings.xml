@@ -147,7 +147,7 @@
     <string name="sleep_status">Stops in %1$s</string>
     <string name="settings_storage">Storage</string>
     <string name="clear_cache">Clear image cache</string>
-    <string name="cache_cleared">Image cache cleared</string>
+    <string name="cache_cleared">Cache cleared</string>
     <!-- Hotfix 4.9.10: crash catcher card -->
     <string name="crash_card_title">Minim crashed last time</string>
     <string name="crash_card_copy">Copy</string>
@@ -157,7 +157,32 @@
     <string name="crash_report_continue">Continue</string>
     <string name="crash_card_copied">Crash report copied</string>
     <string name="settings_about">About</string>
-    <string name="about_text">Minim %1$s (build %2$d)\nSearch by NewPipeExtractor. Lyrics from LrcLib.</string>
+    <!-- 5.8.4 u56: the Settings revamp -->
+    <string name="settings_group_you">You</string>
+    <string name="settings_group_look">Look</string>
+    <string name="settings_group_sound">Sound</string>
+    <string name="settings_group_lyrics">Lyrics</string>
+    <string name="settings_group_gestures">Gestures</string>
+    <string name="colours_hint">Dynamic takes its colours from the cover of what\'s playing</string>
+    <string name="gestures_hint">On the album art in Now Playing</string>
+    <string name="boost_hint_short">Normal is about 20% louder, Loud about 35%</string>
+    <string name="bass_hint_short">Warm is gentle, Heavy hits hardest</string>
+    <string name="fade_hint">Fades each song in at the start and out at the end</string>
+    <string name="settings_lyrics_style_short">Style</string>
+    <string name="settings_lyrics_timing_short">Timing</string>
+    <string name="lyrics_style_hint_short">Word by word, or a line at a time</string>
+    <string name="account_privacy_toggle">What Minim can see</string>
+    <string name="set_gemini_privacy_toggle">What gets sent</string>
+    <string name="set_gemini_model_desc">Gemini model: %1$s. Tap to change.</string>
+    <string name="settings_offline">Offline songs</string>
+    <string name="offline_size_none">None saved</string>
+    <string name="settings_cache">Cache</string>
+    <string name="cache_hint">Saved covers and lyrics</string>
+    <string name="cache_clear">Clear</string>
+    <string name="fold_open">Open</string>
+    <string name="fold_closed">Closed</string>
+    <string name="about_version">Minim %1$s</string>
+    <string name="about_build">Build %1$d. Search by NewPipeExtractor, lyrics from LrcLib.</string>
     <string name="about_credits">Designed by Gaurab\nBuilt by Charlie (Sesame AI)\nEarly code by Google Gemini</string>
     <!-- v4.3 Discover -->
     <string name="tab_stories">tapes</string>
