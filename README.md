@@ -18,6 +18,17 @@
 
 <p align="center">Android 9 and newer · about 9.3 MB · GPL-3.0</p>
 
+<p align="center">
+  <img src="screenshots/01-now-playing.jpg" width="30%" alt="Now Playing: you and your music, zero clutter">&nbsp;
+  <img src="screenshots/02-discover.jpg" width="30%" alt="Discover: songs picked for you, every day">&nbsp;
+  <img src="screenshots/03-lyrics.jpg" width="30%" alt="Lyrics word by word, with AI translations">
+</p>
+<p align="center">
+  <img src="screenshots/04-tapes.jpg" width="30%" alt="Tapes: YouTube channels, as audio">&nbsp;
+  <img src="screenshots/05-import-playlists.jpg" width="30%" alt="Bring your playlists from YouTube, YouTube Music and Spotify">&nbsp;
+  <img src="screenshots/06-recap.jpg" width="30%" alt="Your day in music: shareable recap cards">
+</p>
+
 ---
 
 ## Install
