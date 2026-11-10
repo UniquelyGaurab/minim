@@ -370,6 +370,23 @@ class GridTileAdapter(
     }
 
     /**
+     * 5.8.5 u57: the Library filter ("Search Playlists"): tiles that leave fade out, the ones that
+     * stay glide to their new place, the ones that come back fade in.
+     */
+    fun submitAnimated(tiles: List<GridTile>) {
+        val old = this.tiles
+        val new = tiles.toList()
+        val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+            override fun getOldListSize() = old.size
+            override fun getNewListSize() = new.size
+            override fun areItemsTheSame(o: Int, n: Int) = tileKey(old[o]) == tileKey(new[n])
+            override fun areContentsTheSame(o: Int, n: Int) = old[o] == new[n]
+        })
+        this.tiles = new
+        diff.dispatchUpdatesTo(this)
+    }
+
+    /**
      * 5.4.0: playlists saving offline, by tile key ("liked", "pl:<id>"), 0..1 done. Only the
      * tiles whose ring changed redraw.
      */
@@ -513,20 +530,20 @@ class GridTileAdapter(
                     artwork.loadInto(art, tile.album.thumbnailUrl, artPx)
                     box.contentDescription = "${tile.album.title}, ${tile.album.subtitle}"
                 }
-                is GridTile.NewPlaylist -> {
-                    // 5.3.0: the "+" now offers New Playlist and Import Playlist
-                    title.setText(R.string.library_add_tile)
-                    artwork.loadInto(art, null, artPx)
-                    art.visibility = View.INVISIBLE // keeps the square size for the outline
-                    outline.visibility = View.VISIBLE
-                    icon.setImageResource(R.drawable.ic_add)
-                    icon.visibility = View.VISIBLE
-                    box.contentDescription = res.getString(R.string.library_add_tile)
-                }
             }
             Painter.paint(itemView, pal)
         }
     }
+}
+
+/** 5.8.5 u57: one key per tile, for the animated filter. */
+internal fun tileKey(t: GridTile): String = when (t) {
+    is GridTile.Liked -> "liked"
+    is GridTile.RecentsTile -> "recents"
+    is GridTile.OfflineTile -> "offline"
+    is GridTile.PlaylistTile -> "pl:${t.playlist.id}"
+    is GridTile.Song -> "song:${t.track.id}"
+    is GridTile.AlbumTile -> "album:${t.album.hashCode()}"
 }
 
 /** 5.4.0: which tiles can show the saving ring. */

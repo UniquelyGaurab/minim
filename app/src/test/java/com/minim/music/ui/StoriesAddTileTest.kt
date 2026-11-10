@@ -134,8 +134,10 @@ class StoriesAddTileTest {
         val activity = read("java/com/minim/music/ui/MainActivity.kt")
         assertFalse(activity.contains("top_add_channel"))
         assertFalse(activity.contains("addChannel"))
-        // The left area of the top row is the same fixed width on every tab again
-        assertTrue(activity.contains("frame.layoutParams = frame.layoutParams.apply { width = dp(fit.frame.toFloat()).toInt() }"))
+        // 5.8.5 u57: the left area is as wide as its item (logo or round search button), both
+        // starting at the same place, and the tabs slide when it changes (was one fixed width)
+        assertTrue(activity.contains("private fun slideTopRow(from: Tab, to: Tab)"))
+        assertTrue(top.contains("android:id=\"@+id/top_left\""))
     }
 
     private fun read(path: String): String {

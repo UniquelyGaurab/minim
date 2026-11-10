@@ -8,7 +8,7 @@ import com.minim.music.data.model.Track
  *  - Song: Recents tile, cover + title + artist
  *  - Liked: "Liked Songs" tile in Library (cover of the newest liked song, if any)
  *  - PlaylistTile: one of your playlists (cover of its first song, if any)
- *  - NewPlaylist: outlined tile with a big "+" and "New Playlist"
+ *  (5.8.5 u57: the "+" tile is gone; "+ Add playlists" is a pill above the grid)
  */
 sealed class GridTile {
     data class Song(val track: Track) : GridTile()
@@ -18,7 +18,6 @@ sealed class GridTile {
     /** 5.4.0: "Offline" tile in Library, pinned after Recents: the songs saved offline. */
     data class OfflineTile(val count: Int) : GridTile()
     data class PlaylistTile(val playlist: Playlist, val coverUrl: String?) : GridTile()
-    object NewPlaylist : GridTile()
     /** v4.6: an album on the Artist page's "Albums" grid. */
     data class AlbumTile(val album: com.minim.music.data.model.Album) : GridTile()
 }

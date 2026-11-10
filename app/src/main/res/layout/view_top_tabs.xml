@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Top row shared by Home, stories, Stats and Library: logo (Home, and stories since u46; its + is the
-     first tile of the channel row) or search pill (Stats/Library),
+<!-- Top row shared by Home, stories, Stats, Library and (5.8.5 u57) Search: logo (Home, stories and
+     Search; stories' + is the first tile of the channel row) or a round search button (Stats/Library),
      then the three tabs and the settings gear. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -9,8 +9,13 @@
     android:gravity="center_vertical"
     android:orientation="horizontal">
 
+    <!-- 5.8.5 u57: the left area is as wide as what's in it (the logo, or the round search button
+         lined up where the logo starts), and the tabs follow it at the same gap they keep between
+         themselves. Switching between a logo tab and a search tab slides the tabs to their new
+         place (MainActivity.slideTopRow). -->
     <FrameLayout
-        android:layout_width="104dp"
+        android:id="@+id/top_left"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content">
 
         <TextView
@@ -23,44 +28,36 @@
             android:tag="text:fg"
             android:text="@string/app_logo" />
 
-        <LinearLayout
+        <!-- 5.8.5 u57: a round magnifier on every screen size (was a "search" pill that crowded
+             the tabs). Screen readers still hear "Search". -->
+        <FrameLayout
             android:id="@+id/top_search"
-            android:layout_width="wrap_content"
+            android:layout_width="30dp"
             android:layout_height="30dp"
             android:layout_gravity="center_vertical"
-            android:layout_marginStart="22dp"
+            android:layout_marginStart="34dp"
             android:background="@drawable/shape_pill"
             android:clickable="true"
+            android:contentDescription="@string/search_button_desc"
             android:focusable="true"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="10dp"
-            android:paddingEnd="12dp"
             android:tag="fill:fg"
             android:visibility="gone">
 
             <ImageView
                 android:layout_width="14dp"
                 android:layout_height="14dp"
+                android:layout_gravity="center"
                 android:importantForAccessibility="no"
                 android:src="@drawable/ic_search"
                 android:tag="tint:bg" />
-
-            <TextView
-                style="@style/MinimText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:tag="text:bg"
-                android:text="@string/search"
-                android:textSize="12sp" />
-        </LinearLayout>
+        </FrameLayout>
     </FrameLayout>
 
     <LinearLayout
         android:id="@+id/top_tab_home"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
         android:gravity="center_horizontal"
         android:orientation="vertical"
         android:paddingTop="6dp"

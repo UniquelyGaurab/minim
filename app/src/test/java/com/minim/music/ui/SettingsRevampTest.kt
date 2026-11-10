@@ -126,7 +126,8 @@ class SettingsRevampTest {
         assertTrue(xml.indexOf("@+id/set_check_updates\"") > order[7])
         assertTrue(xml.indexOf("@+id/set_credits") > order[7])
         val strings = file("src/main/res/values/strings.xml")
-        assertTrue(strings.contains("Designed by Gaurab\\nBuilt by Charlie (Sesame AI)\\nEarly code by Google Gemini"))
+        assertTrue(strings.contains("<string name=\"about_credits\">Designed by Gaurab\\nBuilt by Charlie (Sesame AI)</string>"))
+        assertFalse(strings.contains("Early code by Google Gemini"))
     }
 
     @Test
@@ -141,10 +142,10 @@ class SettingsRevampTest {
     }
 
     @Test
-    fun versionIs584Build56() {
+    fun versionIs586Build58() {
         val gradle = file("build.gradle.kts")
-        assertTrue(gradle.contains("versionCode = 56"))
-        assertTrue(gradle.contains("versionName = \"5.8.4\""))
+        assertTrue(gradle.contains("versionCode = 58"))
+        assertTrue(gradle.contains("versionName = \"5.8.6\""))
     }
 
     @Test
@@ -215,8 +216,8 @@ class SettingsRevampTest {
     @Test
     fun aboutShowsTheVersion_andTheModelRowOpensThePicker() {
         val a = openSettings()
-        assertEquals("Minim 5.8.4", a.findViewById<TextView>(R.id.set_about).text.toString())
-        assertTrue(a.findViewById<TextView>(R.id.set_about_build).text.startsWith("Build 56"))
+        assertEquals("Minim 5.8.6", a.findViewById<TextView>(R.id.set_about).text.toString())
+        assertTrue(a.findViewById<TextView>(R.id.set_about_build).text.startsWith("Build 58"))
         assertFalse(a.findViewById<TextView>(R.id.set_gemini_model_pick).text.contains("▾"))
         assertTrue(a.findViewById<View>(R.id.set_gemini_model_row).contentDescription.startsWith("Gemini model: "))
         a.findViewById<View>(R.id.set_gemini_model_row).performClick()

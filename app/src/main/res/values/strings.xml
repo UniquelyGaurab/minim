@@ -183,7 +183,7 @@
     <string name="fold_closed">Closed</string>
     <string name="about_version">Minim %1$s</string>
     <string name="about_build">Build %1$d. Search by NewPipeExtractor, lyrics from LrcLib.</string>
-    <string name="about_credits">Designed by Gaurab\nBuilt by Charlie (Sesame AI)\nEarly code by Google Gemini</string>
+    <string name="about_credits">Designed by Gaurab\nBuilt by Charlie (Sesame AI)</string>
     <!-- v4.3 Discover -->
     <string name="tab_stories">tapes</string>
     <string name="shelf_top_artists">Your top artists</string>
@@ -501,7 +501,6 @@
     <string name="set_gemini_privacy">Chat messages go to Google Gemini. On the free tier, Google may use them to improve its models. Chats aren\'t saved: they\'re gone when you close Minim.</string>
 
     <!-- 5.3.0 playlist import -->
-    <string name="library_add_tile">Add playlist</string>
     <string name="sheet_add_playlist">Add a playlist</string>
     <string name="sheet_import_playlist">Import Playlist</string>
     <string name="sheet_import_playlist_sub">From YouTube, Spotify or a list of songs</string>
@@ -691,4 +690,11 @@
     <string name="ai_lyrics_err_long">This one\'s too long for Gemini lyrics.</string>
     <string name="ai_lyrics_err_other">Something went wrong with Gemini. Try again.</string>
     <string name="ai_lyrics_regen_failed">Kept the old lyrics. %1$s</string>
+    <!-- 5.8.5 u57 -->
+    <string name="search_button_desc">Search</string>
+    <string name="library_add_playlists">+ Add playlists</string>
+    <string name="library_search_playlists">Search Playlists</string>
+    <string name="library_search_hint">Playlist name…</string>
+    <string name="library_search_close">Close playlist search</string>
+    <string name="library_search_empty">No playlists match “%1$s”</string>
 </resources>

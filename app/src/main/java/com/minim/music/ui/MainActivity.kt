@@ -217,6 +217,10 @@ class MainActivity : AppCompatActivity() {
     private var welcomePillAnim: ValueAnimator? = null
 
     private lateinit var topRows: List<Pair<Tab, TopRow>>
+    /** 5.8.5 u57: the tab row at the top of Search (same layout as the tab screens' rows). */
+    private lateinit var searchRow: TopRow
+    /** Every tab row: the four tab screens' and Search's (fitting, badges, avatars). */
+    private val allRows: List<TopRow> get() = topRows.map { it.second } + searchRow
 
     private lateinit var homeListening: View
     private lateinit var homeMini: Mini
@@ -253,6 +257,10 @@ class MainActivity : AppCompatActivity() {
     // ---- lists (adapters are in ui/adapter) --------------------------------------------------
 
     private lateinit var libraryAdapter: GridTileAdapter
+    /** 5.8.5 u57: every Library tile (before the "Search Playlists" filter) and what's typed. */
+    private var libraryTiles: List<GridTile> = emptyList()
+    private var libraryQuery: String = ""
+    private var libraryFilterOpen = false
     private lateinit var listAdapter: TrackAdapter
     private lateinit var likedArtistAdapter: com.minim.music.ui.adapter.LikedArtistAdapter
     private lateinit var searchAdapter: SearchResultsAdapter
@@ -515,6 +523,7 @@ class MainActivity : AppCompatActivity() {
             Tab.STATS to TopRow(findViewById(R.id.stats_top)),
             Tab.LIBRARY to TopRow(findViewById(R.id.library_top))
         )
+        searchRow = TopRow(findViewById(R.id.search_top))
 
         homeListening = findViewById(R.id.home_listening)
         homeMini = Mini(findViewById(R.id.home_mini), findViewById(R.id.home_mini_actions))
@@ -602,6 +611,18 @@ class MainActivity : AppCompatActivity() {
             PressScale.apply(row.gear)
             row.search.setOnClickListener { openSearch(it) }
         }
+        // 5.8.5 u57: Search's own tab row: the logo (never the search button, Search is open), the
+        // current tab underlined, and a tap on a tab leaves Search for that tab
+        searchRow.logo.visibility = View.VISIBLE
+        searchRow.search.visibility = View.GONE
+        searchRow.storiesNew.visibility = if (app.preferences.storiesTabSeen) View.GONE else View.VISIBLE
+        markSearchRowTab()
+        searchRow.tabHome.setOnClickListener { leaveSearchFor(it, Tab.HOME) }
+        searchRow.tabStories.setOnClickListener { leaveSearchFor(it, Tab.STORIES) }
+        searchRow.tabStats.setOnClickListener { leaveSearchFor(it, Tab.STATS) }
+        searchRow.tabLibrary.setOnClickListener { leaveSearchFor(it, Tab.LIBRARY) }
+        searchRow.gear.setOnClickListener { v -> openSettings(from = v) }
+        PressScale.apply(searchRow.gear)
         fitTopRows()
     }
 
@@ -610,41 +631,142 @@ class MainActivity : AppCompatActivity() {
      * left area down (same step for every row, so the tab underline still lines up) until the
      * row fits the screen. On wide phones nothing changes.
      */
-    private fun fitTopRows() {
-        data class Fit(val gap: Int, val sp: Float, val frame: Int, val logoStart: Int, val pillStart: Int, val pillText: Boolean)
+    /** 5.8.5 u57: the fit level the rows use now (see fitTopRows). */
+    private var topFitLevel = 0
+    private var topFitWatch = false
+
+    private fun fitTopRows(startAt: Int = 0) {
+        // 5.8.5 u57: the left area is as wide as what it shows (the logo, or the round search
+        // button lined up where the logo starts), and the first tab follows it at the same gap the
+        // tabs keep between themselves. Logo and button share one start, so a logo tab and a search
+        // tab differ only in the left item's width, and slideTopRow slides the tabs across that.
+        data class Fit(val gap: Int, val sp: Float, val logoStart: Int, val button: Int)
         val levels = listOf(
-            Fit(20, 15f, 104, 34, 22, true),
-            Fit(16, 15f, 100, 32, 18, true),
-            Fit(14, 14f, 94, 28, 12, true),
-            Fit(12, 13.5f, 90, 24, 8, true),
-            Fit(10, 13f, 80, 22, 22, false),
-            Fit(8, 12f, 74, 18, 18, false)
+            Fit(20, 15f, 34, 30),
+            Fit(16, 15f, 32, 30),
+            Fit(14, 14f, 28, 30),
+            Fit(12, 13.5f, 24, 28),
+            Fit(10, 13f, 22, 28),
+            Fit(8, 12f, 18, 26),
+            Fit(8, 11f, 16, 26),
+            Fit(6, 10.5f, 14, 24)
         )
         val avail = resources.displayMetrics.widthPixels
         val unspecified = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
-        // 5.7.0 u45: the left area is the same fixed width on every tab again (u44 widened it for
-        // the "+ Add Channel" pill, which moved to the stories channel row)
-        for (fit in levels) {
+        topFitLevel = startAt.coerceIn(0, levels.lastIndex)
+        for ((index, fit) in levels.withIndex()) {
+            if (index < startAt.coerceAtMost(levels.lastIndex)) continue
+            topFitLevel = index
             var needed = 0
-            for ((_, row) in topRows) {
-                val frame = row.search.parent as View
-                frame.layoutParams = frame.layoutParams.apply { width = dp(fit.frame.toFloat()).toInt() }
+            for (row in allRows) {
                 (row.logo.layoutParams as ViewGroup.MarginLayoutParams).marginStart = dp(fit.logoStart.toFloat()).toInt()
-                (row.search.layoutParams as ViewGroup.MarginLayoutParams).marginStart = dp(fit.pillStart.toFloat()).toInt()
-                (row.search as? ViewGroup)?.getChildAt(1)?.visibility = if (fit.pillText) View.VISIBLE else View.GONE
+                (row.search.layoutParams as ViewGroup.MarginLayoutParams).apply {
+                    marginStart = dp(fit.logoStart.toFloat()).toInt()
+                    width = dp(fit.button.toFloat()).toInt()
+                    height = width
+                }
                 for (t in listOf(row.tabHome, row.tabStories, row.tabStats, row.tabLibrary)) {
                     // v4.9: the Stats tab's text sits in a row with its "new" tag / dot
                     val first = (t as? ViewGroup)?.getChildAt(0)
                     ((first as? TextView) ?: ((first as? ViewGroup)?.getChildAt(0) as? TextView))?.textSize = fit.sp
-                    if (t !== row.tabHome) (t.layoutParams as ViewGroup.MarginLayoutParams).marginStart = dp(fit.gap.toFloat()).toInt()
+                    (t.layoutParams as ViewGroup.MarginLayoutParams).marginStart = dp(fit.gap.toFloat()).toInt()
                 }
                 row.root.requestLayout()
                 row.root.measure(unspecified, unspecified)
-                needed = maxOf(needed, row.root.measuredWidth)
+                // 5.8.5 u57: add the children up (the row's own measured width came out short at
+                // 130% font, so the avatar could end past the screen's edge)
+                val g = row.root as ViewGroup
+                var sum = g.paddingStart + g.paddingEnd
+                for (i in 0 until g.childCount) {
+                    val c = g.getChildAt(i)
+                    if (c.visibility == View.GONE) continue
+                    val lp = c.layoutParams as ViewGroup.MarginLayoutParams
+                    sum += c.measuredWidth + lp.marginStart + lp.marginEnd
+                }
+                needed = maxOf(needed, sum, row.root.measuredWidth)
             }
             if (needed + dp(12f) <= avail) break
         }
         fitTabLines()
+        // 5.8.5 u57: the measure above can come out short (a "new" tag shown later, big font), so
+        // each row checks itself once laid out and steps down a level when its avatar would end
+        // past the screen's edge
+        if (!topFitWatch) {
+            topFitWatch = true
+            for (row in allRows) {
+                row.root.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+                    if (topRowOverflows(v as ViewGroup) && topFitLevel < levels.lastIndex) {
+                        val next = topFitLevel + 1
+                        // Checked again once things settle, so a passing state doesn't shrink it
+                        v.post { if (topFitLevel < next && topRowOverflows(v)) fitTopRows(next) }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun topRowOverflows(g: ViewGroup): Boolean {
+        if (g.width <= 0 || !g.isShown) return false
+        val last = (g.childCount - 1 downTo 0).map { g.getChildAt(it) }.firstOrNull { it.visibility != View.GONE }
+            ?: return false
+        return last.right > g.width - g.paddingEnd
+    }
+
+    /**
+     * 5.8.5 u57: where a row's first tab starts (from the row's start): its left item plus the
+     * gap. Measured, so it's right for a row whose screen hasn't been laid out yet.
+     */
+    private fun tabsStart(row: TopRow): Float {
+        val left = row.logo.parent as View
+        left.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        return (left.measuredWidth + (row.tabHome.layoutParams as ViewGroup.MarginLayoutParams).marginStart).toFloat()
+    }
+
+    /** The views of a row that move together when its left item changes width: tabs and avatar. */
+    private fun rowMovers(row: TopRow): List<View> =
+        listOf(row.tabHome, row.tabStories, row.tabStats, row.tabLibrary, row.gear)
+
+    /**
+     * 5.8.5 u57: switching between a logo tab (Home, tapes) and a search tab (Stats, Library), the
+     * new row's tabs and avatar start where the old row's were and slide to their own place, so
+     * the gap after the left item always matches the gaps between the tabs; the new left item
+     * (logo or round button) fades and grows in where the old one was.
+     */
+    private fun slideTopRow(from: Tab, to: Tab) {
+        val fromRow = rowOf(from)
+        val toRow = rowOf(to)
+        if (fromRow === toRow) return
+        // Where the old row's tabs are drawn right now (partway through a slide after a quick tap)
+        val drawnAt = tabsStart(fromRow) + fromRow.tabHome.translationX
+        val dx = drawnAt - tabsStart(toRow)
+        // (The old row is put back once its screen has gone: stopTabTransition)
+        val movers = rowMovers(toRow)
+        for (v in movers) {
+            v.animate().cancel()
+            v.translationX = if (kotlin.math.abs(dx) < 0.5f) 0f else dx
+            if (v.translationX != 0f) {
+                v.animate().translationX(0f).setStartDelay(0L).setDuration(TabMotion.LINE_MS)
+                    .setInterpolator(DecelerateInterpolator(1.5f)).start()
+            }
+        }
+        // The new left item (logo or round search button) fades and grows in where the old one was
+        val logoChanged = fromRow.logo.visibility != toRow.logo.visibility
+        val leftItem = if (toRow.logo.visibility == View.VISIBLE) toRow.logo else toRow.search
+        leftItem.animate().cancel()
+        if (logoChanged) {
+            leftItem.alpha = 0f
+            leftItem.scaleX = 0.85f; leftItem.scaleY = 0.85f
+            leftItem.animate().alpha(1f).scaleX(1f).scaleY(1f).setStartDelay(40L).setDuration(TabMotion.IN_MS)
+                .setInterpolator(DecelerateInterpolator(1.5f)).start()
+        } else {
+            leftItem.alpha = 1f; leftItem.scaleX = 1f; leftItem.scaleY = 1f
+        }
+    }
+
+    /** Puts a row's tabs, avatar and left item straight back (no slide running). */
+    private fun settleRowSlide(row: TopRow) {
+        for (v in rowMovers(row)) { v.animate().cancel(); v.translationX = 0f }
+        for (v in listOf(row.logo, row.search)) { v.animate().cancel(); v.alpha = 1f; v.scaleX = 1f; v.scaleY = 1f }
     }
 
     /** The label of a tab (Stats keeps its text in a row with the "new" tag and the dot). */
@@ -659,7 +781,7 @@ class MainActivity : AppCompatActivity() {
      * Lines sit at the start of their tab, under the word (Stats' tag and dot stay out of it).
      */
     private fun fitTabLines() {
-        for ((_, row) in topRows) {
+        for (row in allRows) {
             for (t in Tab.values()) {
                 val label = tabLabel(tabViewOf(row, t)) ?: continue
                 val w = kotlin.math.ceil(
@@ -686,6 +808,8 @@ class MainActivity : AppCompatActivity() {
         if (target == Tab.STATS) onStatsShown()
         if (target == Tab.STORIES) onStoriesShown()
         val from = tab
+        // 5.8.5 u57: leaving Library puts "Search Playlists" away (the full grid next time)
+        if (target != Tab.LIBRARY && libraryFilterOpen) closeLibrarySearch(animate = false)
         tab = target
         // v4.9.9: the old screen stays up while it slides out (see animateTabChange)
         val slide = animate && from != target && animationsOn() && root.isShown
@@ -697,7 +821,10 @@ class MainActivity : AppCompatActivity() {
         }
         if (target == Tab.HOME) renderGreeting(animate = false)
         if (target != Tab.HOME) lifecycleScope.launch { refreshData() }
-        if (slide) animateTabChange(from, target) else stopTabTransition()
+        if (slide) animateTabChange(from, target) else {
+            stopTabTransition()
+            settleRowSlide(rowOf(target))
+        }
         // 5.5.2: the festival wallpaper fades in under Home and out for the other tabs
         syncThemeLayer(animate = slide)
         updateChrome()
@@ -769,6 +896,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun animateTabChange(from: Tab, to: Tab) {
+        // 5.8.5 u57: the tabs slide when the left item changes width (before the line glides, so
+        // the line's start is measured on the row as it is drawn)
+        slideTopRow(from, to)
         glideTabLine(from, to)
 
         val outScreen = screenOf(from) as? ViewGroup
@@ -849,6 +979,8 @@ class MainActivity : AppCompatActivity() {
     /** Ends any tab switch at once: the old screen gone, the new one settled with its background. */
     private fun stopTabTransition() {
         tabAnim?.let { a -> tabAnim = null; a.cancel() }
+        // 5.8.5 u57: rows of the screens not showing go back to their own place
+        for ((t, row) in topRows) if (t != tab) settleRowSlide(row)
         val current = screenOf(tab)
         for (sl in tabSlides) {
             if (sl.view.parent === current) {
@@ -907,7 +1039,7 @@ class MainActivity : AppCompatActivity() {
         val target = lineOf(fromRow, to)
         val line = lineOf(rowOf(to), to)
         if (oldLine.width <= 0 || target.width <= 0) return
-        fun centre(l: View): Float = (l.parent as View).left + l.left + l.width / 2f
+        fun centre(l: View): Float = (l.parent as View).let { it.left + it.translationX } + l.left + l.width / 2f
         val (dx, scale) = TabMotion.lineStart(
             centre(oldLine) + oldLine.translationX, oldLine.width * oldLine.scaleX,
             centre(target), target.width.toFloat()
@@ -1014,6 +1146,8 @@ class MainActivity : AppCompatActivity() {
                     isArtistOpen -> closeArtist()
                     // 5.7.0 u46: a channel's list (from its photo or its shelf title) goes back to the shelves
                     tab == Tab.STORIES && ::storiesScreen.isInitialized && storiesScreen.backToShelves() -> Unit
+                    // 5.8.5 u57: Back closes "Search Playlists" first
+                    tab == Tab.LIBRARY && libraryFilterOpen -> closeLibrarySearch(animate = true)
                     tab != Tab.HOME -> showTab(Tab.HOME)
                     else -> {
                         isEnabled = false
@@ -1747,11 +1881,15 @@ class MainActivity : AppCompatActivity() {
      * The focus and keyboard start with the morph so the keyboard rises in step.
      */
     private fun openSearch(source: View? = null) {
+        endSearchLeave()
         setSearchTyping(searchInput.text?.toString()?.trim().orEmpty().isNotEmpty())
         // 5.7.0: Discover's shelves live here now: show the saved ones, refresh when stale
         loadDiscover(force = false)
         loadSearchExtras()
+        markSearchRowTab()
+        prepareSearchRow()
         searchMorph.open(source) {
+            applySearchRow(1f)
             updateChrome()
             searchInput.requestFocus()
             showKeyboard(searchInput)
@@ -1763,28 +1901,257 @@ class MainActivity : AppCompatActivity() {
      * else from Search) stay instant, as before.
      */
     private fun closeSearch(animate: Boolean = false) {
+        endSearchLeave()
+        // A tab switch from Search had already cleared it away
+        if (screenSearch.visibility != View.VISIBLE && !searchMorph.closing) {
+            restoreSearchBehind()
+            updateChrome()
+            return
+        }
         hideKeyboard()
         searchInput.clearFocus()
         val hide = {
             screenSearch.visibility = View.GONE
+            restoreSearchBehind()
+            settleSearchRow()
             updateChrome()
         }
-        if (animate) searchMorph.close(hide) else { searchMorph.finish(); hide() }
+        if (animate) {
+            prepareSearchRow()
+            searchMorph.close(hide)
+        } else {
+            searchMorph.finish()
+            hide()
+        }
     }
 
     private val searchMorph: SearchMorph by lazy {
         SearchMorph(
             overlayHost = root,
             screen = screenSearch,
-            logo = (searchInput.parent as ViewGroup).getChildAt(0),
+            // 5.8.5 u57: no header logo any more; the tab row follows the morph (onProgress)
+            logo = null,
             input = searchInput,
             go = findViewById(R.id.search_go),
             results = findViewById(R.id.search_results),
             status = searchStatus,
             discover = searchDiscover,
             colors = { pal.fg to pal.bg },
-            animationsOn = { ValueAnimator.areAnimatorsEnabled() }
+            animationsOn = { ValueAnimator.areAnimatorsEnabled() },
+            onProgress = { t -> applySearchRow(t) }
         )
+    }
+
+    // ---- 5.8.5 u57: Search's tab row -----------------------------------------------------------
+    //
+    // Search shows the same tab row as the tab screens. While the box grows out of a search button
+    // (Stats, Library), the tab row behind is handed over to Search's: Search's tabs start exactly
+    // where the screen's tabs are and slide to their own place (the logo is wider than the round
+    // button), and the logo fades in where the button was. Over Home (same logo, same place) or
+    // over a page with no tab row (Artist, a playlist, a grid) Search's row just fades in with the
+    // screen. Closing plays the same backwards.
+
+    /** The tab row Search grows over (null over the Artist page, a playlist or a grid). */
+    private var searchBehind: TopRow? = null
+    /** How far Search's tabs sit from the row behind: behind's tabs start minus Search's. */
+    private var searchRowDx = 0f
+    private var searchLeave: ValueAnimator? = null
+
+    private fun prepareSearchRow() {
+        val behind = if (isListOpen || isShelfOpen || isArtistOpen || isImportReviewOpen) null else rowOf(tab)
+        if (searchBehind != null && searchBehind !== behind) restoreSearchBehind()
+        searchBehind = behind
+        searchRowDx = if (behind == null) 0f else tabsStart(behind) - tabsStart(searchRow)
+        if (kotlin.math.abs(searchRowDx) < 0.5f) searchRowDx = 0f
+    }
+
+    /** [t]: 0 = Search still the pill it grows from, 1 = fully open. */
+    private fun applySearchRow(t: Float) {
+        val behind = searchBehind
+        val movers = rowMovers(searchRow)
+        if (behind == null || searchRowDx == 0f) {
+            // Same row behind (Home), or no row: Search's row fades in with the screen
+            searchRow.root.alpha = SearchMotion.backdrop(t)
+            for (v in movers) v.translationX = 0f
+            searchRow.logo.alpha = 1f
+            return
+        }
+        searchRow.root.alpha = 1f
+        // The row behind hands its tabs over: Search's are drawn on top of them, so they hide
+        for (v in rowMovers(behind)) v.alpha = 0f
+        val k = SearchMotion.backdrop(t)
+        for (v in movers) v.translationX = searchRowDx * (1f - k)
+        searchRow.logo.alpha = SearchMotion.logo(t)
+    }
+
+    /** Search is gone (or the row behind changed): the screen's own tabs show again. */
+    private fun restoreSearchBehind() {
+        searchBehind?.let { b -> for (v in rowMovers(b)) v.alpha = 1f }
+        searchBehind = null
+        searchRowDx = 0f
+    }
+
+    /** The tab you're on stays underlined in Search's row. */
+    private fun markSearchRowTab() {
+        for (t in Tab.values()) {
+            val line = lineOf(searchRow, t)
+            line.animate().cancel()
+            line.translationX = 0f
+            line.scaleX = 1f
+            line.visibility = if (t == tab) View.VISIBLE else View.INVISIBLE
+        }
+    }
+
+    /** Search shown again without the morph (Back from a grid or the Artist page): fully open. */
+    private fun settleSearchRow() {
+        searchBehind = null
+        searchRowDx = 0f
+        searchRow.root.alpha = 1f
+        for (v in rowMovers(searchRow)) { v.animate().cancel(); v.translationX = 0f; v.alpha = 1f }
+        searchRow.logo.alpha = 1f
+        markSearchRowTab()
+    }
+
+    /**
+     * 5.8.5 u57: a tab tapped in Search's row. The tab you're on just closes Search (back into
+     * the pill it came from). Another tab: the keyboard goes, anything under Search (the Artist
+     * page, a playlist, a grid) closes, that tab comes up under Search and Search clears away
+     * from it: the underline glides to the tab, the tabs slide to where that tab's row has them,
+     * the box and results fade off to the side and the tab's content slides in, as a tab switch.
+     */
+    private fun leaveSearchFor(v: View, target: Tab) {
+        if (!isSearchOpen || searchLeave != null || searchMorph.closing) return
+        if (target == tab) {
+            closeSearch(animate = true)
+            return
+        }
+        haptic(v, HapticFeedbackConstants.CLOCK_TICK)
+        hideKeyboard()
+        searchInput.clearFocus()
+        searchMorph.finish()
+        restoreSearchBehind()
+        settleSearchRow()
+        // What was under Search goes for good: the tab itself comes up
+        if (isListOpen) closeList()
+        if (isShelfOpen) { shelfFromSearch = false; closeShelf(backToSearch = false) }
+        if (isArtistOpen) {
+            artistReturn = null
+            closeArtist()
+        }
+        val from = tab
+        showTab(target, animate = false)
+        if (!animationsOn() || !root.isShown) {
+            screenSearch.visibility = View.GONE
+            settleSearchRow()
+            updateChrome()
+            return
+        }
+        animateSearchToTab(from, target)
+    }
+
+    private fun animateSearchToTab(from: Tab, to: Tab) {
+        val toRow = rowOf(to)
+        val toScreen = screenOf(to) as ViewGroup
+        val dx = tabsStart(toRow) - tabsStart(searchRow)
+        val moving = kotlin.math.abs(dx) >= 0.5f
+        val shift = dp(TabMotion.SHIFT_DP)
+        val bar = findViewById<View>(R.id.search_bar)
+        val body = findViewById<View>(R.id.search_body)
+        val outEnd = TabMotion.outgoingEnd(from.ordinal, to.ordinal, shift)
+        val movers = rowMovers(searchRow)
+
+        // The underline: Search's row glides it when the tabs travel; otherwise (the same logo
+        // row, Home or tapes) the tab's own row glides it under Search's fading row
+        fun centre(l: View): Float = (l.parent as View).left + l.left + l.width / 2f
+        val oldLine = lineOf(searchRow, from)
+        val newLineInSearch = lineOf(searchRow, to)
+        val (lx, ls) = TabMotion.lineStart(centre(oldLine), oldLine.width.toFloat(), centre(newLineInSearch), newLineInSearch.width.toFloat())
+        val glider = if (moving) newLineInSearch else lineOf(toRow, to)
+        if (moving) {
+            oldLine.visibility = View.INVISIBLE
+            newLineInSearch.visibility = View.VISIBLE
+            // The tab's own row hides under Search's while Search's tabs travel onto it
+            for (m in rowMovers(toRow)) m.alpha = 0f
+        } else {
+            for (t in Tab.values()) lineOf(searchRow, t).visibility = View.INVISIBLE
+        }
+        if (oldLine.width > 0 && newLineInSearch.width > 0) {
+            glider.animate().cancel()
+            glider.translationX = lx
+            glider.scaleX = ls
+            glider.animate().translationX(0f).scaleX(1f).setStartDelay(0L).setDuration(TabMotion.LINE_MS)
+                .setInterpolator(DecelerateInterpolator(1.5f)).start()
+        }
+        // The round search button of the tab's row grows in where Search's logo fades
+        val toLeft = if (toRow.logo.visibility == View.VISIBLE) toRow.logo else toRow.search
+        if (moving) {
+            toLeft.animate().cancel()
+            toLeft.alpha = 0f
+            toLeft.scaleX = 0.85f; toLeft.scaleY = 0.85f
+            toLeft.animate().alpha(1f).scaleX(1f).scaleY(1f).setStartDelay(60L).setDuration(TabMotion.IN_MS)
+                .setInterpolator(DecelerateInterpolator(1.5f)).start()
+        }
+        // The tab's content slides in from the side you're moving towards, as a tab switch
+        val incoming = slidingChildren(toScreen, to)
+        for (c in incoming) {
+            c.animate().cancel()
+            c.translationX = TabMotion.incomingStart(from.ordinal, to.ordinal, shift)
+            c.alpha = 0f
+        }
+        val ease = DecelerateInterpolator(1.5f)
+        val bg = screenSearch.background
+        val total = TabMotion.LINE_MS
+        val anim = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = total
+            interpolator = android.view.animation.LinearInterpolator()
+            addUpdateListener {
+                if (searchLeave !== it) return@addUpdateListener
+                val f = it.animatedFraction
+                val k = ease.getInterpolation(f)
+                // The box and the results fade off to the other side, quicker than the rest
+                val o = ease.getInterpolation((f * total / TabMotion.OUT_MS).coerceIn(0f, 1f))
+                bar.alpha = 1f - o; body.alpha = 1f - o
+                bar.translationX = outEnd * o; body.translationX = outEnd * o
+                // Search's background clears, uncovering the tab
+                bg?.alpha = (255 * (1f - SearchMotion.window(f, 0f, 0.8f))).toInt()
+                if (moving) {
+                    for (m in movers) m.translationX = dx * k
+                    searchRow.logo.alpha = 1f - SearchMotion.window(f, 0f, 0.6f)
+                } else {
+                    searchRow.root.alpha = 1f - SearchMotion.window(f, 0f, 0.8f)
+                }
+                val i = ease.getInterpolation((f * total / TabMotion.IN_MS).coerceIn(0f, 1f))
+                for (c in incoming) {
+                    c.alpha = i
+                    c.translationX = TabMotion.incomingStart(from.ordinal, to.ordinal, shift) * (1f - i)
+                }
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (searchLeave !== animation) return
+                    searchLeave = null
+                    finishSearchLeave(toRow, incoming, bar, body)
+                }
+            })
+        }
+        searchLeave = anim
+        anim.start()
+    }
+
+    /** Ends a Search-to-tab clear-away at once (another tap, Back, Search opening again). */
+    private fun endSearchLeave() {
+        val a = searchLeave ?: return
+        a.end()
+    }
+
+    private fun finishSearchLeave(toRow: TopRow, incoming: List<View>, bar: View, body: View) {
+        screenSearch.visibility = View.GONE
+        for (v in listOf(bar, body)) { v.alpha = 1f; v.translationX = 0f }
+        screenSearch.background?.alpha = 255
+        for (m in rowMovers(toRow)) m.alpha = 1f
+        for (c in incoming) { c.alpha = 1f; c.translationX = 0f }
+        settleSearchRow()
+        updateChrome()
     }
 
     /**
@@ -1880,7 +2247,6 @@ class MainActivity : AppCompatActivity() {
                     is GridTile.RecentsTile -> openList(RECENTS_LIST, getString(R.string.recents))
                     is GridTile.OfflineTile -> openList(OFFLINE_LIST, getString(R.string.offline_title))
                     is GridTile.PlaylistTile -> openList(tile.playlist.id, tile.playlist.name, tile.playlist.source)
-                    is GridTile.NewPlaylist -> showAddPlaylistSheet()
                     is GridTile.Song, is GridTile.AlbumTile -> Unit
                 }
             },
@@ -1896,7 +2262,13 @@ class MainActivity : AppCompatActivity() {
         findViewById<RecyclerView>(R.id.library_grid).apply {
             layoutManager = GridLayoutManager(this@MainActivity, GRID_COLUMNS)
             adapter = libraryAdapter
+            // 5.8.5 u57: the filter's tiles fade and glide, quickly
+            (itemAnimator as? androidx.recyclerview.widget.DefaultItemAnimator)?.apply {
+                supportsChangeAnimations = false
+                addDuration = 180L; removeDuration = 140L; moveDuration = 220L
+            }
         }
+        setupLibraryPills()
 
         listAdapter = TrackAdapter(
             artwork = app.artworkPipeline,
@@ -2249,7 +2621,10 @@ class MainActivity : AppCompatActivity() {
         screenShelf.alpha = 1f
         screenShelf.translationX = 0f
         screenShelf.visibility = View.GONE
-        if (toSearch) screenSearch.visibility = View.VISIBLE
+        if (toSearch) {
+            screenSearch.visibility = View.VISIBLE
+            settleSearchRow()
+        }
         updateChrome()
     }
 
@@ -3067,7 +3442,10 @@ class MainActivity : AppCompatActivity() {
         if (back != null) {
             back.shelf?.let { openShelfPage(it, fromSearch = back.search) }
             back.listId?.let { openList(it, back.listName, back.listSource, back.listKind) }
-            if (back.search && back.shelf == null) screenSearch.visibility = View.VISIBLE
+            if (back.search && back.shelf == null) {
+                screenSearch.visibility = View.VISIBLE
+                settleSearchRow()
+            }
         }
         updateChrome()
     }
@@ -3718,6 +4096,128 @@ class MainActivity : AppCompatActivity() {
     private fun songCount(n: Int): String =
         if (n == 1) getString(R.string.song_count_one) else getString(R.string.song_count, n)
 
+    // ---- 5.8.5 u57: Library's "+ Add playlists" and "Search Playlists" pills ------------------
+
+    private fun setupLibraryPills() {
+        val add = findViewById<View>(R.id.library_add_pill)
+        val searchPill = findViewById<View>(R.id.library_search_pill)
+        val input = findViewById<EditText>(R.id.library_search_input)
+        add.setOnClickListener { v -> haptic(v); showAddPlaylistSheet() }
+        searchPill.setOnClickListener { v -> if (!libraryFilterOpen) { haptic(v); openLibrarySearch() } }
+        findViewById<View>(R.id.library_search_close).setOnClickListener { v -> haptic(v); closeLibrarySearch(animate = true) }
+        PressScale.apply(add)
+        PressScale.apply(searchPill)
+        input.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                if (!libraryFilterOpen) return
+                filterLibrary(s?.toString().orEmpty())
+            }
+        })
+        input.setOnEditorActionListener { _, _, _ -> hideKeyboard(); true }
+    }
+
+    private fun filterLibrary(q: String) {
+        if (q == libraryQuery) return
+        val wasActive = LibraryFilter.isActive(libraryQuery)
+        libraryQuery = q
+        val shown = LibraryFilter.apply(libraryTiles, q)
+        if (animationsOn()) libraryAdapter.submitAnimated(shown) else libraryAdapter.submit(shown)
+        if (LibraryFilter.isActive(q) != wasActive) findViewById<RecyclerView>(R.id.library_grid).scrollToPosition(0)
+        showLibraryFilterEmpty()
+    }
+
+    private fun showLibraryFilterEmpty() {
+        val empty = findViewById<TextView>(R.id.library_filter_empty) ?: return
+        val none = LibraryFilter.isActive(libraryQuery) && LibraryFilter.apply(libraryTiles, libraryQuery).isEmpty()
+        if (none) empty.text = getString(R.string.library_search_empty, libraryQuery.trim())
+        val v = if (none) View.VISIBLE else View.GONE
+        if (empty.visibility == v) return
+        empty.animate().cancel()
+        if (none && animationsOn()) {
+            empty.alpha = 0f
+            empty.visibility = View.VISIBLE
+            empty.animate().alpha(0.6f).setStartDelay(80L).setDuration(180L).start()
+        } else {
+            empty.alpha = 0.6f
+            empty.visibility = v
+        }
+    }
+
+    /** The pill row's grow / shrink: the search pill widens across, the add pill slides away. */
+    private fun libraryPillsTransition() {
+        if (!animationsOn()) return
+        val set = android.transition.TransitionSet()
+            .addTransition(android.transition.ChangeBounds())
+            .addTransition(android.transition.Fade())
+            .setOrdering(android.transition.TransitionSet.ORDERING_TOGETHER)
+            .setDuration(260L)
+            .setInterpolator(DecelerateInterpolator(1.5f))
+        android.transition.TransitionManager.beginDelayedTransition(findViewById(R.id.library_pills), set)
+    }
+
+    private fun openLibrarySearch() {
+        if (libraryFilterOpen) return
+        libraryFilterOpen = true
+        val add = findViewById<View>(R.id.library_add_pill)
+        val label = findViewById<View>(R.id.library_search_label)
+        val box = findViewById<View>(R.id.library_search_box)
+        val input = findViewById<EditText>(R.id.library_search_input)
+        val pill = findViewById<View>(R.id.library_search_pill)
+        libraryPillsTransition()
+        add.visibility = View.GONE
+        pill.isClickable = false
+        pill.contentDescription = null
+        label.animate().cancel(); box.animate().cancel()
+        box.visibility = View.VISIBLE
+        if (animationsOn()) {
+            label.animate().alpha(0f).setDuration(120L).withEndAction { label.visibility = View.INVISIBLE }.start()
+            box.alpha = 0f
+            box.animate().alpha(1f).setStartDelay(90L).setDuration(200L).start()
+        } else {
+            label.alpha = 0f; label.visibility = View.INVISIBLE; box.alpha = 1f
+        }
+        input.setText("")
+        input.requestFocus()
+        showKeyboard(input)
+    }
+
+    /** Closes the filter: everything shows again ([animate] false when leaving Library). */
+    private fun closeLibrarySearch(animate: Boolean) {
+        if (!libraryFilterOpen) return
+        val add = findViewById<View>(R.id.library_add_pill)
+        val label = findViewById<View>(R.id.library_search_label)
+        val box = findViewById<View>(R.id.library_search_box)
+        val input = findViewById<EditText>(R.id.library_search_input)
+        val pill = findViewById<View>(R.id.library_search_pill)
+        if (input.hasFocus()) hideKeyboard()
+        input.clearFocus()
+        val anim = animate && animationsOn()
+        if (anim) {
+            filterLibrary("")
+            libraryPillsTransition()
+        } else {
+            libraryQuery = ""
+            libraryAdapter.submit(libraryTiles)
+            showLibraryFilterEmpty()
+        }
+        libraryFilterOpen = false
+        input.setText("")
+        add.visibility = View.VISIBLE
+        pill.isClickable = true
+        pill.contentDescription = getString(R.string.library_search_playlists)
+        label.animate().cancel(); box.animate().cancel()
+        label.visibility = View.VISIBLE
+        if (anim) {
+            box.animate().alpha(0f).setDuration(110L).withEndAction { box.visibility = View.GONE }.start()
+            label.alpha = 0f
+            label.animate().alpha(1f).setStartDelay(100L).setDuration(200L).start()
+        } else {
+            box.alpha = 0f; box.visibility = View.GONE; label.alpha = 1f
+        }
+    }
+
     /** Reloads Recents, Library and the open list from the database. */
     private suspend fun refreshData() {
         val recent = app.database.getRecentTracks(50)
@@ -3726,17 +4226,20 @@ class MainActivity : AppCompatActivity() {
         val liked = app.database.getLikedTracks()
         val playlists = app.database.getPlaylists()
         val tiles = ArrayList<GridTile>(playlists.size + 2)
-        // Design order: Liked Songs, Recents (v4.9, was a tab), New Playlist, then your playlists.
+        // Design order: Liked Songs, Recents (v4.9, was a tab), Offline, then your playlists.
+        // 5.8.5 u57: no "+" tile in the grid any more: "+ Add playlists" is a pill above it.
         tiles.add(GridTile.Liked(liked.size, liked.firstOrNull()?.thumbnailUrl))
         tiles.add(GridTile.RecentsTile(recent.size))
         // 5.4.0: pinned after Recents: the songs saved offline
         tiles.add(GridTile.OfflineTile(app.offlineStore.saved.value.size))
-        tiles.add(GridTile.NewPlaylist)
         for (p in playlists) {
             val cover = app.database.getPlaylistTracks(p.id).firstOrNull()?.thumbnailUrl
             tiles.add(GridTile.PlaylistTile(p, cover))
         }
-        libraryAdapter.submit(tiles)
+        libraryTiles = tiles
+        // 5.8.5 u57: while "Search Playlists" has a name typed, only the matching playlists show
+        libraryAdapter.submit(LibraryFilter.apply(tiles, libraryQuery))
+        showLibraryFilterEmpty()
         // v4.5: playlists or likes may have changed: the fun greetings re-read on their next turn
         greetingFactsAt = 0L
 
@@ -5482,7 +5985,7 @@ class MainActivity : AppCompatActivity() {
         val prefs = app.preferences
         if (!prefs.storiesTabSeen) {
             prefs.storiesTabSeen = true
-            for ((_, row) in topRows) row.storiesNew.visibility = View.GONE
+            for (row in allRows) row.storiesNew.visibility = View.GONE
             fitTopRows()
         }
         if (::storiesScreen.isInitialized) storiesScreen.onShown()
@@ -5504,7 +6007,7 @@ class MainActivity : AppCompatActivity() {
         val prefs = app.preferences
         val showNew = !prefs.statsTabSeen
         val showDot = !showNew && RecapRules.showDot(recapStats?.day, prefs.recapViewedDay)
-        for ((_, row) in topRows) {
+        for (row in allRows) {
             row.statsNew.visibility = if (showNew) View.VISIBLE else View.GONE
             row.statsDot.visibility = if (showDot) View.VISIBLE else View.GONE
         }
@@ -9257,7 +9760,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun avatars(): List<AvatarView> = topRows.map { it.second.gear } + findViewById<AvatarView>(R.id.account_avatar)
+    private fun avatars(): List<AvatarView> = allRows.map { it.gear } + findViewById<AvatarView>(R.id.account_avatar)
 
     private fun setAvatarPhoto(bitmap: android.graphics.Bitmap?, animate: Boolean) {
         for (a in avatars()) a.setPhoto(bitmap, animate)

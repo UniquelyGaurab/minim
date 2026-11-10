@@ -34,7 +34,8 @@ import androidx.recyclerview.widget.RecyclerView
 class SearchMorph(
     private val overlayHost: ViewGroup,
     private val screen: View,
-    private val logo: View,
+    /** The old header logo; null since 5.8.5 u57, where Search shows the tab row instead. */
+    private val logo: View?,
     private val input: View,
     private val go: View,
     private val results: RecyclerView,
@@ -42,7 +43,12 @@ class SearchMorph(
     /** 5.7.0: the picked-for-you shelves shown while the box is empty (null in tests). */
     private val discover: View? = null,
     private val colors: () -> Pair<Int, Int>, // (fg, bg)
-    private val animationsOn: () -> Boolean
+    private val animationsOn: () -> Boolean,
+    /**
+     * 5.8.5 u57: the morph's progress (0 = the pill, 1 = Search fully open) on every frame, and 1
+     * when it settles, so Search's tab row can slide and fade in step with the box.
+     */
+    private val onProgress: ((Float) -> Unit)? = null
 ) {
     private val density = overlayHost.resources.displayMetrics.density
     private var anim: ValueAnimator? = null
@@ -95,11 +101,14 @@ class SearchMorph(
 
     /** Drops any running morph and puts every view back to normal. */
     fun finish() {
+        val wasRunning = anim != null
         anim?.cancel()
         anim = null
         removeGhost()
         source?.alpha = 1f
         closing = false
+        // 5.8.5 u57: a morph stopped partway leaves nothing half-faded behind
+        if (wasRunning) resetReal()
     }
 
     private fun run(pill: View, opening: Boolean, onEnd: (() -> Unit)?) {
@@ -131,8 +140,9 @@ class SearchMorph(
                 g.t = t
                 screen.background?.alpha = (255 * SearchMotion.backdrop(t)).toInt()
                 input.alpha = SearchMotion.realBar(t)
-                logo.alpha = SearchMotion.logo(t)
-                logo.translationX = (1f - SearchMotion.logo(t)) * -12f * density
+                logo?.alpha = SearchMotion.logo(t)
+                logo?.translationX = (1f - SearchMotion.logo(t)) * -12f * density
+                onProgress?.invoke(t)
                 go.alpha = SearchMotion.goButton(t)
                 val gs = 0.9f + 0.1f * SearchMotion.goButton(t)
                 go.scaleX = gs; go.scaleY = gs
@@ -187,12 +197,13 @@ class SearchMorph(
     }
 
     private fun setReal(a: Float) {
-        input.alpha = a; logo.alpha = a; go.alpha = a
+        input.alpha = a; logo?.alpha = a; go.alpha = a
+        onProgress?.invoke(a)
     }
 
     private fun resetReal() {
         setReal(1f)
-        logo.translationX = 0f
+        logo?.translationX = 0f
         go.scaleX = 1f; go.scaleY = 1f
         results.alpha = 1f
         status.alpha = 1f

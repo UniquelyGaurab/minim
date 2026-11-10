@@ -10,6 +10,7 @@ import com.minim.music.data.offline.FetchSource
 import com.minim.music.data.offline.OfflineStore
 import com.minim.music.data.offline.ParallelFetcher
 import com.minim.music.data.source.StreamOption
+import com.minim.music.data.source.StreamSelection
 import com.minim.music.data.source.YoutubeStreamRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -216,7 +217,10 @@ class PhoneSongAudio(
                 ?: throw IOException("no AAC stream")
             fetcher.fetch(FetchSource(pick.url, pick.contentLength), part, refresh = {
                 val fresh = options(song.id, true)
-                fresh.firstOrNull { it.itag == pick.itag && it.contentLength == pick.contentLength && it.url.isNotBlank() }
+                StreamSelection.originalOnly(fresh, pick.trackId).firstOrNull {
+                    it.itag == pick.itag && it.trackId == pick.trackId &&
+                        it.contentLength == pick.contentLength && it.url.isNotBlank()
+                }
                     ?.let { pick = it; FetchSource(it.url, it.contentLength) }
             })
             currentCoroutineContext().ensureActive()
@@ -236,7 +240,8 @@ class PhoneSongAudio(
          * Then any other AAC-LC, then HE-AAC (itag 139). Never Opus (no remux before Android 10).
          */
         fun pickForGemini(options: List<StreamOption>): StreamOption? =
-            options.filter {
+            // 5.8.5: the original audio track only, so the lyrics are the song's own words
+            StreamSelection.originalOnly(options).filter {
                 it.url.isNotBlank() && it.progressive && it.contentLength > 0 &&
                     (it.formatName.contains("M4A", true) || it.itag in setOf(139, 140, 141)) &&
                     YoutubeStreamRequest.isVideoPlaybackUrl(it.url)

@@ -2,6 +2,19 @@
 
 Every Minim release, newest first. Download any of them from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page.
 
+## 5.8.6 (2026-11-10)
+
+- **Tabs in Search:** Search now has the same top row as every other tab (minim, home, tapes, stats, library and your avatar), with the search box on its own line below. Tap the tab you came from to close Search, or any other tab to go straight there. The underline glides over and the tab slides in. It works from an Artist page or a playlist too
+- **Original audio, not dubs:** tapes and songs now always play a video's original audio track, never a dubbed one, and only use an audio description track when it's the only one. A link refresh or fallback mid-song stays on the same language, and saving offline and Gemini lyrics use the original audio too. Songs with one audio track, which is almost all music, play exactly as before
+- **Search your playlists:** the Add playlist tile is gone from Library. Two pills sit above the grid: "+ Add playlists" and "Search Playlists", which stretches into a name box and filters your playlists as you type (capitals, accents and spaces don't matter)
+- **Magnifier search button:** the search button is a round magnifier on every screen size, lined up where "minim" sits on Home, so it never crowds the tabs or wraps on small phones or big fonts
+- **Smoother motion:** tabs slide to their new place when you switch between a logo tab and a magnifier tab, and playlists fade out or glide into place as they filter
+- **Credits:** the credits in Settings → About now say "Designed by Gaurab" and "Built by Charlie (Sesame AI)". Google Gemini only wrote very early code that Minim no longer uses, so its credit is removed. Gemini lyrics, translation, the chat and the Search shelf are unchanged
+
+5.8.5 was a test build; everything in it is in 5.8.6. Tapes or songs you already saved offline with dubbed audio stay that way until you remove them and save them again.
+
+Download Minim-v5.8.6.apk from the release (Android 9 or newer). It installs over 5.8.5 and 5.8.4 and keeps your library, settings and account.
+
 ## 5.8.4 (2026-11-10)
 
 - **Settings, regrouped:** the page is now eight short groups: You, Look, Sound, Lyrics, Gestures, Gemini, Storage and About. Each has a bold title with space around it, and each setting has one short label, with a one-line note only where it helps

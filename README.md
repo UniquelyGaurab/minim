@@ -51,12 +51,14 @@ After that, Minim keeps itself up to date. When it opens, or comes back after a 
 - **YouTube channels as audio.** Follow a channel and its uploads play like songs, without the video. Shorts stay out.
 - **Shelves:** Continue listening, New this week and one row per channel, with **Under 20 mins**, **30+ mins** and **New to You** chips.
 - **Picks up where you stopped**, even after a restart.
+- **Original audio:** a video with dubbed tracks always plays its original language.
 - **Channel pages** with Follow, Latest and Popular.
 - **Captions** in full screen lyrics, and a **playback speed** (1x to 2x) kept per channel.
 
 ### Library and discovery
 
 - **Liked** songs, tapes and artists, playlists, recents and offline downloads.
+- **Search your playlists** by name from the pill at the top of Library.
 - **Import playlists** from YouTube, YouTube Music, Spotify or a plain list of songs, then review the matches before saving.
 - **Discover** on the Search page: shelves picked from what you listen to, your top artists and a daily shelf picked by Gemini.
 - **Artist pages** with a full-bleed photo, monthly listeners, top songs, albums and Shuffle.
@@ -152,7 +154,7 @@ Both live in this repo, so they change without an app update.
 
 ## Credits
 
-Designed by **Gaurab**, built by **Charlie (Sesame AI)**, early code by **Google Gemini**.
+Designed by **Gaurab**, built by **Charlie (Sesame AI)**.
 
 - [NewPipe Extractor](https://github.com/TeamNewPipe/NewPipeExtractor) for search and streams (GPL-3.0)
 - [LRCLib](https://lrclib.net) for synced lyrics

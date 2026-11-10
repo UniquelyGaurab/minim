@@ -15,6 +15,120 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="14dp" />
 
+    <!-- 5.8.5 u57: above everything in Library, two pills: "+ Add playlists" (what the old "+" tile
+         did: New Playlist or Import) and "Search Playlists". Tapping Search Playlists grows it across
+         the row into a name box (the add pill slides away); typing filters the grid to your
+         playlists whose name matches. The x (or Back) closes it and shows everything again. -->
+    <LinearLayout
+        android:id="@+id/library_pills"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="36dp"
+        android:layout_marginTop="22dp"
+        android:layout_marginEnd="36dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/library_add_pill"
+            style="@style/MinimText.Semi"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:autoSizeMaxTextSize="12sp"
+            android:autoSizeMinTextSize="9sp"
+            android:autoSizeStepGranularity="0.5sp"
+            android:autoSizeTextType="uniform"
+            android:background="@drawable/shape_pill"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:maxLines="1"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:tag="fill:fg text:bg"
+            android:text="@string/library_add_playlists"
+            android:textSize="12sp" />
+
+        <FrameLayout
+            android:id="@+id/library_search_pill"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:background="@drawable/shape_pill"
+            android:clickable="true"
+            android:contentDescription="@string/library_search_playlists"
+            android:focusable="true"
+            android:tag="fill:soft">
+
+            <TextView
+                android:id="@+id/library_search_label"
+                style="@style/MinimText.Semi"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:autoSizeMaxTextSize="12sp"
+                android:autoSizeMinTextSize="9sp"
+                android:autoSizeStepGranularity="0.5sp"
+                android:autoSizeTextType="uniform"
+                android:gravity="center"
+                android:importantForAccessibility="no"
+                android:maxLines="1"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:tag="text:fg"
+                android:text="@string/library_search_playlists"
+                android:textSize="12sp" />
+
+            <LinearLayout
+                android:id="@+id/library_search_box"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:alpha="0"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="14dp"
+                android:paddingEnd="0dp"
+                android:visibility="gone">
+
+                <ImageView
+                    android:layout_width="13dp"
+                    android:layout_height="13dp"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_search"
+                    android:tag="tint:fg" />
+
+                <EditText
+                    android:id="@+id/library_search_input"
+                    style="@style/MinimText"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:background="@null"
+                    android:hint="@string/library_search_hint"
+                    android:imeOptions="actionSearch"
+                    android:importantForAutofill="no"
+                    android:inputType="text"
+                    android:padding="0dp"
+                    android:singleLine="true"
+                    android:tag="text:fg"
+                    android:textCursorDrawable="@null"
+                    android:textSize="12sp" />
+
+                <ImageView
+                    android:id="@+id/library_search_close"
+                    android:layout_width="34dp"
+                    android:layout_height="34dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/library_search_close"
+                    android:padding="11dp"
+                    android:src="@drawable/ic_close"
+                    android:tag="tint:fg" />
+            </LinearLayout>
+        </FrameLayout>
+    </LinearLayout>
+
     <!-- 5.3.0: slim card while a playlist imports ("Importing Chill Mix · 84/200"); the soft bar
          behind the text fills up as songs are found. Tap it when it's done to review. -->
     <FrameLayout
@@ -22,7 +136,7 @@
         android:layout_width="match_parent"
         android:layout_height="44dp"
         android:layout_marginStart="36dp"
-        android:layout_marginTop="22dp"
+        android:layout_marginTop="14dp"
         android:layout_marginEnd="36dp"
         android:background="@drawable/shape_pill"
         android:clickable="true"
@@ -70,14 +184,34 @@
         </LinearLayout>
     </FrameLayout>
 
-    <com.minim.music.ui.FadingRecyclerView
-        android:id="@+id/library_grid"
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:clipToPadding="false"
-        android:overScrollMode="never"
-        android:paddingStart="30dp"
-        android:paddingTop="30dp"
-        android:paddingEnd="30dp"
-        android:paddingBottom="110dp" />
+        android:layout_height="match_parent">
+
+        <com.minim.music.ui.FadingRecyclerView
+            android:id="@+id/library_grid"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:overScrollMode="never"
+            android:paddingStart="30dp"
+            android:paddingTop="22dp"
+            android:paddingEnd="30dp"
+            android:paddingBottom="110dp" />
+
+        <!-- 5.8.5 u57: "No playlists match "x"" while the filter finds nothing -->
+        <TextView
+            android:id="@+id/library_filter_empty"
+            style="@style/MinimText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="36dp"
+            android:layout_marginTop="34dp"
+            android:layout_marginEnd="36dp"
+            android:alpha="0.6"
+            android:gravity="center"
+            android:tag="text:fg"
+            android:textSize="13sp"
+            android:visibility="gone" />
+    </FrameLayout>
 </LinearLayout>

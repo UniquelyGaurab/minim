@@ -37,7 +37,11 @@ class YoutubeSongSaver(
                 part,
                 refresh = {
                     val fresh = withContext(Dispatchers.IO) { options(id, true) }
-                    val same = fresh.firstOrNull { it.itag == pick.itag && it.contentLength == pick.contentLength && it.url.isNotBlank() }
+                    // 5.8.5: the same format of the same audio track (never another language's copy)
+                    val same = StreamSelection.originalOnly(fresh, pick.trackId).firstOrNull {
+                        it.itag == pick.itag && it.trackId == pick.trackId &&
+                            it.contentLength == pick.contentLength && it.url.isNotBlank()
+                    }
                     same?.let { pick = it; FetchSource(it.url, it.contentLength) }
                 }
             ) { bytes -> onProgress(0.95f * bytes / pick.contentLength) }

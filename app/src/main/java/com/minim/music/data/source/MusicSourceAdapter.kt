@@ -43,6 +43,8 @@ class MusicSourceAdapter(okHttpClient: OkHttpClient) {
     )
 
     private val streamCache = LruCache<String, CachedStreams>(60)
+    /** 5.8.5: the audio track id each song is playing on (multi-track videos only). */
+    private val playingTrack = LruCache<String, String>(60)
 
     // ----------------------------------------------------------------------------------------
     // 5.7.0 u46: YouTube captions (stories uploads show them in place of lyrics)
@@ -276,15 +278,19 @@ class MusicSourceAdapter(okHttpClient: OkHttpClient) {
         val cached = if (forceFresh) null else streamCache.get(videoId)?.takeIf { it.expiresAtMs > now }
         val entry = cached ?: fetchStreams(videoId, videoIdOrUrl, now).also { streamCache.put(videoId, it) }
 
-        val pick = StreamSelection.pick(entry.options, excludedItags, preferItag)
+        // 5.8.5: a refresh or a 403 fallback stays on the audio track that was playing
+        val keepTrack = if (preferItag != null || excludedItags.isNotEmpty()) playingTrack.get(videoId) else null
+        val pick = StreamSelection.pick(entry.options, excludedItags, preferItag, keepTrack)
         if (pick != null) {
+            pick.trackId?.let { playingTrack.put(videoId, it) }
             return ResolvedStream(
                 videoId = videoId,
                 url = pick.url,
                 itag = pick.itag,
                 contentLength = pick.contentLength,
                 chunked = YoutubeStreamRequest.isVideoPlaybackUrl(pick.url),
-                otherOptions = StreamSelection.remaining(entry.options, excludedItags, pick.itag)
+                otherOptions = StreamSelection.remaining(entry.options, excludedItags, pick.itag, pick.trackId),
+                trackId = pick.trackId
             )
         }
         if (excludedItags.isNotEmpty() && StreamSelection.order(entry.options).isNotEmpty()) {
@@ -356,7 +362,11 @@ class MusicSourceAdapter(okHttpClient: OkHttpClient) {
             formatName = stream.format?.name.orEmpty(),
             bitrate = stream.averageBitrate,
             progressive = stream.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP,
-            contentLength = if (fromUrl > 0) fromUrl else fromItag
+            contentLength = if (fromUrl > 0) fromUrl else fromItag,
+            // 5.8.5: which audio track (original / dub / description) this copy of the format is
+            trackType = runCatching { stream.audioTrackType?.name }.getOrNull(),
+            trackId = runCatching { stream.audioTrackId?.takeIf { it.isNotBlank() } }.getOrNull(),
+            locale = runCatching { stream.audioLocale?.toLanguageTag()?.takeIf { it.isNotBlank() && it != "und" } }.getOrNull()
         )
     }
 
