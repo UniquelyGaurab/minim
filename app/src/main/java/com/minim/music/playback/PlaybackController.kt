@@ -690,7 +690,10 @@ class PlaybackController(
     private val fermata: FermataLogger? = try {
         fermataState?.let {
             FermataLogger(
-                sink = FermataStore.sink(database),
+                // 5.10.0: plays, skips, queue adds and tape plays go into the Fermata log
+                // (FermataBridge); 5.9.0's fermata_events table is no longer written
+                sink = (context.applicationContext as? com.minim.music.MinimApp)?.fermataBridge?.journal
+                    ?: FermataStore.noSink,
                 kv = it,
                 executor = FermataStore.newWriter(),
                 deviceIdKv = FermataStore.deviceKv(context)

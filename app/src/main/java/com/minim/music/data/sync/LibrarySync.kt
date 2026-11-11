@@ -21,7 +21,20 @@ import java.io.File
  * - M|day|song         this phone's listening time and taps for a song on a day -> history/{day}
  * - N|day|song         same, every phone's numbers (only the full merge after signing in)
  */
-class LibrarySync(private val lib: LibraryDatabase) {
+class LibrarySync(
+    private val lib: LibraryDatabase,
+    /**
+     * 5.10.0: where a merge queues what the other side is missing. Firestore sync uses
+     * sync_outbox; merging Fermata (folder backups) uses fermata_outbox.
+     */
+    private val outbox: String = "sync_outbox",
+    /**
+     * 5.10.0: leave other phones' listening time out of this merge. Set when merging folder
+     * backups while Firebase sign-in is on: Firestore already brings that listening time, and
+     * taking it from both would count it twice where the two disagree on a phone's key.
+     */
+    private val skipOtherListening: Boolean = false,
+) {
 
     data class OutboxItem(val id: Long, val key: String)
 
@@ -57,7 +70,7 @@ class LibrarySync(private val lib: LibraryDatabase) {
         val d = db
         val stored = state("device")
         if (stored != null && stored != current) {
-            d.beginTransaction()
+            lib.beginWrite(d)
             try {
                 d.execSQL(
                     """
@@ -79,7 +92,7 @@ class LibrarySync(private val lib: LibraryDatabase) {
                 setState("device", current)
                 d.setTransactionSuccessful()
             } finally {
-                d.endTransaction()
+                lib.endWrite(d)
             }
         } else if (stored == null) {
             setState("device", current)
@@ -102,12 +115,12 @@ class LibrarySync(private val lib: LibraryDatabase) {
     fun ack(items: List<OutboxItem>) {
         if (items.isEmpty()) return
         val d = db
-        d.beginTransaction()
+        lib.beginWrite(d)
         try {
             for (i in items) d.execSQL("DELETE FROM sync_outbox WHERE id = ? AND k = ?", arrayOf<Any>(i.id, i.key))
             d.setTransactionSuccessful()
         } finally {
-            d.endTransaction()
+            lib.endWrite(d)
         }
     }
 
@@ -121,11 +134,11 @@ class LibrarySync(private val lib: LibraryDatabase) {
     }
 
     private fun dequeue(d: SQLiteDatabase, key: String) {
-        d.execSQL("DELETE FROM sync_outbox WHERE k = ?", arrayOf<Any>(key))
+        d.execSQL("DELETE FROM $outbox WHERE k = ?", arrayOf<Any>(key))
     }
 
     private fun enqueue(d: SQLiteDatabase, key: String) {
-        d.execSQL("INSERT OR IGNORE INTO sync_outbox (k) VALUES (?)", arrayOf<Any>(key))
+        d.execSQL("INSERT OR IGNORE INTO $outbox (k) VALUES (?)", arrayOf<Any>(key))
     }
 
     /**
@@ -135,22 +148,22 @@ class LibrarySync(private val lib: LibraryDatabase) {
      */
     fun enqueueAll() {
         val d = db
-        d.beginTransaction()
+        lib.beginWrite(d)
         try {
-            d.execSQL("INSERT OR IGNORE INTO sync_outbox (k) SELECT 'L|' || id FROM tracks WHERE is_liked = 1 OR like_changed_at > 0")
-            d.execSQL("INSERT OR IGNORE INTO sync_outbox (k) SELECT 'H|' || track_id FROM not_interested")
-            d.execSQL("INSERT OR IGNORE INTO sync_outbox (k) SELECT 'P|' || uid FROM playlists WHERE uid IS NOT NULL")
-            d.execSQL("INSERT OR IGNORE INTO sync_outbox (k) SELECT 'P|' || uid FROM playlist_deleted")
+            d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'L|' || id FROM tracks WHERE is_liked = 1 OR like_changed_at > 0")
+            d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'H|' || track_id FROM not_interested")
+            d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'P|' || uid FROM playlists WHERE uid IS NOT NULL")
+            d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'P|' || uid FROM playlist_deleted")
             d.execSQL(
                 """
-                INSERT OR IGNORE INTO sync_outbox (k)
+                INSERT OR IGNORE INTO $outbox (k)
                 SELECT 'T|' || p.uid || '|' || pt.track_id FROM playlist_tracks pt
                 INNER JOIN playlists p ON p.id = pt.playlist_id WHERE p.uid IS NOT NULL
                 """.trimIndent()
             )
-            d.execSQL("INSERT OR IGNORE INTO sync_outbox (k) SELECT 'T|' || playlist_uid || '|' || track_id FROM playlist_removed")
-            d.execSQL("INSERT OR IGNORE INTO sync_outbox (k) SELECT 'E|' || event_id FROM plays WHERE event_id IS NOT NULL")
-            d.execSQL("INSERT OR IGNORE INTO sync_outbox (k) SELECT 'N|' || day || '|' || track_id FROM listen_time GROUP BY day, track_id")
+            d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'T|' || playlist_uid || '|' || track_id FROM playlist_removed")
+            d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'E|' || event_id FROM plays WHERE event_id IS NOT NULL")
+            d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'N|' || day || '|' || track_id FROM listen_time GROUP BY day, track_id")
             val taps = ArrayList<Pair<String, Long>>()
             d.rawQuery("SELECT id, last_played_at FROM tracks WHERE last_played_at > 0", null).use { c ->
                 while (c.moveToNext()) taps.add(c.getString(0) to c.getLong(1))
@@ -158,7 +171,7 @@ class LibrarySync(private val lib: LibraryDatabase) {
             for ((id, lp) in taps) enqueue(d, "N|${Days.keyOf(lp)}|$id")
             d.setTransactionSuccessful()
         } finally {
-            d.endTransaction()
+            lib.endWrite(d)
         }
     }
 
@@ -443,13 +456,13 @@ class LibrarySync(private val lib: LibraryDatabase) {
 
     private inline fun inTx(block: (SQLiteDatabase) -> Boolean): Boolean {
         val d = db
-        d.beginTransaction()
+        lib.beginWrite(d)
         try {
             val changed = block(d)
             d.setTransactionSuccessful()
             return changed
         } finally {
-            d.endTransaction()
+            lib.endWrite(d)
         }
     }
 
@@ -515,7 +528,7 @@ class LibrarySync(private val lib: LibraryDatabase) {
             }
             if (merged.sameHeader(remoteN)) dequeue(d, "P|$uid") else enqueue(d, "P|$uid")
             if (merged.deleted) {
-                d.execSQL("DELETE FROM sync_outbox WHERE k LIKE ?", arrayOf<Any>("T|$uid|%"))
+                d.execSQL("DELETE FROM $outbox WHERE k LIKE ?", arrayOf<Any>("T|$uid|%"))
             } else {
                 for ((song, e) in merged.tracks) {
                     if (e.sameAs(remoteN.tracks[song])) dequeue(d, "T|$uid|$song") else enqueue(d, "T|$uid|$song")
@@ -578,6 +591,7 @@ class LibrarySync(private val lib: LibraryDatabase) {
                     entries[k] = ms
                     val (hour, song) = SyncCodec.parseListenKey(k) ?: continue
                     if (!SyncIds.isSyncableSongId(song)) continue
+                    if (skipOtherListening && dev != me) continue
                     val localDev = if (dev == me) "" else dev
                     val m = songs[song]
                     var cur: Long? = null
@@ -666,7 +680,7 @@ class LibrarySync(private val lib: LibraryDatabase) {
             } catch (_: Exception) {
             }
         }
-        d.beginTransaction()
+        lib.beginWrite(d)
         try {
             for (t in listOf(
                 "tracks", "playlists", "playlist_tracks", "playlist_removed", "playlist_deleted",
@@ -674,7 +688,7 @@ class LibrarySync(private val lib: LibraryDatabase) {
             )) d.delete(t, null, null)
             d.setTransactionSuccessful()
         } finally {
-            d.endTransaction()
+            lib.endWrite(d)
         }
     }
 }

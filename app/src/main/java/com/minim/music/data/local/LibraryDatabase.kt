@@ -13,8 +13,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
-class LibraryDatabase(context: Context) :
-    SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
+class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(context)) :
+    SQLiteOpenHelper(context, fileName, null, DB_VERSION) {
 
     private val _likedIds = MutableStateFlow<Set<String>>(emptySet())
     val likedIds: StateFlow<Set<String>> = _likedIds.asStateFlow()
@@ -63,6 +63,7 @@ class LibraryDatabase(context: Context) :
         createV5Import(db)
         createV6Tapes(db)
         createV7Fermata(db)
+        createV8FermataLog(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -74,6 +75,138 @@ class LibraryDatabase(context: Context) :
         if (oldVersion < 5) createV5Import(db)
         if (oldVersion < 6) createV6Tapes(db)
         if (oldVersion < 7) createV7Fermata(db)
+        if (oldVersion < 8) createV8FermataLog(db)
+    }
+
+    /**
+     * 5.10.0: Minim writes through Fermata. The log lives in this file ([FERMATA_LOG_TABLE], made by
+     * Fermata's SqliteEventStore) so an event commits in the same transaction as the screens' rows.
+     * - fermata_outbox: what changed in the screens' tables and still has to be recorded as a
+     *   Minim event (filled by [queueSync] in the change's own transaction, emptied when it commits)
+     * - fermata_journal: a play or tape play that is still going (written at track start and every
+     *   5 s, recorded into the log when it ends; replaces 5.9.0's fermata_events, now read only)
+     * - fermata_meta: the first-launch import marker and similar flags
+     * - tape_plays.fermata_key: another phone's tape play, so a merge never adds it twice
+     */
+    private fun createV8FermataLog(db: SQLiteDatabase) {
+        com.minim.fermata.android.SqliteEventStore.createSchema(db, FERMATA_LOG_TABLE)
+        db.execSQL("CREATE TABLE IF NOT EXISTS fermata_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, k TEXT NOT NULL UNIQUE)")
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS fermata_journal (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                type TEXT NOT NULL,
+                track_id TEXT NOT NULL,
+                title TEXT,
+                artist TEXT,
+                duration_ms INTEGER,
+                ts INTEGER NOT NULL,
+                session_id TEXT,
+                prev_track_id TEXT,
+                source TEXT,
+                listened_ms INTEGER,
+                position_ms INTEGER,
+                speed_pct INTEGER,
+                updated_at INTEGER NOT NULL DEFAULT 0
+            )
+            """.trimIndent()
+        )
+        // the last document write recorded per path, so an unchanged write is not recorded again
+        db.execSQL("CREATE TABLE IF NOT EXISTS fermata_written (path TEXT PRIMARY KEY NOT NULL, hash TEXT NOT NULL)")
+        // other phones' tape listening time, from backups (tapes never synced through Firestore)
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS tape_listen_remote (
+                device TEXT NOT NULL,
+                day INTEGER NOT NULL,
+                hour INTEGER NOT NULL,
+                video_id TEXT NOT NULL,
+                speed INTEGER NOT NULL DEFAULT 100,
+                title TEXT NOT NULL DEFAULT '',
+                channel TEXT NOT NULL DEFAULT '',
+                channel_id TEXT NOT NULL DEFAULT '',
+                thumbnail_url TEXT NOT NULL DEFAULT '',
+                duration_sec INTEGER NOT NULL DEFAULT 0,
+                ms INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (device, day, hour, video_id, speed)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE VIEW IF NOT EXISTS tape_listen_all AS
+            SELECT day, hour, video_id, speed, title, channel, channel_id, thumbnail_url, duration_sec, ms FROM tape_listen_time
+            UNION ALL
+            SELECT day, hour, video_id, speed, title, channel, channel_id, thumbnail_url, duration_sec, ms FROM tape_listen_remote
+            """.trimIndent()
+        )
+        db.execSQL("CREATE TABLE IF NOT EXISTS fermata_meta (k TEXT PRIMARY KEY NOT NULL, v TEXT)")
+        addColumn(db, "tape_plays", "fermata_key", "TEXT")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_tape_plays_fkey ON tape_plays(fermata_key)")
+    }
+
+    /**
+     * 5.10.0: writes take Fermata's lock first, then open their transaction with a listener whose
+     * onCommit records what changed into the Fermata log inside the same transaction (so a kill
+     * leaves both or neither). Null until the app starts Fermata (and in tests that do not).
+     */
+    interface WriteGate {
+        val lock: java.util.concurrent.locks.Lock
+        /** Runs inside the committing transaction; throwing rolls the whole write back. */
+        fun onCommit(db: SQLiteDatabase)
+        fun onRollback()
+    }
+
+    @Volatile var writeGate: WriteGate? = null
+    private val gateStack = ThreadLocal.withInitial { ArrayList<WriteGate?>() }
+
+    internal fun beginWrite(db: SQLiteDatabase) {
+        val g = writeGate
+        if (g == null) {
+            db.beginTransaction()
+        } else {
+            g.lock.lock()
+            try {
+                db.beginTransactionWithListener(object : android.database.sqlite.SQLiteTransactionListener {
+                    override fun onBegin() = Unit
+                    override fun onCommit() = g.onCommit(db)
+                    override fun onRollback() = g.onRollback()
+                })
+            } catch (t: Throwable) {
+                g.lock.unlock()
+                throw t
+            }
+        }
+        gateStack.get().add(g)
+    }
+
+    internal fun endWrite(db: SQLiteDatabase) {
+        val stack = gateStack.get()
+        val g = if (stack.isEmpty()) null else stack.removeAt(stack.size - 1)
+        try {
+            db.endTransaction()
+        } finally {
+            g?.lock?.unlock()
+        }
+    }
+
+    /** Runs [block] in one gated write transaction (see [WriteGate]). */
+    internal fun <T> inWrite(block: (SQLiteDatabase) -> T): T {
+        val db = writableDatabase
+        beginWrite(db)
+        try {
+            val r = block(db)
+            db.setTransactionSuccessful()
+            return r
+        } finally {
+            endWrite(db)
+        }
+    }
+
+    /** 5.10.0: a change Fermata has to record (see fermata_outbox). Always on, signed in or not. */
+    internal fun queueFermata(db: SQLiteDatabase, key: String) {
+        if (writeGate == null) return
+        db.execSQL("INSERT OR REPLACE INTO fermata_outbox (k) VALUES (?)", arrayOf<Any>(key))
     }
 
     /**
@@ -398,6 +531,7 @@ class LibraryDatabase(context: Context) :
     @Volatile var onSyncChange: ((urgent: Boolean) -> Unit)? = null
 
     internal fun queueSync(db: SQLiteDatabase, key: String) {
+        queueFermata(db, key)
         if (!syncTracking) return
         db.execSQL("INSERT OR REPLACE INTO sync_outbox (k) VALUES (?)", arrayOf<Any>(key))
     }
@@ -428,7 +562,7 @@ class LibraryDatabase(context: Context) :
     suspend fun recordPlayback(track: Track) = withContext(Dispatchers.IO) {
         val db = writableDatabase
         val now = System.currentTimeMillis()
-        db.beginTransaction()
+        beginWrite(db)
         try {
             upsertTrackInternal(db, track)
             db.execSQL(
@@ -438,7 +572,7 @@ class LibraryDatabase(context: Context) :
             queueSync(db, "M|${com.minim.music.data.stats.Days.keyOf(now)}|${track.id}")
             db.setTransactionSuccessful()
         } finally {
-            db.endTransaction()
+            endWrite(db)
         }
         notifySync(urgent = false)
     }
@@ -448,7 +582,7 @@ class LibraryDatabase(context: Context) :
         val db = writableDatabase
         val now = System.currentTimeMillis()
         var rowId = -1L
-        db.beginTransaction()
+        beginWrite(db)
         try {
             upsertTrackInternal(db, track)
             db.execSQL(
@@ -467,7 +601,7 @@ class LibraryDatabase(context: Context) :
             queueSync(db, "M|${com.minim.music.data.stats.Days.keyOf(now)}|${track.id}")
             db.setTransactionSuccessful()
         } finally {
-            db.endTransaction()
+            endWrite(db)
         }
         notifySync(urgent = false)
         rowId
@@ -486,7 +620,7 @@ class LibraryDatabase(context: Context) :
     suspend fun addListenTime(adds: List<ListenAdd>, playRowId: Long, playListenedMs: Long) =
         withContext(Dispatchers.IO) {
             val db = writableDatabase
-            db.beginTransaction()
+            beginWrite(db)
             try {
                 for (a in adds) {
                     if (a.slice.ms <= 0L) continue
@@ -521,7 +655,7 @@ class LibraryDatabase(context: Context) :
                 }
                 db.setTransactionSuccessful()
             } finally {
-                db.endTransaction()
+                endWrite(db)
             }
             notifySync(urgent = false)
         }
@@ -696,7 +830,7 @@ class LibraryDatabase(context: Context) :
     suspend fun addTapeListenTime(adds: List<TapeListenAdd>) = withContext(Dispatchers.IO) {
         if (adds.isEmpty()) return@withContext
         val db = writableDatabase
-        db.beginTransaction()
+        beginWrite(db)
         try {
             for (a in adds) {
                 if (a.slice.ms <= 0L) continue
@@ -717,10 +851,11 @@ class LibraryDatabase(context: Context) :
                         a.slice.day, a.slice.hour, a.track.id, a.speedPct
                     )
                 )
+                queueFermata(db, "TL|${a.slice.day}|${a.track.id}")
             }
             db.setTransactionSuccessful()
         } finally {
-            db.endTransaction()
+            endWrite(db)
         }
     }
 
@@ -737,7 +872,11 @@ class LibraryDatabase(context: Context) :
                 put("played_at", playedAt)
                 put("day", com.minim.music.data.stats.Days.keyOf(playedAt))
             }
-            writableDatabase.insert("tape_plays", null, v)
+            inWrite { db ->
+                val id = db.insert("tape_plays", null, v)
+                if (id > 0) queueFermata(db, "TP|$id")
+                id
+            }
         }
 
     suspend fun getDayTapePlays(day: Int): List<com.minim.music.data.stats.TapePlayRow> = withContext(Dispatchers.IO) {
@@ -766,7 +905,7 @@ class LibraryDatabase(context: Context) :
         readableDatabase.rawQuery(
             """
             SELECT video_id, title, channel, channel_id, thumbnail_url, duration_sec, hour, speed, ms
-            FROM tape_listen_time WHERE day = ?
+            FROM tape_listen_all WHERE day = ?
             """.trimIndent(),
             arrayOf(day.toString())
         ).use { c ->
@@ -784,7 +923,7 @@ class LibraryDatabase(context: Context) :
     suspend fun getTapeDayTotals(fromDay: Int, toDay: Int): Map<Int, Long> = withContext(Dispatchers.IO) {
         val out = HashMap<Int, Long>()
         readableDatabase.rawQuery(
-            "SELECT day, SUM(ms) FROM tape_listen_time WHERE day >= ? AND day <= ? GROUP BY day",
+            "SELECT day, SUM(ms) FROM tape_listen_all WHERE day >= ? AND day <= ? GROUP BY day",
             arrayOf(fromDay.toString(), toDay.toString())
         ).use { c ->
             while (c.moveToNext()) out[c.getInt(0)] = c.getLong(1)
@@ -800,7 +939,7 @@ class LibraryDatabase(context: Context) :
             arrayOf(fromDay.toString(), today.toString())
         ).use { c -> while (c.moveToNext()) days.add(c.getInt(0)) }
         readableDatabase.rawQuery(
-            "SELECT day FROM tape_listen_time WHERE day >= ? AND day < ? GROUP BY day HAVING SUM(ms) >= " +
+            "SELECT day FROM tape_listen_all WHERE day >= ? AND day < ? GROUP BY day HAVING SUM(ms) >= " +
                 com.minim.music.data.stats.StatsEngine.HISTORY_MS,
             arrayOf(fromDay.toString(), today.toString())
         ).use { c -> while (c.moveToNext()) days.add(c.getInt(0)) }
@@ -1040,13 +1179,13 @@ class LibraryDatabase(context: Context) :
             put("added_at", System.currentTimeMillis())
         }
         val db = writableDatabase
-        db.beginTransaction()
+        beginWrite(db)
         try {
             db.insertWithOnConflict("not_interested", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
             queueSync(db, "H|${track.id}")
             db.setTransactionSuccessful()
         } finally {
-            db.endTransaction()
+            endWrite(db)
         }
         _notInterestedIds.value = _notInterestedIds.value + track.id
         notifySync(urgent = true)
@@ -1055,7 +1194,7 @@ class LibraryDatabase(context: Context) :
     suspend fun toggleLike(track: Track): Boolean = withContext(Dispatchers.IO) {
         val db = writableDatabase
         var newLiked = 0
-        db.beginTransaction()
+        beginWrite(db)
         try {
             upsertTrackInternal(db, track)
             var currentlyLiked = false
@@ -1076,7 +1215,7 @@ class LibraryDatabase(context: Context) :
             queueSync(db, "L|${track.id}")
             db.setTransactionSuccessful()
         } finally {
-            db.endTransaction()
+            endWrite(db)
         }
         refreshLikedCache()
         notifySync(urgent = true)
@@ -1107,7 +1246,7 @@ class LibraryDatabase(context: Context) :
         val db = writableDatabase
         val now = System.currentTimeMillis()
         var id = -1L
-        db.beginTransaction()
+        beginWrite(db)
         try {
             val uid = freePlaylistUid(db, clean)
             // made again after a delete (here or on another phone): it starts empty
@@ -1131,7 +1270,7 @@ class LibraryDatabase(context: Context) :
             }
             db.setTransactionSuccessful()
         } finally {
-            db.endTransaction()
+            endWrite(db)
         }
         if (id != -1L) notifySync(urgent = true)
         id
@@ -1150,7 +1289,7 @@ class LibraryDatabase(context: Context) :
         if (clean.isEmpty()) return@withContext RenameResult.BLANK
         val db = writableDatabase
         var result = RenameResult.MISSING
-        db.beginTransaction()
+        beginWrite(db)
         try {
             var uid: String? = null
             var old: String? = null
@@ -1184,7 +1323,7 @@ class LibraryDatabase(context: Context) :
             }
             db.setTransactionSuccessful()
         } finally {
-            db.endTransaction()
+            endWrite(db)
         }
         if (result == RenameResult.RENAMED) notifySync(urgent = true)
         result
@@ -1192,7 +1331,7 @@ class LibraryDatabase(context: Context) :
 
     suspend fun deletePlaylist(playlistId: Long) = withContext(Dispatchers.IO) {
         val db = writableDatabase
-        db.beginTransaction()
+        beginWrite(db)
         try {
             // v5.0.0: remember the delete (with its time) so it reaches the other phones
             db.rawQuery(
@@ -1218,7 +1357,7 @@ class LibraryDatabase(context: Context) :
             db.delete("playlists", "id = ?", arrayOf(playlistId.toString()))
             db.setTransactionSuccessful()
         } finally {
-            db.endTransaction()
+            endWrite(db)
         }
         notifySync(urgent = true)
     }
@@ -1250,7 +1389,7 @@ class LibraryDatabase(context: Context) :
     suspend fun addTrackToPlaylist(playlistId: Long, track: Track) = withContext(Dispatchers.IO) {
         val db = writableDatabase
         val now = System.currentTimeMillis()
-        db.beginTransaction()
+        beginWrite(db)
         try {
             upsertTrackInternal(db, track)
             val cv = ContentValues().apply {
@@ -1266,7 +1405,7 @@ class LibraryDatabase(context: Context) :
             }
             db.setTransactionSuccessful()
         } finally {
-            db.endTransaction()
+            endWrite(db)
         }
         notifySync(urgent = true)
     }
@@ -1279,7 +1418,7 @@ class LibraryDatabase(context: Context) :
         if (tracks.isEmpty()) return@withContext
         val db = writableDatabase
         val now = System.currentTimeMillis()
-        db.beginTransaction()
+        beginWrite(db)
         try {
             val uid = playlistUidOf(db, playlistId)
             tracks.forEachIndexed { i, track ->
@@ -1298,7 +1437,7 @@ class LibraryDatabase(context: Context) :
             }
             db.setTransactionSuccessful()
         } finally {
-            db.endTransaction()
+            endWrite(db)
         }
         notifySync(urgent = true)
     }
@@ -1317,7 +1456,7 @@ class LibraryDatabase(context: Context) :
 
     suspend fun removeTrackFromPlaylist(playlistId: Long, trackId: String) = withContext(Dispatchers.IO) {
         val db = writableDatabase
-        db.beginTransaction()
+        beginWrite(db)
         try {
             val n = db.delete(
                 "playlist_tracks",
@@ -1337,7 +1476,7 @@ class LibraryDatabase(context: Context) :
             }
             db.setTransactionSuccessful()
         } finally {
-            db.endTransaction()
+            endWrite(db)
         }
         notifySync(urgent = true)
     }
@@ -1352,20 +1491,21 @@ class LibraryDatabase(context: Context) :
         queryTracks(sql, arrayOf(playlistId.toString()))
     }
 
+    /**
+     * 5.10.0: also called inside the clear's transaction (FermataBridge records the "cleared
+     * everything before now" event there, so the clear and its event commit together).
+     */
+    @Volatile var onClearHistory: ((SQLiteDatabase) -> Unit)? = null
+
+    /** 5.10.0: called after a clear committed (Minim backs up right away, replacing `previous`). */
+    @Volatile var afterClearHistory: (() -> Unit)? = null
+
     suspend fun clearHistory() = withContext(Dispatchers.IO) {
-        val cv = ContentValues().apply {
-            put("last_played_at", 0L)
-            put("play_count", 0)
+        inWrite { db ->
+            deleteHistoryBefore(db, Long.MAX_VALUE, Int.MAX_VALUE, 0)
+            onClearHistory?.invoke(db)
         }
-        writableDatabase.update("tracks", cv, null, null)
-        writableDatabase.delete("plays", null, null)
-        writableDatabase.delete("listen_time", null, null)
-        try {
-            writableDatabase.delete("tape_plays", null, null)
-            writableDatabase.delete("tape_listen_time", null, null)
-        } catch (_: Exception) { }
-        writableDatabase.delete("fermata_events", null, null) // 5.9.1: or a Fermata import would bring cleared plays back
-        writableDatabase.delete("tracks", "is_liked = 0 AND id NOT IN (SELECT track_id FROM playlist_tracks)", null)
+        afterClearHistory?.invoke()
     }
 
     internal fun upsertTrackInternal(db: SQLiteDatabase, track: Track) {
@@ -1412,7 +1552,62 @@ class LibraryDatabase(context: Context) :
     }
 
     companion object {
+        /** The 5.9.1 file. 5.10.0 copies it once and never writes it again (see [LibraryFiles]). */
         const val DB_NAME = "minim_library.db"
-        private const val DB_VERSION = 7
+        private const val DB_VERSION = 8
+        const val FERMATA_LOG_TABLE = "fermata_log"
+
+        /**
+         * Deletes listening history from before [before] (epoch ms; [day] and [hour] are the same
+         * moment as Minim's day key and hour, for the hourly listening-time tables). Likes,
+         * playlists and "not interested" stay. Long.MAX_VALUE clears everything, as 5.9.1 did.
+         */
+        internal fun deleteHistoryBefore(db: SQLiteDatabase, before: Long, day: Int, hour: Int) {
+            val all = before == Long.MAX_VALUE
+            val slot = "(day < ? OR (day = ? AND hour < ?))"
+            val slotArgs = arrayOf(day.toString(), day.toString(), hour.toString())
+            if (all) {
+                db.execSQL("UPDATE tracks SET last_played_at = 0, play_count = 0")
+                db.delete("plays", null, null)
+                db.delete("listen_time", null, null)
+            } else {
+                db.delete("plays", "played_at < ?", arrayOf(before.toString()))
+                db.delete("listen_time", slot, slotArgs)
+                db.execSQL(
+                    """UPDATE tracks SET
+                       play_count = (SELECT COUNT(*) FROM plays p WHERE p.track_id = tracks.id),
+                       last_played_at = COALESCE((SELECT MAX(played_at) FROM plays p WHERE p.track_id = tracks.id), 0)
+                       WHERE last_played_at < ?""",
+                    arrayOf<Any>(before)
+                )
+            }
+            try {
+                if (all) {
+                    db.delete("tape_plays", null, null)
+                    db.delete("tape_listen_time", null, null)
+                } else {
+                    db.delete("tape_plays", "played_at < ?", arrayOf(before.toString()))
+                    db.delete("tape_listen_time", slot, slotArgs)
+                }
+            } catch (_: Exception) { }
+            for (t in listOf("tape_listen_remote", "fermata_written", "fermata_journal")) {
+                try {
+                    when {
+                        t == "tape_listen_remote" && !all -> db.delete(t, slot, slotArgs)
+                        t == "fermata_written" -> db.delete(t, "path LIKE 'history/%' OR path LIKE 'tape_%'", null)
+                        t == "fermata_journal" && !all -> db.delete(t, "ts < ?", arrayOf(before.toString()))
+                        else -> db.delete(t, null, null)
+                    }
+                } catch (_: Exception) { }
+            }
+            // 5.9.1: or a Fermata import would bring cleared plays back
+            if (all) db.delete("fermata_events", null, null)
+            else db.delete("fermata_events", "ts < ?", arrayOf(before.toString()))
+            db.delete(
+                "tracks",
+                "is_liked = 0 AND id NOT IN (SELECT track_id FROM playlist_tracks) AND id NOT IN (SELECT track_id FROM plays)",
+                null
+            )
+        }
     }
 }

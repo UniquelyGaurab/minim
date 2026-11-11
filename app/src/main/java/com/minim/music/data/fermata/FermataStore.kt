@@ -45,6 +45,13 @@ object FermataStore {
         PrefsKv(context.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE))
 
     /** The library database as the logger's sink. */
+    /** 5.10.0: when Fermata could not start (and in tests without it): nothing is written. */
+    val noSink: FermataSink = object : FermataSink {
+        override fun insert(e: FermataEvent): Long = -1L
+        override fun updatePlay(rowId: Long, listenedMs: Long, durationMs: Long?, speedPct: Int?) = Unit
+    }
+
+    /** 5.9.0's sink into fermata_events. Not used since 5.10.0; kept for the 5.9.0 tests. */
     fun sink(db: LibraryDatabase): FermataSink = object : FermataSink {
         override fun insert(e: FermataEvent): Long = db.insertFermataEvent(e)
         override fun updatePlay(rowId: Long, listenedMs: Long, durationMs: Long?, speedPct: Int?) =
