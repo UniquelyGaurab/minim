@@ -38,14 +38,14 @@ class CloudSyncChoiceTest {
 
     @Before
     fun clean() {
-        context.deleteDatabase(LibraryDatabase.DB_NAME)
+        com.minim.music.data.local.TestLibraryFiles.wipe(context)
         File(context.filesDir, "discover_cache_v1.json").delete()
     }
 
     @After
     fun close() {
         lib?.close()
-        context.deleteDatabase(LibraryDatabase.DB_NAME)
+        com.minim.music.data.local.TestLibraryFiles.wipe(context)
         File(context.filesDir, "discover_cache_v1.json").delete()
         File(context.filesDir, "library_before_account_switch.db").delete()
     }

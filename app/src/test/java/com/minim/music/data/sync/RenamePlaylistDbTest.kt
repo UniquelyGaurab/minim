@@ -24,11 +24,11 @@ class RenamePlaylistDbTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
     private var lib: LibraryDatabase? = null
 
-    @Before fun clean() { context.deleteDatabase(LibraryDatabase.DB_NAME) }
+    @Before fun clean() { com.minim.music.data.local.TestLibraryFiles.wipe(context) }
 
     @After fun close() {
         lib?.close()
-        context.deleteDatabase(LibraryDatabase.DB_NAME)
+        com.minim.music.data.local.TestLibraryFiles.wipe(context)
     }
 
     private fun open(): LibraryDatabase = LibraryDatabase(context).also { lib = it }

@@ -26,11 +26,11 @@ class TapeStatsDbTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
     private var lib: LibraryDatabase? = null
 
-    @Before fun clean() { context.deleteDatabase(LibraryDatabase.DB_NAME) }
+    @Before fun clean() { com.minim.music.data.local.TestLibraryFiles.wipe(context) }
 
     @After fun close() {
         lib?.close()
-        context.deleteDatabase(LibraryDatabase.DB_NAME)
+        com.minim.music.data.local.TestLibraryFiles.wipe(context)
     }
 
     private fun open(): LibraryDatabase = LibraryDatabase(context).also { lib = it }
@@ -91,7 +91,7 @@ class TapeStatsDbTest {
         // a version 5 database, as u47 to u50 left it, with a song play in it
         val path = context.getDatabasePath(LibraryDatabase.DB_NAME)
         path.parentFile?.mkdirs()
-        open().apply {
+        com.minim.music.data.local.TestLibraryFiles.legacy(context).also { lib = it }.apply {
             val row = recordCountedPlay(song("old"), 60_000L)
             addListenTime(listOf(LibraryDatabase.ListenAdd(ListenSlice(today, 8, 60_000L), song("old"))), row, 60_000L)
             close()
@@ -109,6 +109,6 @@ class TapeStatsDbTest {
         assertFalse(s.tapes.shows)
         db.recordTapePlay(tape("new"), "")
         assertEquals(1, db.getDayTapePlays(today).size)
-        assertEquals(7, db.readableDatabase.version)
+        assertEquals(8, db.readableDatabase.version)
     }
 }

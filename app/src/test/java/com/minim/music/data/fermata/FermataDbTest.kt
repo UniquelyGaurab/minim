@@ -29,14 +29,14 @@ class FermataDbTest {
     private var lib: LibraryDatabase? = null
 
     @Before fun clean() {
-        context.deleteDatabase(LibraryDatabase.DB_NAME)
+        com.minim.music.data.local.TestLibraryFiles.wipe(context)
         context.getSharedPreferences(FermataStore.STATE_PREFS, Context.MODE_PRIVATE).edit().clear().commit()
         context.getSharedPreferences(FermataStore.DEVICE_PREFS, Context.MODE_PRIVATE).edit().clear().commit()
     }
 
     @After fun close() {
         lib?.close()
-        context.deleteDatabase(LibraryDatabase.DB_NAME)
+        com.minim.music.data.local.TestLibraryFiles.wipe(context)
     }
 
     private fun open(): LibraryDatabase = LibraryDatabase(context).also { lib = it }
@@ -63,7 +63,7 @@ class FermataDbTest {
         val path = context.getDatabasePath(LibraryDatabase.DB_NAME)
         path.parentFile?.mkdirs()
         // a library with a bit of everything, as 5.8.6 left it
-        open().apply {
+        com.minim.music.data.local.TestLibraryFiles.legacy(context).also { lib = it }.apply {
             toggleLike(song("likedSong01"))
             val pl = createPlaylist("Chill Evening Mix")
             addTrackToPlaylist(pl, song("plSong00001"))
@@ -87,8 +87,8 @@ class FermataDbTest {
 
         val db = open()
         val w = db.writableDatabase
-        assertEquals(7, w.version)
-        assertEquals(before, tableCounts(w))
+        assertEquals(8, w.version)
+        assertEquals(before, tableCounts(w).filterKeys { it in before })
         for (t in before.keys) assertEquals("table $t", beforeRows[t], dump(w, t))
         assertEquals(1, db.getLikedTracks().size)
         assertEquals(2, db.getPlaylistTracks(db.getAllPlaylistIdsForTest(w).single()).size)
@@ -114,7 +114,7 @@ class FermataDbTest {
 
     @Test fun aFreshInstallHasTheTableToo() {
         val w = open().writableDatabase
-        assertEquals(7, w.version)
+        assertEquals(8, w.version)
         assertEquals(1, count(w, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'fermata_events'"))
     }
 

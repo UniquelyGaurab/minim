@@ -32,13 +32,13 @@ class LibrarySyncDbTest {
 
     @Before
     fun clean() {
-        context.deleteDatabase(LibraryDatabase.DB_NAME)
+        com.minim.music.data.local.TestLibraryFiles.wipe(context)
     }
 
     @After
     fun close() {
         lib?.close()
-        context.deleteDatabase(LibraryDatabase.DB_NAME)
+        com.minim.music.data.local.TestLibraryFiles.wipe(context)
     }
 
     private fun open(): LibraryDatabase = LibraryDatabase(context).also { lib = it }
@@ -116,8 +116,8 @@ class LibrarySyncDbTest {
         val l = open()
         val db = l.writableDatabase
         // 5.3.0 bumped the library to version 5 (playlists.source for imports), 5.7.0 u51 to 6 (tape stats),
-        // 5.9.0 u59 to 7 (the Fermata event log)
-        assertEquals(7, db.version)
+        // 5.9.0 u59 to 7 (the Fermata event log), 5.10.0 to 8 (history through Fermata)
+        assertEquals(8, db.version)
         assertEquals(1, count(db, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'fermata_events'"))
         assertEquals(1, count(db, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'tape_plays'"))
         assertEquals(1, count(db, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'tape_listen_time'"))
@@ -404,7 +404,7 @@ class LibrarySyncDbTest {
         assertTrue("playlists/${SyncIds.playlistUid("Gym")}" in paths)
         assertTrue(paths.any { it.startsWith("history/") })
         l.close()
-        context.deleteDatabase(LibraryDatabase.DB_NAME)
+        com.minim.music.data.local.TestLibraryFiles.wipe(context)
 
         // phone B: a fresh install reads those documents
         l = open()
