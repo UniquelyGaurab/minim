@@ -1492,6 +1492,29 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
     }
 
     /**
+     * 5.10.0: true when this phone has anything a backup would bring back (a like, a playlist, a
+     * play, a tape play or a "not interested"). Used for the fresh-install restore offer and for
+     * the restore wording ("merged" on a phone that already has a library).
+     */
+    fun hasLibrary(): Boolean {
+        val db = readableDatabase
+        val checks = listOf(
+            "SELECT EXISTS (SELECT 1 FROM tracks WHERE is_liked = 1)",
+            "SELECT EXISTS (SELECT 1 FROM playlists)",
+            "SELECT EXISTS (SELECT 1 FROM plays)",
+            "SELECT EXISTS (SELECT 1 FROM tape_plays)",
+            "SELECT EXISTS (SELECT 1 FROM not_interested)",
+        )
+        return checks.any { sql ->
+            try {
+                db.rawQuery(sql, null).use { it.moveToFirst() && it.getInt(0) == 1 }
+            } catch (_: Exception) {
+                false
+            }
+        }
+    }
+
+    /**
      * 5.10.0: also called inside the clear's transaction (FermataBridge records the "cleared
      * everything before now" event there, so the clear and its event commit together).
      */

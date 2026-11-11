@@ -461,6 +461,7 @@ class MainActivity : AppCompatActivity() {
         // v4.9.6: back from the "Install unknown apps" setting with it turned on: carry on installing
         resumeUpdateInstallIfAllowed()
         checkRecapPopup()
+        maybeOfferRestore()
     }
 
     override fun onPause() {
@@ -1304,6 +1305,8 @@ class MainActivity : AppCompatActivity() {
             requestNotificationPermissionIfNeeded()
             // 5.3.0: a link shared while the welcome screens were up
             pendingImportText?.let { text -> pendingImportText = null; showImportSheet(text) }
+            // 5.10.0: a fresh install can bring its library back from a backup folder
+            maybeOfferRestore()
         }
         if (animationsOn()) {
             screenWelcome.animate().alpha(0f).setStartDelay(0L).setDuration(300L)
@@ -5234,6 +5237,9 @@ class MainActivity : AppCompatActivity() {
             showNote(getString(R.string.cache_cleared))
         }
 
+        // 5.10.0: backups to a folder (Fermata)
+        setupBackupSettings()
+
         // 5.8.4 u56: the long privacy notes fold away under a short "What ..." line
         setupFold(R.id.account_privacy_toggle, R.id.account_privacy_chev, R.id.account_privacy)
         setupFold(R.id.set_gemini_privacy_toggle, R.id.set_gemini_privacy_chev, R.id.set_gemini_privacy)
@@ -5421,6 +5427,7 @@ class MainActivity : AppCompatActivity() {
         settingsName.setText(app.preferences.userName)
         renderSettingsOptions()
         renderOfflineStorage()
+        renderBackupSettings()
         screenSettings.visibility = View.VISIBLE
         if (from != null && animationsOn() && settingsReveal.open(from) { updateChrome() }) {
             // The floating mini player goes once the circle has covered the screen
@@ -7517,6 +7524,11 @@ class MainActivity : AppCompatActivity() {
     private var recapCardJob: Job? = null
     private var pendingRecapSave: Pair<android.graphics.Bitmap, Int>? = null
 
+    /** 5.10.0: Settings → Storage → Backup folder (and the fresh-install restore offer). */
+    private val backupFolderPicker = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()
+    ) { uri -> onBackupFolderPicked(uri) }
+
     /** Android 9 only: the old storage permission, asked for the first time Save is tapped. */
     private val storagePermission = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
@@ -9541,6 +9553,8 @@ class MainActivity : AppCompatActivity() {
                 }
                 // A pull brought changes from another phone: reload what shows the library
                 launch { app.sync.dataVersion.collect { onSyncedChanges(it) } }
+                // 5.10.0: a merge from the backup folder or a restore changed the library
+                app.fermataBridge?.let { bridge -> launch { bridge.dataVersion.collect { onFermataChanges(it) } } }
             }
         }
     }
@@ -9645,6 +9659,252 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Exception) {
             }
         }
+    }
+
+    /** The last FermataBridge.dataVersion the screens were reloaded for (starts at the current one). */
+    private var seenFermataVersion = -1L
+
+    /** 5.10.0: a merge from the backup folder, a restore, or a rollback's old copy changed the library. */
+    private fun onFermataChanges(version: Long) {
+        if (seenFermataVersion < 0L || version <= seenFermataVersion) {
+            if (seenFermataVersion < 0L) seenFermataVersion = version
+            return
+        }
+        seenFermataVersion = version
+        greetingFactsAt = 0L
+        scheduleRefresh(300L)
+        if (isSettingsOpen) renderBackupSettings()
+        lifecycleScope.launch {
+            try {
+                val engine = app.discoverEngine
+                engine.dropHidden(app.database.notInterestedIds.value)?.let { if (discoverShelves.isNotEmpty()) showDiscover(it, afterBuild = false) }
+                engine.markStale()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    // ---- 5.10.0: Settings → Storage backups, restore, and the fresh-install offer -------------
+
+    private var backupBusy = false
+    private var backupPickForOffer = false
+    private var restoreOfferShown = false
+    private val restoreOfferGate by lazy { com.minim.music.data.fermata.RestoreOfferGate(this) }
+
+    private fun setupBackupSettings() {
+        findViewById<View>(R.id.set_backup_folder)?.setOnClickListener { v ->
+            if (app.backups == null) return@setOnClickListener
+            haptic(v)
+            backupPickForOffer = false
+            launchBackupFolderPicker()
+        }
+        findViewById<View>(R.id.set_backup_now)?.setOnClickListener { v ->
+            haptic(v)
+            backUpNowFromSettings()
+        }
+        findViewById<View>(R.id.set_backup_restore)?.setOnClickListener { v ->
+            haptic(v)
+            openRestoreSheet()
+        }
+    }
+
+    private fun launchBackupFolderPicker() {
+        try {
+            backupFolderPicker.launch(app.backups?.folder())
+        } catch (_: Exception) {
+            showNote(getString(R.string.backup_err_unreadable))
+        }
+    }
+
+    /** Folder hint, last backup line, and which actions show. Cheap: no file reads. */
+    private fun renderBackupSettings() {
+        if (!::screenSettings.isInitialized) return
+        val hint = findViewById<TextView>(R.id.set_backup_folder_hint) ?: return
+        val choose = findViewById<TextView>(R.id.set_backup_folder) ?: return
+        val status = findViewById<TextView>(R.id.set_backup_status) ?: return
+        val now = findViewById<View>(R.id.set_backup_now) ?: return
+        val restore = findViewById<View>(R.id.set_backup_restore) ?: return
+        val restoreHint = findViewById<TextView>(R.id.set_backup_restore_hint) ?: return
+        val b = app.backups
+        if (b == null) {
+            hint.text = getString(R.string.backup_folder_none)
+            choose.visibility = View.GONE
+            status.text = getString(R.string.backup_never)
+            now.visibility = View.GONE
+            restore.visibility = View.GONE
+            return
+        }
+        val folder = b.folder()
+        val access = b.hasFolderAccess()
+        hint.text = com.minim.music.data.fermata.BackupText.folderHint(this, folder, access)
+        choose.visibility = View.VISIBLE
+        choose.text = getString(if (folder == null || !access) R.string.backup_folder_choose else R.string.backup_folder_change)
+        status.text = com.minim.music.data.fermata.BackupText.statusLine(this, b.status(), System.currentTimeMillis(), backupBusy)
+        val usable = folder != null && access
+        now.visibility = if (usable) View.VISIBLE else View.GONE
+        restore.visibility = if (usable) View.VISIBLE else View.GONE
+        restoreHint.text = getString(R.string.backup_restore_hint)
+    }
+
+    private fun onBackupFolderPicked(uri: Uri?) {
+        val b = app.backups ?: return
+        val forOffer = backupPickForOffer
+        backupPickForOffer = false
+        if (uri == null) {
+            if (forOffer) restoreOfferGate.markAnswered()
+            return
+        }
+        try {
+            b.setFolder(uri)
+        } catch (_: Exception) {
+            showNote(getString(R.string.backup_folder_lost))
+            return
+        }
+        renderBackupSettings()
+        if (forOffer) {
+            lifecycleScope.launch {
+                val list = withContext(Dispatchers.IO) { b.listBackups().filter { it.restorable } }
+                if (list.isEmpty()) {
+                    restoreOfferGate.markAnswered()
+                    showNote(getString(R.string.backup_restore_none))
+                } else showRestoreOfferSheet(list)
+            }
+        } else {
+            showNote(getString(R.string.backup_folder_set, com.minim.music.data.fermata.BackupText.folderName(uri)))
+        }
+    }
+
+    private fun backUpNowFromSettings() {
+        val b = app.backups ?: return
+        if (backupBusy) return
+        backupBusy = true
+        renderBackupSettings()
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                try { app.fermataBridge?.prepareBackup() } catch (_: Throwable) { }
+                try { b.merge() } catch (_: Throwable) { }
+                b.backUpNow()
+            }
+            backupBusy = false
+            renderBackupSettings()
+            showNote(
+                when (result) {
+                    is com.minim.fermata.sync.BackupResult.Success -> getString(R.string.backup_done)
+                    is com.minim.fermata.sync.BackupResult.Failure ->
+                        getString(R.string.backup_failed, com.minim.music.data.fermata.BackupText.errorText(this@MainActivity, result.error))
+                }
+            )
+        }
+    }
+
+    /** Every backup in the folder, newest first; unreadable ones show why and can't be picked. */
+    private fun openRestoreSheet() {
+        val b = app.backups ?: return
+        if (backupBusy) return
+        lifecycleScope.launch {
+            val (list, hasLibrary) = withContext(Dispatchers.IO) { b.listBackups() to app.database.hasLibrary() }
+            openSheet { box ->
+                sheetHeading(
+                    box, getString(R.string.backup_restore_title),
+                    com.minim.music.data.fermata.BackupText.restoreSub(this@MainActivity, hasLibrary), wrapSub = true
+                )
+                if (list.isEmpty()) {
+                    sheetHeading(box, getString(R.string.backup_restore_none))
+                    return@openSheet
+                }
+                val now = System.currentTimeMillis()
+                for (info in list) {
+                    val (label, trailing) = com.minim.music.data.fermata.BackupText.restoreRow(this@MainActivity, info, now)
+                    val row = sheetAction(box, R.drawable.ic_repeat, label, trailing = trailing) {
+                        closeSheet()
+                        restoreBackup(info, hasLibrary)
+                    }
+                    if (!info.restorable) {
+                        row.isEnabled = false
+                        row.alpha = 0.45f
+                    }
+                }
+            }
+        }
+    }
+
+    private fun restoreBackup(info: com.minim.fermata.sync.BackupInfo, hadLibrary: Boolean) {
+        val b = app.backups ?: return
+        if (backupBusy || !info.restorable) return
+        backupBusy = true
+        showNote(getString(R.string.backup_restoring))
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) { b.restore(info) }
+            backupBusy = false
+            restoreOfferGate.markAnswered()
+            renderBackupSettings()
+            showNote(com.minim.music.data.fermata.BackupText.restoreDone(this@MainActivity, result, hadLibrary))
+        }
+    }
+
+    /**
+     * Fresh install (no likes, playlists or plays yet): offer to bring the library back from a
+     * backup folder, once per install. Either answer is remembered; it never shows on a phone
+     * that already has a library.
+     */
+    private fun maybeOfferRestore() {
+        if (restoreOfferShown || !isActivityResumed || isWelcomeOpen || !app.preferences.welcomeDone) return
+        val b = app.backups ?: return
+        if (restoreOfferGate.answered || isSheetOpen) return
+        restoreOfferShown = true
+        lifecycleScope.launch {
+            val folderSet = b.folder() != null && b.hasFolderAccess()
+            var restorable = emptyList<com.minim.fermata.sync.BackupInfo>()
+            val offer = withContext(Dispatchers.IO) {
+                restoreOfferGate.decide(app.database.hasLibrary(), folderSet) {
+                    restorable = b.listBackups().filter { it.restorable }
+                    restorable.size
+                }
+            }
+            if (isSheetOpen || isWelcomeOpen) {
+                restoreOfferShown = false
+                return@launch
+            }
+            when (offer) {
+                com.minim.music.data.fermata.RestoreOfferGate.Offer.NONE -> Unit
+                com.minim.music.data.fermata.RestoreOfferGate.Offer.RESTORE -> showRestoreOfferSheet(restorable)
+                com.minim.music.data.fermata.RestoreOfferGate.Offer.PICK_FOLDER -> openSheet { box ->
+                    sheetHeading(box, getString(R.string.backup_offer_prompt_title), getString(R.string.backup_offer_prompt_sub), wrapSub = true)
+                    sheetAction(box, R.drawable.ic_add, getString(R.string.backup_offer_prompt_ok)) {
+                        closeSheet()
+                        backupPickForOffer = true
+                        launchBackupFolderPicker()
+                    }
+                    sheetAction(box, R.drawable.ic_close, getString(R.string.backup_offer_prompt_no), outlined = true) {
+                        closeSheet()
+                        declineRestoreOffer()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun showRestoreOfferSheet(restorable: List<com.minim.fermata.sync.BackupInfo>) {
+        val newest = restorable.firstOrNull() ?: return
+        val (label, _) = com.minim.music.data.fermata.BackupText.restoreRow(this, newest, System.currentTimeMillis())
+        openSheet { box ->
+            sheetHeading(box, getString(R.string.backup_offer_title), getString(R.string.backup_offer_sub), wrapSub = true)
+            sheetAction(box, R.drawable.ic_repeat, getString(R.string.backup_offer_ok), trailing = label) {
+                closeSheet()
+                restoreBackup(newest, hadLibrary = false)
+            }
+            sheetAction(box, R.drawable.ic_close, getString(R.string.backup_offer_no), outlined = true) {
+                closeSheet()
+                declineRestoreOffer()
+            }
+        }
+    }
+
+    private fun declineRestoreOffer() {
+        restoreOfferGate.markAnswered()
+        try { app.backups?.dismissRestoreOffer() } catch (_: Throwable) { }
     }
 
     private fun startSignIn() {

@@ -78,6 +78,25 @@ class FermataBridge(
     /** Builds the writes for queued keys (and is where a folder merge queues what's missing). */
     private val sync = LibrarySync(lib, outbox = "fermata_outbox")
 
+    /**
+     * Goes up by one whenever a merge from the backup folder, a restore, or the old copy's log
+     * after a rollback changed Minim's tables, so the screens can reload (like CloudSync.dataVersion).
+     */
+    private val _dataVersion = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    val dataVersion: kotlinx.coroutines.flow.StateFlow<Long> = _dataVersion
+
+    private fun changed() {
+        try {
+            kotlinx.coroutines.runBlocking {
+                lib.refreshLikedCache()
+                lib.refreshNotInterestedCache()
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "refreshing caches", t)
+        }
+        _dataVersion.value = _dataVersion.value + 1
+    }
+
     private val draining = ThreadLocal.withInitial { false }
     private val applying = ThreadLocal.withInitial { false }
 
@@ -187,6 +206,7 @@ class FermataBridge(
         }
         fermata.merge(events)
         applyPaths(null)
+        changed()
         for (sfx in listOf("", "-wal", "-shm", "-journal")) File(prev.path + sfx).delete()
     }
 
@@ -305,6 +325,7 @@ class FermataBridge(
             val paths = if (change.origin == Fermata.ChangeOrigin.RESTORE) null
             else change.added.mapNotNullTo(HashSet()) { writeOf(it)?.first }
             if (paths == null || paths.isNotEmpty()) applyPaths(paths)
+            if (change.historyCleared || paths == null || paths.isNotEmpty()) changed()
         } catch (t: Throwable) {
             Log.w(TAG, "applying ${change.origin}", t)
         }
