@@ -28,8 +28,8 @@ android {
         applicationId = "com.minim.music"
         minSdk = 28
         targetSdk = 34
-        versionCode = 60
-        versionName = "5.9.1"
+        versionCode = 61
+        versionName = "5.10.0"
         // v5.0: Minim is English only; drops the dozens of translations Firebase / Play services bring
         resourceConfigurations += listOf("en")
 
@@ -150,6 +150,11 @@ dependencies {
     implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 
+    // v5.10.0: Fermata, built from the pinned `fermata` submodule (see settings.gradle.kts).
+    // The version here is only a placeholder: the included build always supplies the modules.
+    implementation("com.github.UniquelyGaurab.minim-fermata:android:0.2.0-SNAPSHOT")
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+
     // Unit testing
     testImplementation("junit:junit:4.13.2")
     // v4.9.5: fake googlevideo server for the chunked reader tests
@@ -159,4 +164,5 @@ dependencies {
     // hotfix 4.9.10: real Android views in JVM tests (the crash reproduction + crash catcher tests)
     testImplementation("org.robolectric:robolectric:4.11.1")
     testImplementation("androidx.test:core:1.5.0")
+    testImplementation("androidx.work:work-testing:2.9.0")
 }

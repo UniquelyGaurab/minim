@@ -1,0 +1,3 @@
+[submodule "fermata"]
+	path = fermata
+	url = https://github.com/UniquelyGaurab/minim-fermata.git
