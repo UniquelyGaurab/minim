@@ -3,9 +3,14 @@
      (minim_ai.xml). The key is encrypted with a key that never leaves this phone, so it could
      never be read on another phone anyway.
      5.9.0: also this phone's Fermata id (minim_fermata_device.xml) and its listening session
-     (minim_fermata.xml), so a restored or new phone gets its own id. -->
+     (minim_fermata.xml), so a restored or new phone gets its own id.
+     5.10.0: also the backup folder settings and status (fermata_backup.xml: folder access granted
+     on one phone does not carry over to another) and the record of when the 5.9.1 library was
+     copied (minim_db_copy.xml), so a restored library is never mistaken for a rollback. -->
 <full-backup-content>
     <exclude domain="sharedpref" path="minim_ai.xml" />
     <exclude domain="sharedpref" path="minim_fermata_device.xml" />
     <exclude domain="sharedpref" path="minim_fermata.xml" />
+    <exclude domain="sharedpref" path="fermata_backup.xml" />
+    <exclude domain="sharedpref" path="minim_db_copy.xml" />
 </full-backup-content>

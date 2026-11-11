@@ -697,4 +697,39 @@
     <string name="library_search_hint">Playlist name…</string>
     <string name="library_search_close">Close playlist search</string>
     <string name="library_search_empty">No playlists match “%1$s”</string>
+
+    <!-- 5.10.0: backups (Settings → Storage) -->
+    <string name="backup_folder">Backup folder</string>
+    <string name="backup_folder_none">Not set. Pick a folder to keep a daily backup of your library and history</string>
+    <string name="backup_folder_choose">Choose</string>
+    <string name="backup_folder_change">Change</string>
+    <string name="backup_now_label">Backup</string>
+    <string name="backup_now">Back up now</string>
+    <string name="backup_never">No backup yet</string>
+    <string name="backup_running">Backing up…</string>
+    <string name="backup_last">Last backup %1$s · %2$s</string>
+    <string name="backup_events">%1$d events</string>
+    <string name="backup_failed">Last backup failed: %1$s</string>
+    <string name="backup_restore_label">Restore</string>
+    <string name="backup_restore_hint">Bring back a backup from this phone or another one</string>
+    <string name="backup_restore">Restore</string>
+    <string name="backup_done">Backed up</string>
+    <string name="backup_restore_title">Restore a backup</string>
+    <string name="backup_restore_sub">Your library and history are replaced by the backup\'s. Likes and plays from other phones in the folder are merged again at the next backup.</string>
+    <string name="backup_restore_none">No backups in this folder yet</string>
+    <string name="backup_restore_item">%1$s · %2$s</string>
+    <string name="backup_this_phone">This phone</string>
+    <string name="backup_other_phone">Phone %1$s</string>
+    <string name="backup_unreadable">Can\'t be restored: %1$s</string>
+    <string name="backup_restored">Restored %1$d events</string>
+    <string name="backup_restore_failed">Nothing changed: %1$s</string>
+    <string name="backup_offer_title">Restore your library?</string>
+    <string name="backup_offer_sub">Backups were found in this folder. Restore the newest one, or start fresh.</string>
+    <string name="backup_offer_ok">Restore</string>
+    <string name="backup_offer_no">Start fresh</string>
+    <string name="backup_offer_prompt_title">Have a backup?</string>
+    <string name="backup_offer_prompt_sub">If you backed up Minim to a folder before, pick that folder to bring back your library.</string>
+    <string name="backup_offer_prompt_ok">Pick folder</string>
+    <string name="backup_offer_prompt_no">Not now</string>
+    <string name="backup_folder_lost">Minim lost access to the folder. Choose it again</string>
 </resources>

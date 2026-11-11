@@ -19,7 +19,7 @@ import okhttp3.OkHttpClient
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-open class MinimApp : Application() {
+open class MinimApp : Application(), com.minim.fermata.android.FermataHolder {
 
     lateinit var okHttpClient: OkHttpClient
         private set
@@ -108,6 +108,54 @@ open class MinimApp : Application() {
     }
     @Volatile private var syncStarted = false
 
+    // ---- 5.10.0: Fermata (likes, playlists and history go through its log; folder backups) -----
+
+    /** Null only if Fermata could not start; Minim then works as 5.9.1 did, without backups. */
+    var fermataBridge: com.minim.music.data.fermata.FermataBridge? = null
+        private set
+    var backups: com.minim.fermata.android.FermataBackups? = null
+        private set
+
+    override val fermata: com.minim.fermata.Fermata
+        get() = fermataBridge?.fermata ?: error("Fermata did not start")
+
+    override val appVersion: String? by lazy {
+        try {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, 0).versionName
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    override fun beforeBackup() {
+        fermataBridge?.prepareBackup()
+    }
+
+    private fun startFermata() {
+        try {
+            val bridge = com.minim.music.data.fermata.FermataBridge(
+                this, database, appVersion,
+                signedIn = { try { account.user.value != null } catch (_: Throwable) { false } },
+            )
+            bridge.attach()
+            fermataBridge = bridge
+            val b = com.minim.fermata.android.FermataBackups(this, bridge.fermata, appVersion)
+            backups = b
+            // Clear listening history: back up right away, replacing this phone's previous file
+            // too, so neither of its backups still holds the cleared history
+            database.afterClearHistory = {
+                if (b.folder() != null) Thread { try { b.backUpNow(replacePrevious = true) } catch (_: Throwable) { } }.start()
+            }
+            Thread({
+                bridge.finishStart()
+                try { if (b.folder() != null) b.scheduleDaily() } catch (_: Throwable) { }
+            }, "fermata-start").start()
+        } catch (t: Throwable) {
+            android.util.Log.w("MinimApp", "Fermata unavailable", t)
+        }
+    }
+
     /**
      * v4.9.8: app opens for the whole process (replaces 4.9.6's flags on MainActivity, which missed
      * every open after the activity was closed while playback kept the process alive).
@@ -165,6 +213,7 @@ open class MinimApp : Application() {
             .build()
 
         database = LibraryDatabase(this)
+        startFermata()
         sourceAdapter = MusicSourceAdapter(okHttpClient)
         lyricsProvider = LrcLibLyricsAdapter(okHttpClient)
         artworkPipeline = ArtworkPipeline(this, okHttpClient)
