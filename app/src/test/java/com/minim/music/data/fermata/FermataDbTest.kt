@@ -164,6 +164,36 @@ class FermataDbTest {
         assertEquals(rows[0].deviceId, rows[1].deviceId)
     }
 
+    @Test fun clearingHistoryEmptiesPlaysTapePlaysAndFermataEvents() = runBlocking {
+        val db = open()
+        val w = db.writableDatabase
+        db.recordPlayback(song("plainSong02"))
+        db.recordCountedPlay(song("plainSong02"), 60_000L)
+        db.recordTapePlay(StoryTracks.track("tapeVideo01", "Tape", "SR PAY STORIES", 3600L, "UCsrpay000001"), "UCsrpay000001")
+        val f = FermataLogger(
+            FermataStore.sink(db), FermataStore.stateKv(context), Executor { it.run() },
+            deviceIdKv = FermataStore.deviceKv(context)
+        )
+        f.startPlay("aaaaaaaaaaa", "Song a", "Arijit Singh", 200_000, false, FermataSource.SEARCH)
+        f.heard("aaaaaaaaaaa", 30_000)
+        f.leave(userMovedOn = true, positionMs = 30_000)
+        f.queued("bbbbbbbbbbb", "Song b", "X", 100_000, FermataSource.QUEUE)
+        assertTrue(count(w, "SELECT COUNT(*) FROM plays") > 0)
+        assertTrue(count(w, "SELECT COUNT(*) FROM tape_plays") > 0)
+        assertTrue(count(w, "SELECT COUNT(*) FROM fermata_events") >= 3)
+
+        db.clearHistory()
+
+        assertEquals(0, count(w, "SELECT COUNT(*) FROM plays"))
+        assertEquals(0, count(w, "SELECT COUNT(*) FROM tape_plays"))
+        assertEquals(0, count(w, "SELECT COUNT(*) FROM fermata_events"))
+        assertTrue(db.getFermataEvents().isEmpty())
+        // logging carries on afterwards
+        f.startPlay("ccccccccccc", "Song c", "Arijit Singh", 200_000, false, FermataSource.SEARCH)
+        f.leave(false, null)
+        assertEquals(1, count(w, "SELECT COUNT(*) FROM fermata_events WHERE track_id = 'ccccccccccc'"))
+    }
+
     // ---- backups --------------------------------------------------------------------------------
 
     private fun res(name: String): String {

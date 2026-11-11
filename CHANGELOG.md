@@ -2,6 +2,12 @@
 
 Every Minim release, newest first. Download any of them from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page.
 
+## 5.9.1 (2026-11-11)
+
+- Clearing your listening history now also clears the on-device event log, so nothing you cleared can come back later.
+
+Download Minim-v5.9.1.apk from the release (Android 9 or newer). It installs over 5.9.0 and keeps your library, settings and account.
+
 ## 5.9.0 (2026-11-11)
 
 - Groundwork for on-device backups and recommendations. Nothing changes yet.

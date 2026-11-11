@@ -1364,6 +1364,7 @@ class LibraryDatabase(context: Context) :
             writableDatabase.delete("tape_plays", null, null)
             writableDatabase.delete("tape_listen_time", null, null)
         } catch (_: Exception) { }
+        writableDatabase.delete("fermata_events", null, null) // 5.9.1: or a Fermata import would bring cleared plays back
         writableDatabase.delete("tracks", "is_liked = 0 AND id NOT IN (SELECT track_id FROM playlist_tracks)", null)
     }
 
