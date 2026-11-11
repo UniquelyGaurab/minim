@@ -327,6 +327,8 @@ class LaunchSmokeTest {
     /** Past the first-run welcome (sheets don't open over it). */
     private fun welcomed() {
         app.preferences.welcomeDone = true
+        // 5.10.0: these tests are not about the fresh-install restore offer, which would open a sheet
+        com.minim.music.data.fermata.RestoreOfferGate(app).markAnswered()
     }
 
     @Test

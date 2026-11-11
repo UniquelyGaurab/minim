@@ -131,6 +131,11 @@ class FermataBridge(
     /** The slow part of [start] (the first-launch import), on a background thread. */
     fun finishStart() {
         try {
+            loadPreviousLog()
+        } catch (t: Throwable) {
+            Log.w(TAG, "previous copy's log", t)
+        }
+        try {
             importOnce()
         } catch (t: Throwable) {
             // Writes still go through Fermata; the import is tried again on the next start.
@@ -198,13 +203,34 @@ class FermataBridge(
      * PREVIOUS_NAME and made a fresh copy of 5.9.1's file. The old copy's log holds what was done
      * in 5.10.0 the first time (and what came from other phones); merge it in, then delete it.
      */
+    private fun previousEvents(prev: File) =
+        SQLiteDatabase.openDatabase(prev.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+            SqliteEventStore.inDatabase(LibraryDatabase.FERMATA_LOG_TABLE) { db }.all()
+        }
+
+    /**
+     * After a rollback to 5.9.1 and back, the fresh copy's log starts empty. The older copy's log
+     * goes in first, before the import, so this phone's numbering continues past every id it
+     * already used (otherwise the import would reuse them and the merge would drop the older
+     * copy's events as already seen). The tables are not touched here: the import then records
+     * what 5.9.1 changed since, with later times, and [recoverPrevious] folds it all in.
+     */
+    private fun loadPreviousLog() {
+        val prev = context.getDatabasePath(LibraryFiles.PREVIOUS_NAME)
+        if (!prev.exists() || imported()) return
+        val events = previousEvents(prev)
+        applying.set(true)
+        try {
+            fermata.merge(events)
+        } finally {
+            applying.set(false)
+        }
+    }
+
     private fun recoverPrevious() {
         val prev = context.getDatabasePath(LibraryFiles.PREVIOUS_NAME)
         if (!prev.exists() || !imported()) return
-        val events = SQLiteDatabase.openDatabase(prev.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
-            SqliteEventStore.inDatabase(LibraryDatabase.FERMATA_LOG_TABLE) { db }.all()
-        }
-        fermata.merge(events)
+        fermata.merge(previousEvents(prev))
         applyPaths(null)
         changed()
         for (sfx in listOf("", "-wal", "-shm", "-journal")) File(prev.path + sfx).delete()
