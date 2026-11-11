@@ -2,6 +2,13 @@
 
 Every Minim release, newest first. Download any of them from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page.
 
+## 5.10.0 (not released yet)
+
+- **Backups to a folder:** Settings → Storage has a backup folder you pick. Minim backs up your likes, playlists and listening history there every day while charging, and Back up now does it right away. It shows when the last backup ran, or why it failed
+- **Restore:** pick any backup in the folder, from this phone or another one. On a phone that already has a library the backup is merged in: nothing on the phone is removed. A fresh install offers to restore once, and you can say no
+- **Several phones:** phones backing up into the same folder pick up each other's likes, playlists and plays, without counting anything twice
+- **Safer history:** your library and history are now kept in Minim's on-device event log, written together with everything the screens show, so closing the app mid-song can't leave them disagreeing. Your existing library is brought over once on first launch, and the 5.9.1 database is left untouched, so going back to 5.9.1 still works
+
 ## 5.9.1 (2026-11-11)
 
 - Clearing your listening history now also clears the on-device event log, so nothing you cleared can come back later.
