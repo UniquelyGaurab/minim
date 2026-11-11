@@ -13,11 +13,16 @@ data class Track(
     val thumbnailUrl: String,
     val sourceUrl: String
 ) {
-    fun toMediaItem(): MediaItem {
+    /**
+     * [playSource] (5.9.0): where this queue entry came from (radio, search, library, ...), kept
+     * on the item so the Fermata event log can say it later. Null leaves it out ("unknown").
+     */
+    fun toMediaItem(playSource: String? = null): MediaItem {
         val extras = Bundle().apply {
             putString(EXTRA_SOURCE_URL, sourceUrl)
             putString(EXTRA_THUMB_URL, thumbnailUrl)
             putLong(EXTRA_DURATION_SEC, durationSec)
+            if (playSource != null) putString(EXTRA_PLAY_SOURCE, playSource)
         }
         val metadata = MediaMetadata.Builder()
             .setTitle(title)
@@ -37,6 +42,11 @@ data class Track(
         private const val EXTRA_SOURCE_URL = "extra_source_url"
         private const val EXTRA_THUMB_URL = "extra_thumb_url"
         private const val EXTRA_DURATION_SEC = "extra_duration_sec"
+        /** 5.9.0: see [toMediaItem]. */
+        const val EXTRA_PLAY_SOURCE = "extra_play_source"
+
+        /** 5.9.0: the source tag on a queue item, or null when it has none (older queue, unclear). */
+        fun playSourceOf(item: MediaItem?): String? = item?.mediaMetadata?.extras?.getString(EXTRA_PLAY_SOURCE)
 
         fun fromMediaItem(item: MediaItem): Track {
             val meta = item.mediaMetadata

@@ -12,6 +12,11 @@ import com.minim.music.data.local.AppPreferences
 import com.minim.music.data.local.LibraryDatabase
 import com.minim.music.data.model.LyricsData
 import com.minim.music.data.model.PlaybackUiState
+import com.minim.music.data.fermata.FermataKv
+import com.minim.music.data.fermata.FermataLogger
+import com.minim.music.data.fermata.FermataMoves
+import com.minim.music.data.fermata.FermataSource
+import com.minim.music.data.fermata.FermataStore
 import com.minim.music.data.model.Track
 import com.minim.music.data.source.LyricsProvider
 import com.minim.music.util.ArtworkPipeline
@@ -87,6 +92,12 @@ class PlaybackController(
             updateStateFromController(clearError = playbackState == Player.STATE_READY)
             // 5.7.0 u46: the last upload of the queue played to the end
             if (playbackState == Player.STATE_ENDED) saveStoryProgress(ended = true)
+            // 5.9.0 u59: the queue ran out: the last song's play row is done (not a skip)
+            if (playbackState == Player.STATE_ENDED) fermataSafe {
+                creditListen(SystemClock.elapsedRealtime())
+                fermataPosition()
+                fermata?.leave(userMovedOn = false, positionMs = null)
+            }
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -104,6 +115,7 @@ class PlaybackController(
             onStoryTransition(mediaItem, reason)
             applyTapeSpeed(mediaItem)
             updateStateFromController(clearError = true)
+            fermataSafe { fermataOnTransition(mediaItem, reason) }
             resetListen(mediaItem?.mediaId)
             maybeTopUpRadio()
             mediaItem?.let { item ->
@@ -127,6 +139,13 @@ class PlaybackController(
             // item transition for it, only this. Each loop is a new play.
             // Same place in the queue before and after: the same song again (repeat one, or a
             // queue of one on repeat all)
+            // 5.9.0 u59: where the song was when the player jumped (a notification or headset next
+            // comes in here, before the transition), for the skip row's position
+            fermataSafe {
+                mediaController?.takeIf { oldPosition.mediaItemIndex in 0 until it.mediaItemCount }
+                    ?.getMediaItemAt(oldPosition.mediaItemIndex)?.mediaId
+                    ?.let { fermataLastJump = LeaveHint(it, oldPosition.positionMs, 0L) }
+            }
             val id = mediaController?.currentMediaItem?.mediaId
             val sameItem = oldPosition.mediaItemIndex == newPosition.mediaItemIndex
             if (RepeatLoop.isLoopDiscontinuity(reason, if (sameItem) id else null, id)) {
@@ -403,7 +422,11 @@ class PlaybackController(
             isRestored = true
             val (savedQueue, savedIndex, savedPos) = preferences.restoreQueueState()
             if (savedQueue.isNotEmpty() && savedIndex in savedQueue.indices && controller.mediaItemCount == 0) {
-                val items = savedQueue.map { it.toMediaItem() }
+                // 5.9.0 u59: each entry keeps the source tag it had (none = unknown)
+                val sources = fermataSafeGet(emptyList()) {
+                    FermataStore.decodeQueueSources(fermataState?.let { FermataStore.loadQueueSources(it) }, savedQueue.map { it.id })
+                }
+                val items = savedQueue.mapIndexed { i, t -> t.toMediaItem(sources.getOrNull(i)) }
                 controller.setMediaItems(items, savedIndex, savedPos)
                 controller.prepare()
                 applyTapeSpeed(controller.currentMediaItem)
@@ -460,13 +483,30 @@ class PlaybackController(
 
         if (track != null) {
             preferences.saveQueueState(queue, c.currentMediaItemIndex, c.currentPosition)
+            fermataSaveQueueSources(c)
+        }
+    }
+
+    /** 5.9.0 u59: saves the queue's source tags beside the saved queue, when they changed. */
+    private fun fermataSaveQueueSources(c: MediaController) = fermataSafe {
+        val kv = fermataState ?: return@fermataSafe
+        val n = minOf(c.mediaItemCount, 100)
+        val pairs = ArrayList<Pair<String, String?>>(n)
+        for (i in 0 until n) {
+            val item = c.getMediaItemAt(i)
+            pairs.add(item.mediaId to Track.playSourceOf(item))
+        }
+        val encoded = FermataStore.encodeQueueSources(pairs)
+        if (encoded != fermataQueueSourcesSaved) {
+            fermataQueueSourcesSaved = encoded
+            FermataStore.saveQueueSources(kv, encoded)
         }
     }
 
     /** Plays [track] with [queueList] queued in order (Liked Songs, a playlist, "Play all"). */
-    fun playTrack(track: Track, queueList: List<Track> = listOf(track)) {
+    fun playTrack(track: Track, queueList: List<Track> = listOf(track), source: String? = null) {
         setRadio(false)
-        startQueue(track, queueList)
+        startQueue(track, queueList, source)
     }
 
     /**
@@ -474,36 +514,37 @@ class PlaybackController(
      * If no mix can be fetched, [fallback] (the list the song was tapped in) is queued instead,
      * like before 4.3.
      */
-    fun playRadio(track: Track, fallback: List<Track> = emptyList()) {
+    fun playRadio(track: Track, fallback: List<Track> = emptyList(), source: String? = null) {
         setRadio(true)
         radioSession++
         radioSeen.clear()
         radioSeen.add(track.id)
         lastTopUpSeed = track.id
-        if (!startQueue(track, listOf(track))) return
+        if (!startQueue(track, listOf(track), source)) return
         val rest = fallback.filter { it.id != track.id }
-        fetchRadio(track.id, radioSession, rest)
+        fetchRadio(track.id, radioSession, rest, source)
     }
 
     /**
      * v4.6 artist Shuffle: queues [list] (already shuffled) in order, and when it runs low the
      * radio keeps going with similar songs, like any other radio play.
      */
-    fun playListThenRadio(list: List<Track>) {
+    fun playListThenRadio(list: List<Track>, source: String? = null) {
         val first = list.firstOrNull() ?: return
         setRadio(true)
         radioSession++
         radioSeen.clear()
         list.forEach { radioSeen.add(it.id) }
         lastTopUpSeed = null
-        startQueue(first, list)
+        startQueue(first, list, source)
     }
 
-    private fun startQueue(track: Track, queueList: List<Track>): Boolean {
+    private fun startQueue(track: Track, queueList: List<Track>, source: String? = null): Boolean {
         val c = mediaController ?: return false
         val effectiveQueue = if (queueList.isEmpty()) listOf(track) else queueList
         val index = effectiveQueue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-        val items = effectiveQueue.map { it.toMediaItem() }
+        val items = effectiveQueue.map { it.toMediaItem(source) }
+        fermataNoteLeave(c)
         // 5.7.0 u46: an upload you'd started carries on where you stopped
         val startMs = if (com.minim.music.data.stories.StoryTracks.isStory(effectiveQueue[index]))
             com.minim.music.data.stories.StoryProgress.resumeMs(storyProgress.get(effectiveQueue[index].id)) else 0L
@@ -559,10 +600,10 @@ class PlaybackController(
         if (left > RADIO_LOW_WATER || radioJob?.isActive == true) return
         if (lastTopUpSeed == cur.mediaId) return // one try per seed, so a failure can't loop
         lastTopUpSeed = cur.mediaId
-        fetchRadio(cur.mediaId, radioSession, emptyList())
+        fetchRadio(cur.mediaId, radioSession, emptyList(), null)
     }
 
-    private fun fetchRadio(seedId: String, session: Int, fallback: List<Track>) {
+    private fun fetchRadio(seedId: String, session: Int, fallback: List<Track>, fallbackSource: String?) {
         radioJob?.cancel()
         radioJob = scope.launch {
             val result = try {
@@ -578,18 +619,20 @@ class PlaybackController(
             for (i in 0 until c.mediaItemCount) queued.add(c.getMediaItemAt(i).mediaId)
             val blocked = database.notInterestedIds.value
             val mix = (result as? SourceResult.Success)?.data.orEmpty()
+            var addSource: String? = FermataSource.RADIO
             var add = mix.filter {
                 it.id !in queued && it.id !in radioSeen && it.id !in blocked && isSongLength(it)
             }.distinctBy { it.id }.take(RADIO_BATCH)
             if (add.isEmpty() && fallback.isNotEmpty()) {
                 // No mix (offline, blocked, removed video): queue the tapped list like before 4.3
                 add = fallback.filter { it.id !in queued && it.id !in blocked }.distinctBy { it.id }
+                addSource = fallbackSource
             }
             if (add.isEmpty()) return@launch
             add.forEach { radioSeen.add(it.id) }
             val ended = c.playbackState == Player.STATE_ENDED
             val nextIndex = c.currentMediaItemIndex + 1
-            c.addMediaItems(add.map { it.toMediaItem() })
+            c.addMediaItems(add.map { it.toMediaItem(addSource) })
             if (ended && nextIndex < c.mediaItemCount) {
                 c.seekToDefaultPosition(nextIndex)
                 c.play()
@@ -641,6 +684,106 @@ class PlaybackController(
     /** 5.8.3 u55: where the tick last saw the song (for spotting a repeat-one loop), -1 before. */
     private var lastTickPos = -1L
 
+    // ---- 5.9.0 u59: Fermata event log (local only, nothing you see) ------------------------------
+
+    private val fermataState: FermataKv? = try { FermataStore.stateKv(context) } catch (_: Throwable) { null }
+    private val fermata: FermataLogger? = try {
+        fermataState?.let {
+            FermataLogger(
+                sink = FermataStore.sink(database),
+                kv = it,
+                executor = FermataStore.newWriter(),
+                deviceIdKv = FermataStore.deviceKv(context)
+            )
+        }
+    } catch (_: Throwable) { null }
+    private var fermataQueueSourcesSaved: String? = null
+
+    private data class LeaveHint(val mediaId: String, val positionMs: Long, val durationMs: Long)
+    /** Set by the app just before it moves to another song: what was playing, and where. */
+    private var fermataLeaveHint: LeaveHint? = null
+    /** The last jump the player reported (where a notification or headset next left the song). */
+    private var fermataLastJump: LeaveHint? = null
+
+    /** Logging must never break playback: anything thrown in here is dropped. */
+    private inline fun fermataSafe(block: () -> Unit) {
+        try { block() } catch (_: Throwable) { }
+    }
+
+    private inline fun <T> fermataSafeGet(fallback: T, block: () -> T): T =
+        try { block() } catch (_: Throwable) { fallback }
+
+    /** Opens [item]'s play row (or, with [loop], a fresh row for the next repeat-one loop). */
+    private fun fermataStart(item: MediaItem, loop: Boolean = false) {
+        val f = fermata ?: return
+        val c = mediaController
+        val track = Track.fromMediaItem(item)
+        val isTape = com.minim.music.data.stories.StoryTracks.isStory(track)
+        val dur = c?.takeIf { it.currentMediaItem?.mediaId == item.mediaId }?.duration?.takeIf { it > 0 }
+            ?: (track.durationSec * 1000L)
+        val speed = if (isTape) speedPctOf(c?.playbackParameters?.speed ?: 1f) else null
+        val source = Track.playSourceOf(item)
+        if (loop) f.startLoop(track.id, track.title, track.artist, dur, isTape, source, speed)
+        else f.startPlay(track.id, track.title, track.artist, dur, isTape, source, speed)
+    }
+
+    /** Where the player is in the song with the open row, for its skip position and length. */
+    private fun fermataPosition() {
+        val f = fermata ?: return
+        val c = mediaController ?: return
+        val item = c.currentMediaItem ?: return
+        if (item.mediaId != f.openTrackId()) return
+        val isTape = com.minim.music.data.stories.StoryTracks.isStory(Track.fromMediaItem(item))
+        f.position(item.mediaId, c.currentPosition, c.duration,
+            if (isTape) speedPctOf(c.playbackParameters.speed) else null)
+    }
+
+    /** The app is about to move to another song: remember where the current one was. */
+    private fun fermataNoteLeave(c: MediaController) = fermataSafe {
+        val item = c.currentMediaItem ?: return@fermataSafe
+        fermataLeaveHint = LeaveHint(item.mediaId, c.currentPosition, c.duration.takeIf { it > 0 } ?: 0L)
+    }
+
+    /**
+     * A new song in the player. The one that was playing leaves: a play row always, plus a skip
+     * row when you moved on yourself (next anywhere, or picking another song) with more than 10
+     * seconds left. Then the new song's row opens if it's going to play.
+     */
+    private fun fermataOnTransition(mediaItem: MediaItem?, reason: Int) {
+        val f = fermata ?: return
+        val leaving = f.openTrackId()
+        val hint = fermataLeaveHint
+        val jump = fermataLastJump
+        fermataLeaveHint = null
+        fermataLastJump = null
+        // A repeat-one loop is handled by startNewLoop (one row per loop, like play counts)
+        if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT && leaving != null && leaving == mediaItem?.mediaId) return
+        if (leaving != null) {
+            // What was heard of the leaving song up to now goes on its row
+            creditListen(SystemClock.elapsedRealtime())
+            val userMovedOn = FermataMoves.isUserMove(reason)
+            val from = hint?.takeIf { it.mediaId == leaving } ?: jump?.takeIf { it.mediaId == leaving }
+            if (from != null) f.position(leaving, from.positionMs, from.durationMs)
+            f.leave(userMovedOn, from?.positionMs)
+        }
+        val c = mediaController
+        if (mediaItem != null && c?.playWhenReady == true) fermataStart(mediaItem)
+    }
+
+    /** You queued [track] yourself (Play next / Add to queue in a song menu). */
+    fun noteQueuedByHand(track: Track) = fermataSafe {
+        fermata?.queued(track.id, track.title, track.artist, track.durationSec * 1000L, FermataSource.QUEUE)
+    }
+
+    /**
+     * The playback service is going away (app closed, music stopped): saves what's been heard
+     * and waits briefly so the open play row's last update lands. It stays the same single row.
+     */
+    fun flushForShutdown() = fermataSafe {
+        flushListening()
+        fermata?.flushAndWait(FERMATA_SHUTDOWN_WAIT_MS)
+    }
+
     /**
      * 5.8.3 u55: the same song starting over (repeat one). What was heard so far stays with the
      * loop that just ended; the new loop starts from zero and counts again after 30 seconds.
@@ -654,6 +797,9 @@ class PlaybackController(
         // Same song: keep crediting it without a gap
         listenTrack = track
         lastTickPos = c?.currentPosition ?: -1L
+        // 5.9.0 u59: one Fermata play row per loop too, the song itself as the one before it
+        fermataLastJump = null
+        fermataSafe { c?.currentMediaItem?.takeIf { it.mediaId == mediaId }?.let { fermataStart(it, loop = true) } }
     }
 
     private fun resetListen(mediaId: String?) {
@@ -677,6 +823,7 @@ class PlaybackController(
         val step = (nowRt - since).coerceIn(0L, MAX_CREDIT_STEP_MS)
         if (step <= 0L) return
         val track = listenTrack ?: return
+        fermataSafe { fermata?.heard(track.id, step) }
         // 5.7.0 u44: listening to a tape isn't song listening. 5.7.0 u51: it's tape listening,
         // saved in its own tables (real time heard, with the speed it played at).
         if (com.minim.music.data.stories.StoryTracks.isStory(track)) {
@@ -705,6 +852,11 @@ class PlaybackController(
     /** Saves the pending listening time (and the counted play's real time so far). */
     private fun flushListen() {
         lastFlushAt = SystemClock.elapsedRealtime()
+        // 5.9.0 u59: the open Fermata play row gets the time heard so far (an update, never a new row)
+        fermataSafe {
+            fermataPosition()
+            fermata?.flush()
+        }
         if (pendingTapeListen.isNotEmpty()) {
             val tapeAdds = pendingTapeListen.values.toList()
             pendingTapeListen.clear()
@@ -751,6 +903,8 @@ class PlaybackController(
         mediaController?.currentMediaItem?.let { item ->
             if (item.mediaId != listenId) resetListen(item.mediaId)
             if (listenTrack == null) listenTrack = Track.fromMediaItem(item)
+            // 5.9.0 u59: playback starts: the song's play row opens (if it isn't already)
+            fermataSafe { fermataStart(item) }
         }
         listenTicker = scope.launch {
             while (isActive) {
@@ -770,6 +924,7 @@ class PlaybackController(
                     startNewLoop(item.mediaId)
                 }
                 lastTickPos = pos
+                fermataSafe { fermataStart(item) }
                 val now = SystemClock.elapsedRealtime()
                 creditListen(now)
                 if (now - lastFlushAt >= LISTEN_FLUSH_MS) flushListen()
@@ -811,14 +966,20 @@ class PlaybackController(
         val c = mediaController ?: return
         if (index in 0 until c.mediaItemCount) {
             _uiState.value = _uiState.value.copy(errorMessage = null)
+            fermataNoteLeave(c)
             c.seekToDefaultPosition(index)
             c.play()
         }
     }
 
-    fun addToQueue(track: Track) {
+    /**
+     * [byHand] (5.9.0): you chose Add to queue / Play next in a song menu. That writes a Fermata
+     * "queued" row and tags the entry "queue"; anything else (Gemini adding songs) is untagged.
+     */
+    fun addToQueue(track: Track, byHand: Boolean = false) {
         val c = mediaController ?: return
-        c.addMediaItem(track.toMediaItem())
+        c.addMediaItem(track.toMediaItem(if (byHand) FermataSource.QUEUE else null))
+        if (byHand) noteQueuedByHand(track)
         if (c.mediaItemCount == 1) {
             c.prepare()
         }
@@ -851,6 +1012,7 @@ class PlaybackController(
     fun skipNext() {
         val c = mediaController ?: return
         if (c.hasNextMediaItem()) {
+            fermataNoteLeave(c)
             c.seekToNextMediaItem()
             c.play()
         }
@@ -859,6 +1021,7 @@ class PlaybackController(
     fun skipPrevious() {
         val c = mediaController ?: return
         if (c.hasPreviousMediaItem() && c.currentPosition < 3000L) {
+            fermataNoteLeave(c)
             c.seekToPreviousMediaItem()
             c.play()
         } else {
@@ -898,14 +1061,15 @@ class PlaybackController(
      * v4.8 song menu "Play next": puts the song right after the one that's playing.
      * With nothing in the queue it's the same as Add to queue.
      */
-    fun playNext(track: Track) {
+    fun playNext(track: Track, byHand: Boolean = false) {
         val c = mediaController ?: return
         if (c.mediaItemCount == 0 || c.currentMediaItemIndex < 0) {
-            addToQueue(track)
+            addToQueue(track, byHand)
             return
         }
         val at = (c.currentMediaItemIndex + 1).coerceIn(0, c.mediaItemCount)
-        c.addMediaItem(at, track.toMediaItem())
+        c.addMediaItem(at, track.toMediaItem(if (byHand) FermataSource.QUEUE else null))
+        if (byHand) noteQueuedByHand(track)
         updateStateFromController()
     }
 
@@ -942,6 +1106,8 @@ class PlaybackController(
     }
 
     private companion object {
+        /** 5.9.0: how long the service's shutdown waits for the last Fermata save. */
+        const val FERMATA_SHUTDOWN_WAIT_MS = 300L
         const val COUNT_AFTER_MS = 30_000L
         /** Listening time is saved at least this often while playing (app killed = ~5 s lost). */
         const val LISTEN_FLUSH_MS = 5_000L

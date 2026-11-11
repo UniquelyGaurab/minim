@@ -223,6 +223,8 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        // 5.9.0 u59: save the song's Fermata play row (and listening time) before everything stops
+        try { MinimApp.instance.playbackController.flushForShutdown() } catch (_: Throwable) { }
         if (activePlayer === player) activePlayer = null
         recoveryHandler.removeCallbacksAndMessages(null)
         MinimApp.instance.preferences.removeAudioSettingsListener(audioSettingsListener)

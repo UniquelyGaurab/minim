@@ -28,8 +28,8 @@ android {
         applicationId = "com.minim.music"
         minSdk = 28
         targetSdk = 34
-        versionCode = 58
-        versionName = "5.8.6"
+        versionCode = 59
+        versionName = "5.9.0"
         // v5.0: Minim is English only; drops the dozens of translations Firebase / Play services bring
         resourceConfigurations += listOf("en")
 

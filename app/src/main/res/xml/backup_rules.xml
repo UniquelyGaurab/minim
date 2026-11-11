@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 5.2.0 (Android 11 and older): back up everything as before, except your Gemini key settings
      (minim_ai.xml). The key is encrypted with a key that never leaves this phone, so it could
-     never be read on another phone anyway. -->
+     never be read on another phone anyway.
+     5.9.0: also this phone's Fermata id (minim_fermata_device.xml) and its listening session
+     (minim_fermata.xml), so a restored or new phone gets its own id. -->
 <full-backup-content>
     <exclude domain="sharedpref" path="minim_ai.xml" />
+    <exclude domain="sharedpref" path="minim_fermata_device.xml" />
+    <exclude domain="sharedpref" path="minim_fermata.xml" />
 </full-backup-content>

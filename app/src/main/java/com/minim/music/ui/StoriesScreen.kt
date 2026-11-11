@@ -161,7 +161,7 @@ class StoriesScreen(
     fun play(track: Track, all: List<Track>) {
         // The uploads from this one down, so the next upload follows (no radio after stories)
         val start = all.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-        app.playbackController.playTrack(track, all.drop(start).take(MAX_QUEUE))
+        app.playbackController.playTrack(track, all.drop(start).take(MAX_QUEUE), com.minim.music.data.fermata.FermataSource.TAPE)
     }
 
     private fun render() {

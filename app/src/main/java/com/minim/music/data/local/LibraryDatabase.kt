@@ -62,6 +62,7 @@ class LibraryDatabase(context: Context) :
         createV4Sync(db)
         createV5Import(db)
         createV6Tapes(db)
+        createV7Fermata(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -72,6 +73,93 @@ class LibraryDatabase(context: Context) :
         if (oldVersion < 4) createV4Sync(db)
         if (oldVersion < 5) createV5Import(db)
         if (oldVersion < 6) createV6Tapes(db)
+        if (oldVersion < 7) createV7Fermata(db)
+    }
+
+    /**
+     * 5.9.0 u59: the Fermata event log. One row per listening event (play, skip, queued,
+     * tape_play), named exactly like Minim Fermata's event format so a later import is a straight
+     * copy. Local only: never synced, never cleaned up. [id] doubles as this phone's event counter
+     * and [device_id] says which phone wrote the row (the database is in Android's backup).
+     */
+    private fun createV7Fermata(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS fermata_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                type TEXT,
+                track_id TEXT NOT NULL,
+                title TEXT,
+                artist TEXT,
+                duration_ms INTEGER,
+                ts INTEGER,
+                hour INTEGER,
+                dow INTEGER,
+                session_id TEXT,
+                prev_track_id TEXT,
+                source TEXT,
+                listened_ms INTEGER,
+                position_ms INTEGER,
+                device_id TEXT,
+                speed_pct INTEGER
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_fermata_events_ts ON fermata_events(ts)")
+    }
+
+    /** 5.9.0: writes one Fermata event row; returns its id. Blocking: call it off the main thread. */
+    fun insertFermataEvent(e: com.minim.music.data.fermata.FermataEvent): Long {
+        val v = ContentValues().apply {
+            put("type", e.type)
+            put("track_id", e.trackId)
+            put("title", e.title)
+            put("artist", e.artist)
+            if (e.durationMs != null) put("duration_ms", e.durationMs) else putNull("duration_ms")
+            put("ts", e.ts)
+            put("hour", e.hour)
+            put("dow", e.dow)
+            put("session_id", e.sessionId)
+            if (e.prevTrackId != null) put("prev_track_id", e.prevTrackId) else putNull("prev_track_id")
+            put("source", e.source)
+            if (e.listenedMs != null) put("listened_ms", e.listenedMs) else putNull("listened_ms")
+            if (e.positionMs != null) put("position_ms", e.positionMs) else putNull("position_ms")
+            put("device_id", e.deviceId)
+            if (e.speedPct != null) put("speed_pct", e.speedPct) else putNull("speed_pct")
+        }
+        return writableDatabase.insertOrThrow("fermata_events", null, v)
+    }
+
+    /** 5.9.0: the latest heard time (and length, once known) on an open play row. Blocking. */
+    fun updateFermataPlay(rowId: Long, listenedMs: Long, durationMs: Long?, speedPct: Int?) {
+        val v = ContentValues().apply {
+            put("listened_ms", listenedMs)
+            if (durationMs != null && durationMs > 0) put("duration_ms", durationMs)
+            if (speedPct != null) put("speed_pct", speedPct)
+        }
+        writableDatabase.update("fermata_events", v, "id = ?", arrayOf(rowId.toString()))
+    }
+
+    /** 5.9.0: every Fermata row, oldest first (tests and the future import). Blocking. */
+    fun getFermataEvents(): List<com.minim.music.data.fermata.FermataEvent> {
+        val out = ArrayList<com.minim.music.data.fermata.FermataEvent>()
+        readableDatabase.rawQuery(
+            "SELECT id, type, track_id, title, artist, duration_ms, ts, hour, dow, session_id, prev_track_id, " +
+                "source, listened_ms, position_ms, device_id, speed_pct FROM fermata_events ORDER BY id", null
+        ).use { c ->
+            fun longOrNull(i: Int) = if (c.isNull(i)) null else c.getLong(i)
+            while (c.moveToNext()) out.add(
+                com.minim.music.data.fermata.FermataEvent(
+                    id = c.getLong(0), type = c.getString(1), trackId = c.getString(2),
+                    title = c.getString(3) ?: "", artist = c.getString(4) ?: "",
+                    durationMs = longOrNull(5), ts = c.getLong(6), hour = c.getInt(7), dow = c.getInt(8),
+                    sessionId = c.getString(9) ?: "", prevTrackId = c.getString(10), source = c.getString(11) ?: "unknown",
+                    listenedMs = longOrNull(12), positionMs = longOrNull(13), deviceId = c.getString(14) ?: "",
+                    speedPct = longOrNull(15)?.toInt()
+                )
+            )
+        }
+        return out
     }
 
     /**
@@ -1324,6 +1412,6 @@ class LibraryDatabase(context: Context) :
 
     companion object {
         const val DB_NAME = "minim_library.db"
-        private const val DB_VERSION = 6
+        private const val DB_VERSION = 7
     }
 }

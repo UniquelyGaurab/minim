@@ -2,6 +2,10 @@
 
 Every Minim release, newest first. Download any of them from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page.
 
+## 5.9.0 (2026-11-11)
+
+- Groundwork for on-device backups and recommendations. Nothing changes yet.
+
 ## 5.8.6 (2026-11-10)
 
 - **Tabs in Search:** Search now has the same top row as every other tab (minim, home, tapes, stats, library and your avatar), with the search box on its own line below. Tap the tab you came from to close Search, or any other tab to go straight there. The underline glides over and the tab slides in. It works from an Artist page or a playlist too

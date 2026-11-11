@@ -1440,7 +1440,7 @@ class MainActivity : AppCompatActivity() {
             val queue = liked.shuffled()
             val pick = queue.first()
             try {
-                app.playbackController.playTrack(pick, queue)
+                app.playbackController.playTrack(pick, queue, com.minim.music.data.fermata.FermataSource.LIBRARY)
             } catch (_: Exception) {
                 endGreetingMessage()
                 return@launch
@@ -1812,7 +1812,7 @@ class MainActivity : AppCompatActivity() {
         searchResultsList = findViewById(R.id.search_results)
         searchAdapter = SearchResultsAdapter(
             artwork = app.artworkPipeline,
-            onClick = { track, list -> app.playbackController.playRadio(track, list) },
+            onClick = { track, list -> app.playbackController.playRadio(track, list, com.minim.music.data.fermata.FermataSource.SEARCH) },
             onLongClick = { anchor, track -> showTrackOptions(anchor, track) },
             onArtistClick = { artist -> openArtist(artist, fromSearch = true) }
         )
@@ -2274,8 +2274,12 @@ class MainActivity : AppCompatActivity() {
             artwork = app.artworkPipeline,
             onClick = { track, list ->
                 // v4.9: Recents (now in Library) keeps its old tap: a radio of similar songs
-                if (openListId == RECENTS_LIST) app.playbackController.playRadio(track, list)
-                else app.playbackController.playTrack(track, list)
+                // 5.9.0: Liked, Recents and Offline are your library; anything else here is a playlist
+                // (or an album, which opens in the playlist screen)
+                val src = if (openListId == RECENTS_LIST || openListId == LIKED_LIST || openListId == OFFLINE_LIST)
+                    com.minim.music.data.fermata.FermataSource.LIBRARY else com.minim.music.data.fermata.FermataSource.PLAYLIST
+                if (openListId == RECENTS_LIST) app.playbackController.playRadio(track, list, src)
+                else app.playbackController.playTrack(track, list, src)
             },
             onLongClick = { anchor, track ->
                 // Inside a user playlist (not Liked Songs / Recents) the menu also offers "Remove from playlist".
@@ -2309,7 +2313,7 @@ class MainActivity : AppCompatActivity() {
         shelfAdapter = com.minim.music.ui.adapter.ShelfAdapter(
             artwork = app.artworkPipeline,
             onOpenShelf = { shelf -> openShelfPage(shelf) },
-            onSongClick = { track, shelf -> app.playbackController.playRadio(track, shelf.tracks) },
+            onSongClick = { track, shelf -> app.playbackController.playRadio(track, shelf.tracks, shelfSource(shelf)) },
             onSongLongClick = { anchor, track -> showTrackOptions(anchor, track, fromDiscover = true) },
             onArtistClick = { name -> openArtistByName(name) },
             artistPhoto = { name -> app.preferences.artistPhoto(name) },
@@ -2345,7 +2349,7 @@ class MainActivity : AppCompatActivity() {
             artwork = app.artworkPipeline,
             onClick = { tile ->
                 val shelf = openShelf
-                if (tile is GridTile.Song && shelf != null) app.playbackController.playRadio(tile.track, shelf.tracks)
+                if (tile is GridTile.Song && shelf != null) app.playbackController.playRadio(tile.track, shelf.tracks, shelfSource(shelf))
                 if (tile is GridTile.AlbumTile) openAlbum(tile.album)
             },
             onLongClick = { anchor, tile ->
@@ -2370,7 +2374,7 @@ class MainActivity : AppCompatActivity() {
             if (shelf.tracks.isEmpty()) return@setOnClickListener
             haptic(v)
             // "Play all" queues the whole shelf in order (no radio)
-            app.playbackController.playTrack(shelf.tracks.first(), shelf.tracks)
+            app.playbackController.playTrack(shelf.tracks.first(), shelf.tracks, shelfSource(shelf))
         }
     }
 
@@ -6815,7 +6819,7 @@ class MainActivity : AppCompatActivity() {
                     row.setOnClickListener { v ->
                         if (sheetClosing) return@setOnClickListener
                         haptic(v)
-                        closeSheet { app.playbackController.playTrack(tracks[i], tracks.drop(i)) }
+                        closeSheet { app.playbackController.playTrack(tracks[i], tracks.drop(i), com.minim.music.data.fermata.FermataSource.TAPE) }
                     }
                     box.addView(row)
                     rows += row
@@ -8208,7 +8212,7 @@ class MainActivity : AppCompatActivity() {
                     closeSheet()
                     if (queueIndex != null) playQueueItemNext(queueIndex)
                     else {
-                        app.playbackController.playNext(track)
+                        app.playbackController.playNext(track, byHand = true)
                         showNote(getString(R.string.note_playing_next))
                     }
                 }
@@ -8216,7 +8220,7 @@ class MainActivity : AppCompatActivity() {
             if (queueIndex == null && !isPlayingNow) {
                 sheetAction(box, R.drawable.ic_queue_add, getString(R.string.sheet_add_to_queue)) {
                     closeSheet()
-                    app.playbackController.addToQueue(track)
+                    app.playbackController.addToQueue(track, byHand = true)
                     showNote(getString(R.string.note_added_queue))
                 }
             }
@@ -8572,6 +8576,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
         app.playbackController.moveQueueItem(index, to)
+        // 5.9.0: Play next on a song already in the queue is still you queueing it by hand
+        state.queue.getOrNull(index)?.let { app.playbackController.noteQueuedByHand(it) }
         showNote(getString(R.string.note_playing_next))
     }
 
@@ -10237,6 +10243,14 @@ class MainActivity : AppCompatActivity() {
         private const val ANNOUNCEMENT_DELAY_MS = 1_200L
         private const val UPDATE_POPUP_DELAY_MS = 900L
         private const val ARTIST_SHELF = "artist:"
+
+        /**
+         * 5.9.0: the Fermata source for a song played from a shelf: Discover's shelves are
+         * "discover"; an Artist page's shelves don't fit any source yet, so "unknown".
+         */
+        private fun shelfSource(shelf: com.minim.music.data.discover.Shelf): String =
+            if (shelf.key.startsWith(ARTIST_SHELF)) com.minim.music.data.fermata.FermataSource.UNKNOWN
+            else com.minim.music.data.fermata.FermataSource.DISCOVER
         /** 5.7.0: the Gemini shelf on the Search page (its title is Gemini's own). */
         private const val GEMINI_SHELF = "gemini"
         private const val GREETING_INTERVAL_MS = 7_000L
