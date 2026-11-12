@@ -62,12 +62,6 @@ class FermataBridge(
     val appVersion: String?,
     deviceId: String? = null,
     clock: java.time.Clock = java.time.Clock.systemDefaultZone(),
-    /**
-     * Whether Firebase sign-in is on. While it is, other phones' listening time is left out when
-     * folder backups are merged: Firestore already brings it, and taking it from both could count
-     * it twice. Plays, likes and playlists still merge (they carry ids, so they never double).
-     */
-    private val signedIn: () -> Boolean = { false },
 ) {
     private val context = context.applicationContext
 
@@ -138,8 +132,6 @@ class FermataBridge(
         sync.ensureDevice(deviceKey())
         lib.writeGate = gate
         lib.onClearHistory = { db -> onClearHistory(db) }
-        // a clear that came from Firestore goes into the log too, so folder backups carry it
-        lib.onRemoteHistoryClear = { point -> fermata.clearHistory(point) }
         // Ids the import will bring in under their own numbers are taken from the first write on,
         // not only once the import has run (a like in between took id 1 and dropped an old play).
         fermata.reserveCountersThrough(takenCounters())
@@ -202,7 +194,7 @@ class FermataBridge(
 
     /**
      * Before a backup: records plays the journal still holds (idle for a minute) and anything in
-     * the tables the log does not have yet, such as what a Firestore pull brought in. Writes
+     * the tables the log does not have yet, such as rows a 5.x cloud pull brought in. Writes
      * equal to the last one recorded for their document are skipped, so this adds little.
      */
     fun prepareBackup() {
@@ -580,7 +572,7 @@ class FermataBridge(
             group("hidden/").takeIf { it.isNotEmpty() }?.let { sync.applyHidden(it) }
             group("playlists/").takeIf { it.isNotEmpty() }?.let { sync.applyPlaylists(it) }
             group("history/").takeIf { it.isNotEmpty() }?.let {
-                (if (signedIn()) LibrarySync(lib, outbox = "fermata_outbox", skipOtherListening = true) else sync).applyHistory(it)
+                sync.applyHistory(it)
             }
             val tapes = docs.filterKeys { it.startsWith("tape_") }
             if (tapes.isNotEmpty()) lib.inWrite { db -> for ((p, d) in tapes) applyTape(db, p, d) }
@@ -641,7 +633,6 @@ class FermataBridge(
         applying.set(true)
         try {
             lib.inWrite { db ->
-                // a clear merged from another phone's backup reaches Firestore from here too
                 LibraryDatabase.markHistoryCleared(db, before)
                 LibraryDatabase.deleteHistoryBefore(db, before, day, hour)
             }
@@ -654,7 +645,7 @@ class FermataBridge(
 
     /** Called by LibraryDatabase.clearHistory inside its transaction. */
     internal fun onClearHistory(db: SQLiteDatabase) {
-        // Firestore's history/cleared was marked by deleteHistoryBefore, at the wall-clock time
+        // the clear point was saved by deleteHistoryBefore, at the wall-clock time
         fermata.clearHistory()
         db.execSQL("DELETE FROM fermata_written WHERE path LIKE 'history/%' OR path LIKE 'tape_%'")
         db.execSQL("DELETE FROM fermata_journal")
@@ -749,8 +740,8 @@ class FermataBridge(
 
     // ---- helpers -------------------------------------------------------------------------------
 
-    /** Same key as CloudSync's, so Firestore and the backups name this phone the same way. */
-    @SuppressLint("HardwareIds") // hashed into the same key CloudSync uses, never sent as it is
+    /** This phone's key in the backups (the same key 5.x's cloud sync used, so it never changes). */
+    @SuppressLint("HardwareIds") // hashed into a key, never written as it is
     private fun deviceKey(): String {
         val androidId = try {
             Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)

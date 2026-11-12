@@ -20,8 +20,8 @@ import kotlin.math.min
 
 /**
  * v5.0: the round profile picture (top right of every tab, where the Settings gear was, and in the
- * Settings Account section). Signed in: the Google photo, cropped to a circle. Signed out (or while the
- * photo loads, or offline before it was ever loaded): a person silhouette on a soft circle in the
+ * Settings Profile section). 5.10.1: your own photo from the phone (no Google account any more).
+ * Without one: the first letter of your name, else a person silhouette, on a soft circle in the
  * dynamic colours, so it also works in Default B&W. The circle sits inside the view's padding, so the
  * touch target stays the full view size. [Painter] calls [setColors] on every palette change.
  */
@@ -39,6 +39,18 @@ class AvatarView @JvmOverloads constructor(
     private val photoPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val shaderMatrix = Matrix()
     private val person = AppCompatResources.getDrawable(context, R.drawable.ic_person)!!.mutate()
+    private var initial: String? = null
+    private val letterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+        typeface = try { androidx.core.content.res.ResourcesCompat.getFont(context, R.font.poppins_semibold) } catch (_: Throwable) { null }
+    }
+
+    /** 5.10.1: the letter shown when there's no photo (null: the person silhouette). */
+    fun setInitial(letter: String?) {
+        if (letter == initial) return
+        initial = letter
+        invalidate()
+    }
 
     /** Placeholder colour: the palette's text colour; the circle behind is the same colour, faint. */
     fun setColors(fg: Int) {
@@ -107,10 +119,18 @@ class AvatarView @JvmOverloads constructor(
         if (photo == null || photoAlpha < 1f) {
             fillPaint.color = (fg and 0x00FFFFFF) or (0x2E shl 24)
             canvas.drawCircle(cx, cy, r, fillPaint)
-            val inset = r * 0.26f
-            person.setBounds((cx - r + inset).toInt(), (cy - r + inset).toInt(), (cx + r - inset).toInt(), (cy + r - inset).toInt())
-            person.setTint(fg)
-            person.draw(canvas)
+            val letter = initial
+            if (letter != null) {
+                letterPaint.color = fg
+                letterPaint.textSize = r * 0.95f
+                val fm = letterPaint.fontMetrics
+                canvas.drawText(letter, cx, cy - (fm.ascent + fm.descent) / 2f, letterPaint)
+            } else {
+                val inset = r * 0.26f
+                person.setBounds((cx - r + inset).toInt(), (cy - r + inset).toInt(), (cx + r - inset).toInt(), (cy + r - inset).toInt())
+                person.setTint(fg)
+                person.draw(canvas)
+            }
         }
         if (photo != null && photoAlpha > 0f) {
             photoPaint.alpha = (photoAlpha * 255).toInt()

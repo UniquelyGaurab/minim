@@ -58,7 +58,6 @@ class RenamePlaylistDbTest {
     @Test
     fun renameKeepsSongsSourceAndSyncIdAndGoesUp() = runBlocking {
         val l = open()
-        l.syncTracking = true
         val pid = l.createPlaylist("Chill Mix", "spotify")
         l.addTrackToPlaylist(pid, track("songAAAAAAA"))
         val uid = uidOf(l, pid)
@@ -70,7 +69,6 @@ class RenamePlaylistDbTest {
         assertEquals("spotify", p.source)
         assertEquals(1, p.trackCount)
         assertEquals(uid, uidOf(l, pid))
-        assertTrue(outbox(l).contains("P|$uid"))
         // the header that goes up carries the new name, newer than before
         val state = LibrarySync(l).readLocalPlaylist(l.readableDatabase, uid)!!
         assertEquals("Evening", state.name)
@@ -104,7 +102,6 @@ class RenamePlaylistDbTest {
     @Test
     fun aNewerRenameFromAnotherPhoneArrivesAndAnOlderNameDoesNot() = runBlocking {
         val l = open()
-        l.syncTracking = true
         val pid = l.createPlaylist("Gym")
         val uid = uidOf(l, pid)
         val sync = LibrarySync(l)

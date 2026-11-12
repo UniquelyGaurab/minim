@@ -115,7 +115,7 @@ class DiscoverEngine(
     }
 
     /**
-     * 5.0.0: the library changed a lot (a whole-library merge after signing in, or Start fresh), so
+     * 5.0.0: the library changed a lot (a whole-library merge or restore from a backup), so
      * the saved shelves count as stale and the next look at Discover rebuilds them. They still show
      * until then. Kept in the saved file too, so it survives the app closing.
      */

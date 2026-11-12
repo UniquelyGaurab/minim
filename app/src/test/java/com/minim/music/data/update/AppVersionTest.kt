@@ -75,4 +75,17 @@ class AppVersionTest {
         assertNull(AppVersion.installed(null))
         assertNull(AppVersion.installed("debug"))
     }
+
+    /** 5.10.1 (V6): the update checker still reads this build's own name. */
+    @Test
+    fun theV6TestBuildNameStillParses() {
+        val installed = AppVersion.installed("5.10.1-debug")
+        assertEquals(v("5.10.1"), installed)
+        assertFalse(v("v5.10.0") > installed!!)
+        assertFalse(v("v5.9.1") > installed)
+        assertFalse(v("v5.10.1") > installed)
+        assertTrue(v("v5.10.2") > installed)
+        assertTrue(v("v6.0.0") > installed)
+        assertTrue("5.10 is newer than 5.9, not older", v("5.10.1") > v("5.9.1"))
+    }
 }

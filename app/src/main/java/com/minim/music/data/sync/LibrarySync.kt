@@ -7,10 +7,11 @@ import com.minim.music.data.stats.Days
 import java.io.File
 
 /**
- * Minim 5.0.0 part 2: the phone side of cloud sync. Reads what has to go up (sync_outbox) and
- * builds the Firestore writes for it, and merges what came down into the local database. No
- * Firestore code here (that's [CloudSync]): documents come in and go out as plain maps, so all of
- * this runs in unit tests.
+ * Minim's library as documents, for Fermata (folder backups and phone-to-phone merges).
+ * Started in 5.0.0 as the phone side of cloud sync; since 5.10.1 (V6) there is no cloud and no
+ * Firebase: this only reads what changed (fermata_outbox), builds the documents Fermata records
+ * as app events, and merges documents from other phones' backups into the local database.
+ * Documents go in and out as plain maps, so all of this runs in unit tests.
  *
  * Outbox keys (one per thing that changed, deduped):
  * - L|songId           like or unlike             -> likes/{songId}
@@ -19,35 +20,21 @@ import java.io.File
  * - T|playlistUid|song song added / removed       -> playlists/{uid} (t.{song})
  * - E|eventId          a counted play             -> history/{day} (p.{eventId})
  * - M|day|song         this phone's listening time and taps for a song on a day -> history/{day}
- * - N|day|song         same, every phone's numbers (only the full merge after signing in)
- * - C|                 5.10.0: listening history cleared before a time -> history/cleared
- * - XD|day             5.10.0: a day wholly before that time           -> history/{day} deleted
+ * - N|day|song         same, every phone's numbers
  *
- * Clearing listening history (on this phone, or a clear merged from another phone's backup)
- * reaches Firestore twice over: history/cleared holds the newest clear point, which every 5.10.0
- * phone signed in to the account applies and then filters its pulls by, and the day documents
- * wholly before it are deleted, so a full merge (signing in again) cannot bring them back. The
- * day of the clear itself is kept and filtered (it can hold other phones' later plays); 5.9.1
- * phones skip history/cleared (its id is not a day).
+ * 5.10.1: a listening-history clear travels as Fermata's own "history cleared" event (see
+ * FermataBridge.applyClear); merges here skip history from before the newest clear point.
+ * Older 5.10.0 keys for Firestore (C|, XD|) are ignored.
  */
 class LibrarySync(
     private val lib: LibraryDatabase,
-    /**
-     * 5.10.0: where a merge queues what the other side is missing. Firestore sync uses
-     * sync_outbox; merging Fermata (folder backups) uses fermata_outbox.
-     */
-    private val outbox: String = "sync_outbox",
-    /**
-     * 5.10.0: leave other phones' listening time out of this merge. Set when merging folder
-     * backups while Firebase sign-in is on: Firestore already brings that listening time, and
-     * taking it from both would count it twice where the two disagree on a phone's key.
-     */
-    private val skipOtherListening: Boolean = false,
+    /** Where a merge queues what the other side is missing (5.10.1: always fermata_outbox). */
+    private val outbox: String = "fermata_outbox",
 ) {
 
     data class OutboxItem(val id: Long, val key: String)
 
-    /** One Firestore write, relative to users/{uid}. [CloudSync] adds the "u" server time. */
+    /** One document write (the shape 5.0's cloud sync used; Fermata records it as an app event). */
     data class CloudWrite(val path: String, val data: Map<String, Any?>, val merge: Boolean, val delete: Boolean = false)
 
     data class RemoteDoc(val id: String, val data: Map<String, Any?>)
@@ -117,7 +104,7 @@ class LibrarySync(
 
     fun readOutbox(limit: Int): List<OutboxItem> {
         val out = ArrayList<OutboxItem>()
-        db.rawQuery("SELECT id, k FROM sync_outbox ORDER BY id LIMIT ?", arrayOf(limit.toString())).use { c ->
+        db.rawQuery("SELECT id, k FROM $outbox ORDER BY id LIMIT ?", arrayOf(limit.toString())).use { c ->
             while (c.moveToNext()) out.add(OutboxItem(c.getLong(0), c.getString(1)))
         }
         return out
@@ -129,7 +116,7 @@ class LibrarySync(
         val d = db
         lib.beginWrite(d)
         try {
-            for (i in items) d.execSQL("DELETE FROM sync_outbox WHERE id = ? AND k = ?", arrayOf<Any>(i.id, i.key))
+            for (i in items) d.execSQL("DELETE FROM $outbox WHERE id = ? AND k = ?", arrayOf<Any>(i.id, i.key))
             d.setTransactionSuccessful()
         } finally {
             lib.endWrite(d)
@@ -137,13 +124,9 @@ class LibrarySync(
     }
 
     fun outboxCount(): Int =
-        db.rawQuery("SELECT COUNT(*) FROM sync_outbox", null).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
+        db.rawQuery("SELECT COUNT(*) FROM $outbox", null).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
 
     fun outboxKeys(): List<String> = readOutbox(Int.MAX_VALUE).map { it.key }
-
-    fun clearOutbox() {
-        db.delete("sync_outbox", null, null)
-    }
 
     private fun dequeue(d: SQLiteDatabase, key: String) {
         d.execSQL("DELETE FROM $outbox WHERE k = ?", arrayOf<Any>(key))
@@ -154,9 +137,8 @@ class LibrarySync(
     }
 
     /**
-     * The full merge after signing in: everything on the phone is queued to go up. Merging the
-     * cloud right after takes back off every key the cloud already has, so only what the cloud is
-     * missing (or has older) is written.
+     * The full merge: everything on the phone is queued, so Fermata records every document.
+     * (5.x used this after signing in; V6 has no cloud, so nothing is taken back off.)
      */
     fun enqueueAll() {
         val d = db
@@ -166,8 +148,6 @@ class LibrarySync(
             d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'H|' || track_id FROM not_interested")
             d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'P|' || uid FROM playlists WHERE uid IS NOT NULL")
             d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'P|' || uid FROM playlist_deleted")
-            // a history clear goes up with the full merge after signing in (cleared while signed out)
-            if (outbox == "sync_outbox" && clearedBefore() != null) enqueue(d, "C|")
             d.execSQL(
                 """
                 INSERT OR IGNORE INTO $outbox (k)
@@ -295,15 +275,7 @@ class LibrarySync(
                         }
                     }
                 }
-                "C" -> {
-                    val point = clearedBefore() ?: continue
-                    writes.add(CloudWrite(CLEARED_PATH, mapOf("c" to point), merge = false))
-                }
-                "XD" -> {
-                    val day = parts.getOrNull(1)?.toIntOrNull() ?: continue
-                    val point = clearedBefore() ?: continue
-                    if (day < Days.keyOf(point)) writes.add(CloudWrite("history/$day", emptyMap(), merge = false, delete = true))
-                }
+                // "C" and "XD" were 5.10.0's Firestore-only history-clear keys: nothing to write
                 "M", "N" -> {
                     val day = parts.getOrNull(1)?.toIntOrNull() ?: continue
                     val song = parts.getOrNull(2) ?: continue
@@ -606,26 +578,15 @@ class LibrarySync(
     fun applyHistory(docs: List<RemoteDoc>): Boolean = inTx { d ->
         var changed = false
         val me = myDevice
-        // a newer clear from another phone first, wherever it is in the page
-        docs.firstOrNull { it.id == CLEARED_ID }?.let { doc ->
-            val point = SyncCodec.num(doc.data["c"]) ?: return@let
-            val mine = clearedBefore()
-            if (mine == null || point > mine) {
-                LibraryDatabase.markHistoryCleared(d, point)
-                LibraryDatabase.deleteHistoryBefore(d, point, Days.keyOf(point), Days.hourOf(point))
-                lib.onRemoteHistoryClear?.invoke(point)
-                changed = true
-            }
-        }
         val cleared = clearedBefore()
         val clearDay = cleared?.let { Days.keyOf(it) }
         val clearHour = cleared?.let { Days.hourOf(it) } ?: 0
         for (doc in docs) {
+            // 5.10.0's Firestore history/cleared document: clears now travel as Fermata events
             if (doc.id == CLEARED_ID) continue
             val day = SyncCodec.num(doc.data["d"])?.toInt() ?: doc.id.toIntOrNull() ?: continue
             if (clearDay != null && day < clearDay) {
-                // wholly cleared: never applied, and deleted from Firestore when it came from there
-                if (outbox == "sync_outbox") enqueue(d, "XD|$day")
+                // wholly cleared: never applied
                 continue
             }
             val songs = HashMap<String, SongMeta>()
@@ -677,7 +638,6 @@ class LibrarySync(
                     val (hour, song) = SyncCodec.parseListenKey(k) ?: continue
                     if (!SyncIds.isSyncableSongId(song)) continue
                     if (clearDay != null && day == clearDay && hour < clearHour) continue
-                    if (skipOtherListening && dev != me) continue
                     val localDev = if (dev == me) "" else dev
                     val m = songs[song]
                     var cur: Long? = null
@@ -720,66 +680,11 @@ class LibrarySync(
                 }
                 remoteR[dev] = entries
             }
-
-            // what's queued for this day and already in the cloud doesn't have to go up
-            val keys = ArrayList<String>()
-            d.rawQuery(
-                "SELECT k FROM sync_outbox WHERE k LIKE ? OR k LIKE ?",
-                arrayOf("M|$day|%", "N|$day|%")
-            ).use { c -> while (c.moveToNext()) keys.add(c.getString(0)) }
-            for (key in keys) {
-                val song = key.substring(key.indexOf('|', 2) + 1)
-                val ownOnly = key.startsWith("M")
-                var inCloud = true
-                val sql = "SELECT hour, ms, device FROM listen_time WHERE day = ? AND track_id = ?" +
-                    if (ownOnly) " AND device = ''" else ""
-                d.rawQuery(sql, arrayOf(day.toString(), song)).use { c ->
-                    while (c.moveToNext() && inCloud) {
-                        val dev = c.getString(2).ifEmpty { me }
-                        val have = remoteL[dev]?.get(SyncCodec.listenKey(c.getInt(0), song)) ?: -1L
-                        if (c.getLong(1) > 0L && have < c.getLong(1)) inCloud = false
-                    }
-                }
-                val lp = lastPlayed(d, song)
-                if (inCloud && lp > 0L && Days.keyOf(lp) == day) {
-                    if ((remoteR[me]?.get(song) ?: -1L) < lp) inCloud = false
-                }
-                if (inCloud) dequeue(d, key)
-            }
         }
         changed
     }
 
-    // ---- starting fresh ------------------------------------------------------------------------
-
-    /**
-     * "Start fresh" when signing in to a different account: this phone's library is emptied so it
-     * only gets that account's music. A copy of the database is kept in [backup] first.
-     */
-    fun wipeLibrary(backup: File?) {
-        val d = db
-        if (backup != null) {
-            try {
-                d.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null).use { it.moveToFirst() }
-                val src = File(d.path)
-                if (src.exists()) src.copyTo(backup, overwrite = true)
-            } catch (_: Exception) {
-            }
-        }
-        lib.beginWrite(d)
-        try {
-            for (t in listOf(
-                "tracks", "playlists", "playlist_tracks", "playlist_removed", "playlist_deleted",
-                "plays", "listen_time", "not_interested", "sync_outbox"
-            )) d.delete(t, null, null)
-            d.setTransactionSuccessful()
-        } finally {
-            lib.endWrite(d)
-        }
-    }
-
     companion object {
         const val CLEARED_ID = "cleared"
-        const val CLEARED_PATH = "history/$CLEARED_ID"
     }
 }

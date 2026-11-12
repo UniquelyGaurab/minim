@@ -84,4 +84,56 @@ class AutoBackupEntryPointsTest {
         assertEquals("the newer close replaces the waiting one", 1, close.size)
         assertTrue(queued(FermataBackups.DAILY_WORK).size <= 1)
     }
+
+    private fun pickFolder() {
+        app.getSharedPreferences("fermata_backup", Context.MODE_PRIVATE).edit()
+            .putString("tree_uri", "content://com.android.externalstorage.documents/tree/primary%3AMinim").commit()
+    }
+
+    /** 5.10.1: the lifecycle hooks themselves: the app coming to the front merges, leaving backs up. */
+    @Test
+    fun openingTheAppMergesAndLeavingItBacksUp() {
+        waitForStart()
+        pickFolder()
+        val c = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).create()
+        assertTrue(queued(FermataBackups.MERGE_WORK).isEmpty())
+        c.start()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("coming to the front queues the merge", 1, queued(FermataBackups.MERGE_WORK).size)
+        assertTrue(queued(FermataBackups.ON_CLOSE_WORK).isEmpty())
+        c.resume().pause().stop()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("going to the background queues the backup", 1, queued(FermataBackups.ON_CLOSE_WORK).size)
+    }
+
+    @Test
+    fun movingBetweenTwoScreensIsNeitherAnOpenNorAClose() {
+        waitForStart()
+        pickFolder()
+        val first = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).setup()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        // a second screen starts before the first one stops, as Android does
+        val second = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).create().start()
+        first.pause().stop()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertTrue("still in the foreground, so no backup", queued(FermataBackups.ON_CLOSE_WORK).isEmpty())
+        second.resume().pause().stop()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, queued(FermataBackups.ON_CLOSE_WORK).size)
+    }
+
+    /** 5.10.1: Settings watches every job that can change the status line. */
+    @Test
+    fun theStatusLineWatchesEveryBackupJob() {
+        assertEquals(
+            setOf(FermataBackups.ON_CLOSE_WORK, FermataBackups.MERGE_WORK, FermataBackups.DAILY_WORK,
+                FermataBackups.NOW_WORK, FermataBackups.ONCE_WORK),
+            BackupWork.NAMES.toSet()
+        )
+        assertTrue(BackupWork.changesStatus(listOf(WorkInfo.State.SUCCEEDED)))
+        assertTrue(BackupWork.changesStatus(listOf(WorkInfo.State.FAILED)))
+        assertTrue("the daily job waiting again after a run", BackupWork.changesStatus(listOf(WorkInfo.State.ENQUEUED)))
+        assertTrue(!BackupWork.changesStatus(listOf(WorkInfo.State.RUNNING)))
+        assertTrue(!BackupWork.changesStatus(emptyList()))
+    }
 }

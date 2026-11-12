@@ -9,9 +9,9 @@ import com.minim.music.data.update.AppVersion
 import java.util.Calendar
 
 /**
- * Minim 5.0.0 part 3: the app's "vibe" from the cloud, without an app update. It lives in ONE
- * Firestore document, `config/app` (public read, no writes, per firestore.rules). It is never under
- * users/{uid}, so Delete account never touches it.
+ * Minim 5.0.0 part 3: the app's "vibe", without an app update. 5.0.0 read it from one Firestore
+ * document (`config/app`); 5.10.1 (V6) has no Firebase, so see VibeConfigSource for where it
+ * comes from now. The parsing below is unchanged.
  *
  * Document fields (all optional; anything missing or broken falls back to the built-in behaviour):
  *

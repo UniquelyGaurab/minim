@@ -52,8 +52,8 @@ class FermataIntegrationTest {
     private fun <T : LibraryDatabase> keep(db: T): T = db.also { opened += it }
     private fun legacy() = keep(TestLibraryFiles.legacy(context))
     private fun current() = keep(LibraryDatabase(context))
-    private fun bridge(lib: LibraryDatabase, device: String = "phoneA", signedIn: Boolean = false) =
-        FermataBridge(context, lib, "5.10.0-test", deviceId = device, signedIn = { signedIn })
+    private fun bridge(lib: LibraryDatabase, device: String = "phoneA") =
+        FermataBridge(context, lib, "5.10.0-test", deviceId = device)
 
     private fun song(id: String) =
         Track(id, "Song $id", "Arijit Singh", 200L, "https://img/$id", "https://www.youtube.com/watch?v=$id")
@@ -199,9 +199,9 @@ class FermataIntegrationTest {
 
     // ---- two phones ----------------------------------------------------------------------------
 
-    private fun phoneB(signedIn: Boolean = false): Pair<LibraryDatabase, FermataBridge> {
+    private fun phoneB(): Pair<LibraryDatabase, FermataBridge> {
         val lib = keep(LibraryDatabase(context, "phoneB.db"))
-        val b = bridge(lib, "phoneB", signedIn)
+        val b = bridge(lib, "phoneB")
         b.start()
         return lib to b
     }
@@ -241,26 +241,11 @@ class FermataIntegrationTest {
     }
 
     @Test
-    fun whileSignedInOtherPhonesListeningTimeFromBackupsIsSkipped() {
-        val (libB, b) = phoneB()
-        play(libB, "Q", 120_000L)
-        val fromB = b.fermata.events()
-
-        val libA = current()
-        val signedIn = bridge(libA, signedIn = true)
-        signedIn.start()
-        signedIn.fermata.merge(fromB)
-        // the play itself merges (it has an id, it can't double); the listening time does not
-        assertEquals(1, runBlocking { libA.getDayPlays(today) }.size)
-        assertEquals(0L, runBlocking { libA.getDayTotals(today, today) }.values.sum())
-    }
-
-    @Test
-    fun signedOutOtherPhonesListeningTimeMerges() {
+    fun otherPhonesListeningTimeMerges() {
         val (libB, b) = phoneB()
         play(libB, "Q", 120_000L)
         val libA = current()
-        val a = bridge(libA, signedIn = false)
+        val a = bridge(libA)
         a.start()
         a.fermata.merge(b.fermata.events())
         assertEquals(120_000L, runBlocking { libA.getDayTotals(today, today) }.values.sum())

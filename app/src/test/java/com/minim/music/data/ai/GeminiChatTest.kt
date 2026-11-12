@@ -50,7 +50,6 @@ class GeminiChatTest {
 
     @Test
     fun errors_are_sorted_into_friendly_problems() {
-        GeminiRoute.defaultKnownOff = false
         val badKey = """{"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT"}}"""
         assertEquals(GeminiProblem.BadKey, GeminiErrors.classify(400, badKey, ownKey = true, model = "m"))
         assertEquals(GeminiProblem.Quota, GeminiErrors.classify(429, """{"error":{"status":"RESOURCE_EXHAUSTED"}}""", true, "m"))
@@ -58,15 +57,6 @@ class GeminiChatTest {
         assertEquals(GeminiProblem.Busy, GeminiErrors.classify(503, null, true, "m"))
         // junk bodies never crash
         assertNotNull(GeminiErrors.classify(500, "<html>oops", true, "m"))
-    }
-
-    @Test
-    fun built_in_route_off_is_remembered_so_the_chat_asks_for_a_key_up_front() {
-        GeminiRoute.defaultKnownOff = false
-        val off = """{"error":{"code":403,"message":"Firebase AI Logic API has not been used in project minim before or it is disabled.","status":"PERMISSION_DENIED"}}"""
-        assertEquals(GeminiProblem.DefaultUnavailable, GeminiErrors.classify(403, off, ownKey = false, model = "m"))
-        assertTrue(GeminiRoute.defaultKnownOff)
-        GeminiRoute.defaultKnownOff = false
     }
 
     @Test

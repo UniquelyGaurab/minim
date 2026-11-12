@@ -169,7 +169,7 @@ object AiLyricsParser {
 
 /**
  * Saved Gemini lyrics, one small file per song in the no-backup folder (never in Android's
- * backup, never synced to Firebase). The file keeps the song ID, so two IDs that clean to the
+ * backup, never synced). The file keeps the song ID, so two IDs that clean to the
  * same file name can't show each other's lyrics.
  */
 class AiLyricsStore(private val dir: File) {

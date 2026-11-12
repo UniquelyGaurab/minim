@@ -54,195 +54,220 @@
                 android:tag="tint:fg" />
         </LinearLayout>
 
-        <!-- You: account (hidden in builds without Firebase) and your name -->
+        <!-- 5.10.1 (V6): Profile, in place of the Google account. Your photo and name, on this
+             phone only. Tapping the photo opens Choose / Take / Remove; tapping the name edits it
+             (the same name the Home greetings use). -->
         <LinearLayout
             android:id="@+id/settings_group_you"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="28dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <com.minim.music.ui.AvatarView
+                android:id="@+id/profile_photo"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/profile_photo_desc"
+                android:focusable="true" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <EditText
+                    android:id="@+id/settings_name"
+                    style="@style/MinimText.Semi"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@null"
+                    android:hint="@string/settings_name"
+                    android:imeOptions="actionDone"
+                    android:importantForAutofill="no"
+                    android:inputType="textPersonName|textCapWords"
+                    android:maxLength="20"
+                    android:minHeight="48dp"
+                    android:paddingTop="0dp"
+                    android:paddingBottom="0dp"
+                    android:singleLine="true"
+                    android:tag="text:fg"
+                    android:textCursorDrawable="@null"
+                    android:textSize="20sp" />
+
+                <TextView
+                    android:id="@+id/profile_hint"
+                    style="@style/MinimSet.Hint"
+                    android:layout_marginTop="0dp"
+                    android:text="@string/profile_hint" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- 5.10.1 (V6): why Firebase went, and what's next. Close hides it; About → Read brings it back -->
+        <LinearLayout
+            android:id="@+id/settings_v6_notice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:background="@drawable/shape_card"
+            android:orientation="vertical"
+            android:paddingStart="20dp"
+            android:paddingTop="18dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="18dp"
+            android:tag="fill:soft">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    style="@style/MinimText.Semi"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:accessibilityHeading="true"
+                    android:tag="text:fg"
+                    android:text="@string/v6_notice_title"
+                    android:textSize="15sp" />
+
+                <ImageView
+                    android:id="@+id/settings_v6_notice_close"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/v6_notice_close"
+                    android:padding="10dp"
+                    android:src="@drawable/ic_close"
+                    android:tag="tint:muted" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/settings_v6_notice_body"
+                style="@style/MinimSet.Hint"
+                android:layout_width="match_parent"
+                android:layout_marginTop="6dp"
+                android:layout_marginEnd="8dp"
+                android:lineSpacingExtra="4dp"
+                android:text="@string/v6_notice_body" />
+        </LinearLayout>
+
+        <!-- 5.10.1: Backup &amp; restore, right under the profile (was at the bottom of Storage) -->
+        <LinearLayout
+            android:id="@+id/settings_group_backup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="48dp"
             android:orientation="vertical">
 
             <TextView
                 style="@style/MinimSet.Group"
                 android:accessibilityHeading="true"
-                android:text="@string/settings_group_you" />
+                android:text="@string/settings_group_backup" />
 
             <LinearLayout
-                android:id="@+id/settings_account"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical">
+                android:layout_marginTop="20dp"
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
+                android:minHeight="48dp"
+                android:orientation="horizontal">
 
-                <!-- Signed out -->
                 <LinearLayout
-                    android:id="@+id/account_signed_out"
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_weight="1"
                     android:orientation="vertical">
 
                     <TextView
                         style="@style/MinimSet.Label"
-                        android:text="@string/account_title" />
+                        android:layout_marginTop="0dp"
+                        android:text="@string/backup_folder" />
 
                     <TextView
-                        style="@style/MinimSet.Hint"
-                        android:text="@string/account_pitch" />
-
-                    <TextView
-                        android:id="@+id/account_sign_in"
-                        style="@style/MinimSet.Action"
-                        android:layout_height="44dp"
-                        android:layout_marginTop="14dp"
-                        android:paddingStart="22dp"
-                        android:paddingEnd="22dp"
-                        android:tag="fill:fg text:bg"
-                        android:text="@string/account_sign_in"
-                        android:textSize="13sp" />
+                        android:id="@+id/set_backup_folder_hint"
+                        style="@style/MinimSet.Hint" />
                 </LinearLayout>
 
-                <!-- Signed in -->
+                <TextView
+                    android:id="@+id/set_backup_folder"
+                    style="@style/MinimSet.Action"
+                    android:layout_marginStart="12dp"
+                    android:text="@string/backup_folder_choose" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
+                android:minHeight="48dp"
+                android:orientation="horizontal">
+
                 <LinearLayout
-                    android:id="@+id/account_signed_in"
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:visibility="gone">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="18dp"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal">
-
-                        <com.minim.music.ui.AvatarView
-                            android:id="@+id/account_avatar"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:importantForAccessibility="no" />
-
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="14dp"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:id="@+id/account_name"
-                                style="@style/MinimText.Semi"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:ellipsize="end"
-                                android:singleLine="true"
-                                android:tag="text:fg"
-                                android:textSize="15sp" />
-
-                            <TextView
-                                android:id="@+id/account_status"
-                                style="@style/MinimSet.Hint"
-                                android:text="@string/account_sync_on" />
-                        </LinearLayout>
-                    </LinearLayout>
-
-                    <!-- Why the last sync didn't go through (offline, refused, ...) -->
-                    <TextView
-                        android:id="@+id/account_sync_problem"
-                        style="@style/MinimSet.Hint"
-                        android:layout_marginTop="12dp"
-                        android:fontFamily="@font/poppins_semibold"
-                        android:tag="text:fg"
-                        android:visibility="gone" />
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="14dp"
-                        android:orientation="horizontal">
-
-                        <TextView
-                            android:id="@+id/account_sign_out"
-                            style="@style/MinimSet.Action"
-                            android:layout_marginEnd="8dp"
-                            android:text="@string/account_sign_out" />
-
-                        <TextView
-                            android:id="@+id/account_delete"
-                            style="@style/MinimSet.Action"
-                            android:text="@string/account_delete" />
-                    </LinearLayout>
-                </LinearLayout>
-
-                <!-- Errors (offline, cancelled, no Google account, ...) -->
-                <TextView
-                    android:id="@+id/account_message"
-                    style="@style/MinimSet.Hint"
-                    android:layout_marginTop="10dp"
-                    android:fontFamily="@font/poppins_semibold"
-                    android:tag="text:fg"
-                    android:visibility="gone" />
-
-                <!-- What Minim can see: folded away, tap to read -->
-                <LinearLayout
-                    android:id="@+id/account_privacy_toggle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="40dp"
-                    android:layout_marginTop="6dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
+                    android:layout_weight="1"
+                    android:orientation="vertical">
 
                     <TextView
-                        style="@style/MinimText.Semi"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:tag="text:muted"
-                        android:text="@string/account_privacy_toggle"
-                        android:textSize="12sp" />
+                        style="@style/MinimSet.Label"
+                        android:layout_marginTop="0dp"
+                        android:text="@string/backup_now_label" />
 
-                    <ImageView
-                        android:id="@+id/account_privacy_chev"
-                        android:layout_width="16dp"
-                        android:layout_height="16dp"
-                        android:layout_marginStart="4dp"
-                        android:importantForAccessibility="no"
-                        android:src="@drawable/ic_chevron_down"
-                        android:tag="tint:muted" />
+                    <TextView
+                        android:id="@+id/set_backup_status"
+                        style="@style/MinimSet.Hint" />
                 </LinearLayout>
 
                 <TextView
-                    android:id="@+id/account_privacy"
-                    style="@style/MinimSet.Hint"
-                    android:layout_width="match_parent"
-                    android:layout_marginTop="0dp"
-                    android:text="@string/account_privacy"
+                    android:id="@+id/set_backup_now"
+                    style="@style/MinimSet.Action"
+                    android:layout_marginStart="12dp"
+                    android:text="@string/backup_now"
                     android:visibility="gone" />
             </LinearLayout>
 
-            <TextView
-                style="@style/MinimSet.Label"
-                android:labelFor="@id/settings_name"
-                android:text="@string/settings_name" />
-
-            <EditText
-                android:id="@+id/settings_name"
-                style="@style/MinimText"
+            <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="46dp"
-                android:layout_marginTop="12dp"
-                android:background="@drawable/shape_pill"
-                android:hint="@string/settings_name_hint"
-                android:imeOptions="actionDone"
-                android:importantForAutofill="no"
-                android:inputType="textPersonName|textCapWords"
-                android:maxLength="20"
-                android:paddingStart="20dp"
-                android:paddingEnd="20dp"
-                android:singleLine="true"
-                android:tag="fill:soft text:fg"
-                android:textCursorDrawable="@null"
-                android:textSize="14sp" />
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
+                android:minHeight="48dp"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        style="@style/MinimSet.Label"
+                        android:layout_marginTop="0dp"
+                        android:text="@string/backup_restore_label" />
+
+                    <TextView
+                        android:id="@+id/set_backup_restore_hint"
+                        style="@style/MinimSet.Hint" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/set_backup_restore"
+                    style="@style/MinimSet.Action"
+                    android:layout_marginStart="12dp"
+                    android:text="@string/backup_restore"
+                    android:visibility="gone" />
+            </LinearLayout>
         </LinearLayout>
 
         <!-- Look -->
@@ -582,7 +607,7 @@
             </com.minim.music.ui.SegmentRow>
         </LinearLayout>
 
-        <!-- Gemini: model (opens the picker sheet), your own key, the device token -->
+        <!-- Gemini: model (opens the picker sheet) and your own key (5.10.1: needed for every Gemini feature) -->
         <LinearLayout
             android:id="@+id/settings_group_gemini"
             android:layout_width="match_parent"
@@ -707,35 +732,6 @@
                     android:visibility="gone" />
             </LinearLayout>
 
-            <!-- 5.3.2: App Check debug token for Minim's built-in Gemini (hidden without the Firebase file) -->
-            <LinearLayout
-                android:id="@+id/set_gemini_token_box"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:visibility="gone">
-
-                <TextView
-                    style="@style/MinimSet.Label"
-                    android:text="@string/set_gemini_token" />
-
-                <TextView
-                    android:id="@+id/set_gemini_token_value"
-                    style="@style/MinimSet.Hint"
-                    android:layout_width="match_parent"
-                    android:fontFamily="monospace" />
-
-                <TextView
-                    style="@style/MinimSet.Hint"
-                    android:layout_width="match_parent"
-                    android:text="@string/set_gemini_token_howto" />
-
-                <TextView
-                    android:id="@+id/set_gemini_token_copy"
-                    style="@style/MinimSet.Action"
-                    android:layout_marginTop="12dp"
-                    android:text="@string/set_gemini_token_copy" />
-            </LinearLayout>
         </LinearLayout>
 
         <!-- Storage: what Minim keeps on the phone, each with its own button -->
@@ -816,137 +812,7 @@
                     android:text="@string/cache_clear" />
             </LinearLayout>
 
-            <!-- 5.10.0: clear listening history, on every phone (a Fermata clear event) -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:baselineAligned="false"
-                android:gravity="center_vertical"
-                android:minHeight="48dp"
-                android:orientation="horizontal">
 
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        style="@style/MinimSet.Label"
-                        android:layout_marginTop="0dp"
-                        android:text="@string/history_clear_label" />
-
-                    <TextView
-                        style="@style/MinimSet.Hint"
-                        android:text="@string/history_clear_hint" />
-                </LinearLayout>
-
-                <TextView
-                    android:id="@+id/set_clear_history"
-                    style="@style/MinimSet.Action"
-                    android:layout_marginStart="12dp"
-                    android:text="@string/history_clear" />
-            </LinearLayout>
-
-            <!-- 5.10.0: backups to a folder the user picks (Fermata) -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:baselineAligned="false"
-                android:gravity="center_vertical"
-                android:minHeight="48dp"
-                android:orientation="horizontal">
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        style="@style/MinimSet.Label"
-                        android:layout_marginTop="0dp"
-                        android:text="@string/backup_folder" />
-
-                    <TextView
-                        android:id="@+id/set_backup_folder_hint"
-                        style="@style/MinimSet.Hint" />
-                </LinearLayout>
-
-                <TextView
-                    android:id="@+id/set_backup_folder"
-                    style="@style/MinimSet.Action"
-                    android:layout_marginStart="12dp"
-                    android:text="@string/backup_folder_choose" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:baselineAligned="false"
-                android:gravity="center_vertical"
-                android:minHeight="48dp"
-                android:orientation="horizontal">
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        style="@style/MinimSet.Label"
-                        android:layout_marginTop="0dp"
-                        android:text="@string/backup_now_label" />
-
-                    <TextView
-                        android:id="@+id/set_backup_status"
-                        style="@style/MinimSet.Hint" />
-                </LinearLayout>
-
-                <TextView
-                    android:id="@+id/set_backup_now"
-                    style="@style/MinimSet.Action"
-                    android:layout_marginStart="12dp"
-                    android:text="@string/backup_now"
-                    android:visibility="gone" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:baselineAligned="false"
-                android:gravity="center_vertical"
-                android:minHeight="48dp"
-                android:orientation="horizontal">
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        style="@style/MinimSet.Label"
-                        android:layout_marginTop="0dp"
-                        android:text="@string/backup_restore_label" />
-
-                    <TextView
-                        android:id="@+id/set_backup_restore_hint"
-                        style="@style/MinimSet.Hint" />
-                </LinearLayout>
-
-                <TextView
-                    android:id="@+id/set_backup_restore"
-                    style="@style/MinimSet.Action"
-                    android:layout_marginStart="12dp"
-                    android:text="@string/backup_restore"
-                    android:visibility="gone" />
-            </LinearLayout>
         </LinearLayout>
 
         <!-- About: version and the update check side by side, then credits -->
@@ -999,12 +865,88 @@
                     android:text="@string/update_check" />
             </LinearLayout>
 
+            <!-- 5.10.1: the V6 notice again, after it was closed -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
+                android:minHeight="48dp"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        style="@style/MinimSet.Label"
+                        android:layout_marginTop="0dp"
+                        android:text="@string/v6_notice_about_label" />
+
+                    <TextView
+                        style="@style/MinimSet.Hint"
+                        android:text="@string/v6_notice_about_hint" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/set_v6_notice_read"
+                    style="@style/MinimSet.Action"
+                    android:layout_marginStart="12dp"
+                    android:text="@string/v6_notice_read" />
+            </LinearLayout>
+
             <TextView
                 android:id="@+id/set_credits"
                 style="@style/MinimSet.Hint"
                 android:layout_marginTop="28dp"
                 android:lineSpacingExtra="4dp"
                 android:text="@string/about_credits" />
+        </LinearLayout>
+        <!-- 5.10.1: Clear history on its own at the very bottom, after a line, so nobody taps it by
+             accident. It still asks first. -->
+        <View
+            android:id="@+id/settings_danger_divider"
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="56dp"
+            android:alpha="0.4"
+            android:background="@drawable/shape_card"
+            android:tag="fill:muted" />
+
+        <LinearLayout
+            android:id="@+id/settings_group_danger"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:baselineAligned="false"
+            android:gravity="center_vertical"
+            android:minHeight="48dp"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/MinimSet.Label"
+                    android:layout_marginTop="0dp"
+                    android:text="@string/history_clear_label" />
+
+                <TextView
+                    style="@style/MinimSet.Hint"
+                    android:text="@string/history_clear_hint" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/set_clear_history"
+                style="@style/MinimSet.Action"
+                android:layout_marginStart="12dp"
+                android:text="@string/history_clear" />
         </LinearLayout>
     </LinearLayout>
 </ScrollView>

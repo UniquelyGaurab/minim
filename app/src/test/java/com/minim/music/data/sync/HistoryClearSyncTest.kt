@@ -59,80 +59,21 @@ class HistoryClearSyncTest {
     }
 
     @Test
-    fun clearingHistoryWritesHistoryClearedAndDeletesTheOlderDays() = runBlocking {
-        val l = open()
-        val sync = LibrarySync(l)
-        sync.ensureDevice("dMINE")
-        l.syncTracking = true
-        // two days of history pulled from Firestore, liked songs too
-        assertTrue(sync.applyHistory(listOf(historyDoc(now - 3 * day, "songAAAAAAA"), historyDoc(now - 2 * day, "songBBBBBBB"))))
-        l.toggleLike(track("songLLLLLLL"))
-        sync.clearOutbox()
-
-        l.clearHistory()
-        assertEquals(0, count(l.readableDatabase, "SELECT COUNT(*) FROM plays"))
-        val writes = sync.buildWrites(sync.readOutbox(1000))
-        val cleared = writes.single { it.path == LibrarySync.CLEARED_PATH }
-        val point = cleared.data["c"] as Long
-        assertTrue(point >= now)
-        val deletes = writes.filter { it.delete }.map { it.path }.toSet()
-        assertEquals(setOf("history/${Days.keyOf(now - 3 * day)}", "history/${Days.keyOf(now - 2 * day)}"), deletes)
-        assertFalse("likes are not touched", writes.any { it.path.startsWith("likes/") && it.delete })
-        assertEquals(point, sync.clearedBefore())
-    }
-
-    @Test
     fun aPullAfterTheClearNeverBringsClearedPlaysBack() = runBlocking {
         val l = open()
         val sync = LibrarySync(l)
         sync.ensureDevice("dMINE")
         l.clearHistory()
-        sync.clearOutbox()
-        // another phone (or 5.9.1) still has the old day documents in Firestore
+        // another phone (or 5.9.1) still has the old day documents
         val old = historyDoc(now - 2 * day, "songAAAAAAA")
         val sameDayBefore = historyDoc(sync.clearedBefore()!! - 60_000L, "songBBBBBBB")
         sync.applyHistory(listOf(old, sameDayBefore))
         assertEquals(0, count(l.readableDatabase, "SELECT COUNT(*) FROM plays"))
         assertEquals(0, count(l.readableDatabase, "SELECT COUNT(*) FROM listen_time"))
-        // and the old day found in Firestore is deleted there
-        val writes = sync.buildWrites(sync.readOutbox(1000))
-        assertTrue(writes.any { it.delete && it.path == "history/${Days.keyOf(now - 2 * day)}" })
         // a play after the clear is kept
         val later = historyDoc(sync.clearedBefore()!! + 60_000L, "songCCCCCCC")
         assertTrue(sync.applyHistory(listOf(later)))
         assertEquals(1, count(l.readableDatabase, "SELECT COUNT(*) FROM plays"))
     }
 
-    @Test
-    fun aClearFromAnotherPhoneInFirestoreClearsThisPhone() = runBlocking {
-        val l = open()
-        val sync = LibrarySync(l)
-        sync.ensureDevice("dMINE")
-        l.recordCountedPlay(track("songAAAAAAA"), 60_000L)
-        assertEquals(1, count(l.readableDatabase, "SELECT COUNT(*) FROM plays"))
-        var heard: Long? = null
-        l.onRemoteHistoryClear = { heard = it }
-        val point = System.currentTimeMillis() + 1_000L
-        val clearedDoc = LibrarySync.RemoteDoc(LibrarySync.CLEARED_ID, mapOf("c" to point))
-        assertTrue(sync.applyHistory(listOf(clearedDoc)))
-        assertEquals(0, count(l.readableDatabase, "SELECT COUNT(*) FROM plays"))
-        assertEquals(point, heard)
-        assertEquals(point, sync.clearedBefore())
-        // the same clear again changes nothing
-        heard = null
-        assertFalse(sync.applyHistory(listOf(clearedDoc)))
-        assertEquals(null, heard)
-    }
-
-    @Test
-    fun signingInAgainSendsTheClearWithTheFullMerge() = runBlocking {
-        val l = open()
-        val sync = LibrarySync(l)
-        sync.ensureDevice("dMINE")
-        l.clearHistory()
-        sync.clearOutbox() // signing in clears the queue first
-        sync.enqueueAll()
-        val writes = sync.buildWrites(sync.readOutbox(1000))
-        assertNotNull(writes.singleOrNull { it.path == LibrarySync.CLEARED_PATH })
-    }
 }

@@ -169,19 +169,15 @@ class LibrarySyncDbTest {
     }
 
     @Test
-    fun nothingIsQueuedWhileSignedOut() = runBlocking {
+    fun nothingIsQueuedForTheCloudAnyMore() = runBlocking {
+        // 5.10.1 (V6): no sign-in, so the old cloud queue (sync_outbox) never fills
         val l = open()
         l.toggleLike(track("songAAAAAAA"))
         val pid = l.createPlaylist("Gym")
         l.addTrackToPlaylist(pid, track("songBBBBBBB"))
-        assertTrue(outbox(l).isEmpty())
-
-        l.syncTracking = true
         l.toggleLike(track("songAAAAAAA"))
         l.removeTrackFromPlaylist(pid, "songBBBBBBB")
-        val keys = outbox(l)
-        assertTrue(keys.contains("L|songAAAAAAA"))
-        assertTrue(keys.contains("T|${SyncIds.playlistUid("Gym")}|songBBBBBBB"))
+        assertTrue(outbox(l).isEmpty())
     }
 
     // ---- likes ---------------------------------------------------------------------------------
@@ -189,7 +185,6 @@ class LibrarySyncDbTest {
     @Test
     fun newerUnlikeFromTheCloudWinsAndMergingTwiceChangesNothing() = runBlocking {
         val l = open()
-        l.syncTracking = true
         l.toggleLike(track("songAAAAAAA"))
         val sync = LibrarySync(l)
         val localAt = l.readableDatabase.rawQuery("SELECT like_changed_at FROM tracks WHERE id = 'songAAAAAAA'", null)
@@ -208,14 +203,11 @@ class LibrarySyncDbTest {
     @Test
     fun olderLikeFromTheCloudLosesAndTheLocalChangeGoesUp() = runBlocking {
         val l = open()
-        l.syncTracking = true
         l.toggleLike(track("songAAAAAAA"))
-        LibrarySync(l).clearOutbox()
         val sync = LibrarySync(l)
         val remote = LibrarySync.RemoteDoc("songAAAAAAA", SyncCodec.likeDoc(LikeState(false, 1_000L), null))
         assertFalse(sync.applyLikes(listOf(remote)))
         assertEquals(listOf("songAAAAAAA"), l.getLikedTracks().map { it.id })
-        assertTrue(outbox(l).contains("L|songAAAAAAA"))
     }
 
     @Test
@@ -309,7 +301,6 @@ class LibrarySyncDbTest {
     @Test
     fun playlistFromTheCloudMergesIntoTheSameNamedPlaylist() = runBlocking {
         val l = open()
-        l.syncTracking = true
         val pid = l.createPlaylist("Gym")
         l.addTrackToPlaylist(pid, track("songAAAAAAA"))
         val uid = SyncIds.playlistUid("Gym")
@@ -327,7 +318,6 @@ class LibrarySyncDbTest {
         // what the cloud has doesn't go up again; this phone's newer add of songA does
         val keys = outbox(l)
         assertFalse(keys.contains("T|$uid|songBBBBBBB"))
-        assertTrue(keys.contains("T|$uid|songAAAAAAA"))
 
         assertFalse(sync.applyPlaylists(listOf(playlistDoc(uid, remote))))
         assertEquals(2, l.getPlaylistTracks(pid).size)
@@ -336,7 +326,6 @@ class LibrarySyncDbTest {
     @Test
     fun removedSongStaysRemovedAgainstAnOlderAdd() = runBlocking {
         val l = open()
-        l.syncTracking = true
         val pid = l.createPlaylist("Gym")
         l.addTrackToPlaylist(pid, track("songAAAAAAA"))
         l.removeTrackFromPlaylist(pid, "songAAAAAAA")
@@ -346,7 +335,6 @@ class LibrarySyncDbTest {
         val olderAdd = PlState("Gym", 100L, 100L, 0L, false, mapOf("songAAAAAAA" to PlEntry(1_000L, 1_000L, false, null)))
         sync.applyPlaylists(listOf(playlistDoc(uid, olderAdd)))
         assertTrue(l.getPlaylistTracks(pid).isEmpty())
-        assertTrue(outbox(l).contains("T|$uid|songAAAAAAA"))
 
         val newerAdd = PlState("Gym", 100L, 100L, 0L, false,
             mapOf("songAAAAAAA" to PlEntry(Long.MAX_VALUE / 2, Long.MAX_VALUE / 2, false, null)))
@@ -358,7 +346,6 @@ class LibrarySyncDbTest {
     @Test
     fun deleteFromTheCloudRemovesThePlaylistAndRemakingItStartsEmpty() = runBlocking {
         val l = open()
-        l.syncTracking = true
         val pid = l.createPlaylist("Gym")
         l.addTrackToPlaylist(pid, track("songAAAAAAA"))
         val uid = SyncIds.playlistUid("Gym")
@@ -387,7 +374,6 @@ class LibrarySyncDbTest {
         // phone A
         var l = open()
         LibrarySync(l).ensureDevice("dPHONEA")
-        l.syncTracking = true
         l.toggleLike(track("songAAAAAAA"))
         val pid = l.createPlaylist("Gym")
         l.addTrackToPlaylist(pid, track("songBBBBBBB"))
@@ -396,6 +382,7 @@ class LibrarySyncDbTest {
         l.markNotInterested(track("songCCCCCCC"))
         val syncA = LibrarySync(l)
         syncA.ensureDevice("dPHONEA")
+        syncA.enqueueAll()
         val writes = syncA.buildWrites(syncA.readOutbox(1000))
         val paths = writes.map { it.path }
         assertEquals(paths.size, paths.toSet().size) // one write per document

@@ -96,7 +96,6 @@
 
     <!-- Settings -->
     <string name="settings_name">Your name</string>
-    <string name="settings_name_hint">Used in the Home greeting</string>
     <string name="settings_theme">Theme</string>
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
@@ -158,7 +157,23 @@
     <string name="crash_card_copied">Crash report copied</string>
     <string name="settings_about">About</string>
     <!-- 5.8.4 u56: the Settings revamp -->
-    <string name="settings_group_you">You</string>
+    <!-- 5.10.1 (V6): Profile, Backup & restore, and the notice about Firebase going -->
+    <string name="settings_group_backup">Backup &amp; restore</string>
+    <string name="profile_hint">Tap your photo or name to change them. Only on this phone.</string>
+    <string name="profile_photo_desc">Profile photo. Tap to change it</string>
+    <string name="profile_photo_title">Profile photo</string>
+    <string name="profile_photo_gallery">Choose from gallery</string>
+    <string name="profile_photo_camera">Take photo</string>
+    <string name="profile_photo_remove">Remove photo</string>
+    <string name="profile_photo_failed">Couldn\'t use that photo. Try another one.</string>
+    <string name="profile_photo_no_camera">No camera app on this phone</string>
+    <string name="profile_photo_removed">Photo removed</string>
+    <string name="v6_notice_title">No more accounts</string>
+    <string name="v6_notice_close">Close this note</string>
+    <string name="v6_notice_body">Google sign-in and Firebase are gone from Minim. Minim collects nothing now, there are no accounts, and your library stays on your phone. Signing in with Google inside an app you install yourself felt sketchy, so it had to go.\n\nThe old cloud copy of your library is being deleted. Built-in Gemini went with it, so add your own free Google AI Studio key under Gemini to keep lyrics, translation and chat working.\n\nWhat\'s next: backups go to a folder you pick, your phones can sync through a shared folder, and an on-device recommendation engine is coming in V6.</string>
+    <string name="v6_notice_about_label">Why there\'s no account</string>
+    <string name="v6_notice_about_hint">What changed and what\'s next</string>
+    <string name="v6_notice_read">Read</string>
     <string name="settings_group_look">Look</string>
     <string name="settings_group_sound">Sound</string>
     <string name="settings_group_lyrics">Lyrics</string>
@@ -171,7 +186,6 @@
     <string name="settings_lyrics_style_short">Style</string>
     <string name="settings_lyrics_timing_short">Timing</string>
     <string name="lyrics_style_hint_short">Word by word, or a line at a time</string>
-    <string name="account_privacy_toggle">What Minim can see</string>
     <string name="set_gemini_privacy_toggle">What gets sent</string>
     <string name="set_gemini_model_desc">Gemini model: %1$s. Tap to change.</string>
     <string name="settings_offline">Offline songs</string>
@@ -364,39 +378,6 @@
     <string name="update_err_settings">Couldn\'t open that setting. Find Minim under Settings, Apps, Special app access, Install unknown apps.</string>
     <string name="update_note_background">Still downloading. Minim opens the installer when it\'s done.</string>
 
-    <!-- v5.0: Account (optional Google sign-in) -->
-    <string name="account_title">Account</string>
-    <string name="account_pitch">Optional. Sign in to keep your likes, playlists and stats when you switch phones. Minim works the same without it.</string>
-    <string name="account_sign_in">Sign in with Google</string>
-    <string name="account_signing_in">Signing in…</string>
-    <string name="account_sync_on">Sync on</string>
-    <string name="account_sign_out">Sign out</string>
-    <string name="account_delete">Delete account</string>
-    <string name="account_deleting">Deleting…</string>
-    <string name="account_privacy">Minim only gets your name, profile picture and email. It never sees your password and can\'t access your Gmail, Drive, contacts or anything else in your Google account.</string>
-    <string name="account_signed_in_note">Signed in</string>
-    <string name="account_signed_in_as">Signed in as %1$s</string>
-    <string name="account_signed_out_note">Signed out. Your music stays on this phone.</string>
-    <string name="account_deleted_note">Account deleted</string>
-    <string name="account_delete_title">Delete your Minim account?</string>
-    <string name="account_delete_sub">This removes your synced likes, playlists and stats from Minim\'s cloud and deletes your sign-in. Everything on this phone stays.</string>
-    <string name="account_delete_ok">Delete</string>
-    <string name="account_err_offline">You\'re offline. Connect to the internet and try again.</string>
-    <string name="account_err_cancelled">Sign-in cancelled.</string>
-    <string name="account_err_delete_cancelled">Account not deleted. Google needs you to pick your account to confirm it\'s you.</string>
-    <string name="account_err_no_account">There\'s no Google account on this phone. Add one in your phone\'s Settings, then try again.</string>
-    <string name="account_err_unavailable">Google sign-in isn\'t available on this phone.</string>
-    <string name="account_err_not_ready">Sync isn\'t ready yet. Try again later.</string>
-    <string name="account_err_wrong_account">Pick the same Google account you\'re signed in with.</string>
-    <string name="account_err_failed">Couldn\'t sign in. Try again in a bit.</string>
-    <string name="account_choice_title">This phone\'s music is from another account</string>
-    <string name="account_choice_sub">Merge adds it to %1$s. Start fresh replaces it with that account\'s music and keeps a backup on this phone.</string>
-    <string name="account_choice_named">%1$s\'s account</string>
-    <string name="account_choice_this">this account</string>
-    <string name="account_choice_merge">Merge</string>
-    <string name="account_choice_fresh">Start fresh</string>
-    <string name="account_choice_cancel">Cancel and sign out</string>
-    <string name="account_err_delete_failed">Couldn\'t delete your account. Try again in a bit.</string>
     <!-- 5.0.0 part 3: festivals and announcements from the cloud config -->
     <string name="vibe_banner_close">Close</string>
     <string name="vibe_open">Open</string>
@@ -451,7 +432,8 @@
     <string name="gemini_err_bad_key">Google didn\'t accept your API key. Check it in Settings → Gemini, or make a new one in Google AI Studio.</string>
     <string name="gemini_err_quota">You\'ve hit Gemini\'s limit for now. Wait a minute, or try again tomorrow if the daily free limit is used up.</string>
     <string name="gemini_err_model">The model \"%1$s\" isn\'t available. Pick another one in Settings → Gemini.</string>
-    <string name="gemini_err_default_off">Minim\'s built-in Gemini isn\'t switched on yet. Add your own free API key from Google AI Studio in Settings → Gemini and the chat works right away.</string>
+    <string name="gemini_err_no_key">Gemini needs your own free key now. Make one at aistudio.google.com and add it in Settings → Gemini.</string>
+    <string name="gemini_err_action_add_key">Add your key</string>
     <string name="gemini_err_offline">You\'re offline. Connect to the internet and try again.</string>
     <string name="gemini_err_blocked">Gemini won\'t answer that one. Try asking another way.</string>
     <string name="gemini_err_busy">Gemini is busy right now. Try again in a moment.</string>
@@ -476,14 +458,6 @@
     <string name="rename_done">Renamed to %1$s</string>
     <string name="list_from">from</string>
     <string name="list_from_desc">from %1$s, %2$s</string>
-    <string name="gemini_err_device">This phone isn\'t approved for Minim\'s built-in Gemini yet. Copy its device token in Settings → Gemini and add it in the Firebase console, or use your own free API key.</string>
-    <string name="gemini_err_action_token">Device token</string>
-    <string name="gemini_err_action_own_key">Use my own key</string>
-    <string name="set_gemini_token">Your device token</string>
-    <string name="set_gemini_token_howto">To use built-in Gemini on this phone: Firebase console → App Check → Apps → Minim → Manage debug tokens → Add.</string>
-    <string name="set_gemini_token_copy">Copy</string>
-    <string name="set_gemini_token_copied">Device token copied</string>
-    <string name="set_gemini_token_desc">Device token, ending in %1$s</string>
     <string name="gemini_err_action_retry">Try again</string>
     <!-- Settings: Gemini -->
     <string name="set_gemini">Gemini</string>
@@ -494,13 +468,13 @@
     <string name="set_gemini_custom_hint">Model ID</string>
     <string name="set_gemini_custom_bad">That doesn\'t look like a model ID. Use letters, numbers, dots and dashes.</string>
     <string name="set_gemini_key">Your API key</string>
-    <string name="set_gemini_key_none">Not set. Using Minim\'s built-in Gemini.</string>
+    <string name="set_gemini_key_none">Not set. Add a free key to use Gemini.</string>
     <string name="set_gemini_key_set">Saved on this phone: %1$s</string>
     <string name="set_gemini_key_add">Add key</string>
     <string name="set_gemini_key_change">Change</string>
     <string name="set_gemini_key_remove">Remove</string>
     <string name="set_gemini_key_title">Your Gemini API key</string>
-    <string name="set_gemini_key_sub">Make a free key at aistudio.google.com and paste it here. It\'s encrypted on this phone, never synced to your Minim account, and only ever sent to Google\'s Gemini API.</string>
+    <string name="set_gemini_key_sub">Make a free key at aistudio.google.com and paste it here. It\'s encrypted on this phone, never backed up, and only ever sent to Google\'s Gemini API.</string>
     <string name="set_gemini_key_hint">Paste your API key</string>
     <string name="set_gemini_key_get">Get a key</string>
     <string name="set_gemini_key_save">Save</string>

@@ -254,17 +254,4 @@ class SyncMergeTest {
         assertTrue(p.sameAs(back))
     }
 
-    @Test
-    fun statusLines() {
-        val now = 10L * 24 * 3_600_000L
-        assertEquals("Sync on", SyncText.syncedLine(now, 0L))
-        assertEquals("Synced just now", SyncText.syncedLine(now, now - 30_000L))
-        assertEquals("Synced 5 min ago", SyncText.syncedLine(now, now - 5 * 60_000L))
-        assertEquals("Synced 3 h ago", SyncText.syncedLine(now, now - 3 * 3_600_000L))
-        assertEquals(SyncProblem.OFFLINE, SyncText.classify("UNAVAILABLE"))
-        assertEquals(SyncProblem.PERMISSION, SyncText.classify("PERMISSION_DENIED"))
-        assertEquals(SyncProblem.QUOTA, SyncText.classify("RESOURCE_EXHAUSTED"))
-        assertEquals(SyncProblem.OFFLINE, SyncText.classify(null, timedOut = true))
-        assertEquals(SyncProblem.FAILED, SyncText.classify("INTERNAL"))
-    }
 }

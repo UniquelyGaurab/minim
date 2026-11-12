@@ -5,12 +5,8 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// v5.0: Firebase (Google sign-in, sync, remote config). app/google-services.json is private and never
-// committed. Without it the app still builds and runs: the account features just stay hidden.
-// See FIREBASE_SETUP.md and app/google-services.json.example.
-if (file("google-services.json").exists()) {
-    apply(plugin = "com.google.gms.google-services")
-}
+// V6 (5.10.1): no Firebase, no Google sign-in. Minim collects nothing and needs no
+// google-services.json: the library stays on the phone and backs up to a folder you pick (Fermata).
 
 // Optional signing key. Put a keystore.properties file (never committed) in the project root
 // with storeFile, storePassword, keyAlias and keyPassword to sign builds with your own key.
@@ -28,9 +24,9 @@ android {
         applicationId = "com.minim.music"
         minSdk = 28
         targetSdk = 34
-        versionCode = 61
-        versionName = "5.10.0"
-        // v5.0: Minim is English only; drops the dozens of translations Firebase / Play services bring
+        versionCode = 62
+        versionName = "5.10.1"
+        // v5.0: Minim is English only; drops the translations the support libraries bring
         resourceConfigurations += listOf("en")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -93,7 +89,7 @@ android {
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
-            // v5.0: Firestore/gRPC ship their .proto sources; the lite runtime never reads them
+            // v5.0: some libraries ship .proto sources nothing reads (Firestore did; kept for the rest)
             excludes += "**/*.proto"
             excludes += "META-INF/DEPENDENCIES"
         }
@@ -132,37 +128,19 @@ dependencies {
     implementation("com.github.TeamNewPipe:NewPipeExtractor:e8f89145a830b4d6cae32412007f24ea8b36c73a")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-    // v5.0: Firebase. 33.5.1 is the newest BoM that still builds with compileSdk 34 / Kotlin 1.9.
-    implementation(platform("com.google.firebase:firebase-bom:33.5.1"))
-    implementation("com.google.firebase:firebase-auth")
-    implementation("com.google.firebase:firebase-firestore")
-    implementation("com.google.firebase:firebase-config") // used from part 3 (remote vibe / switches)
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
-    constraints {
-        // NewPipeExtractor pulls protobuf-javalite 4.x, which already contains DescriptorProtos. Firestore's
-        // protolite-well-known-types 18.x bundles its own copy (duplicate classes); 19.0.0 is the build made
-        // for protobuf 4.x (the one Firebase BoM 35 uses) and drops that copy.
-        implementation("com.google.firebase:protolite-well-known-types:19.0.0")
-    }
-
-    // v5.0: Sign in with Google through Android Credential Manager (ID token only: name, photo, email)
-    implementation("androidx.credentials:credentials:1.3.0")
-    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
-    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
-
     // v5.10.0: Fermata, built from the pinned `fermata` submodule (see settings.gradle.kts).
     // The version here is only a placeholder: the included build always supplies the modules.
     // It brings WorkManager (work-runtime 2.9.0, which brings Room for its own job database).
-    // Minim's code doesn't use WorkManager itself, and work-runtime-ktx 2.9 is an empty artifact,
-    // so there's no WorkManager line here.
     implementation("com.github.UniquelyGaurab.minim-fermata:android:0.2.0-SNAPSHOT")
+    // 5.10.1: the same work-runtime Fermata already brings (so no size change), declared here
+    // because Settings watches Fermata's backup jobs to keep the status line current.
+    // work-runtime-ktx 2.9 is an empty artifact, so it's the plain one.
+    implementation("androidx.work:work-runtime:2.9.0")
 
     // Unit testing
     testImplementation("junit:junit:4.13.2")
     // v4.9.5: fake googlevideo server for the chunked reader tests
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
-    // v5.0: FirestoreProtobufTest compiles against the protobuf runtime NewPipe already forces at runtime
-    testImplementation("com.google.protobuf:protobuf-javalite:4.36.2")
     // hotfix 4.9.10: real Android views in JVM tests (the crash reproduction + crash catcher tests)
     testImplementation("org.robolectric:robolectric:4.11.1")
     testImplementation("androidx.test:core:1.5.0")

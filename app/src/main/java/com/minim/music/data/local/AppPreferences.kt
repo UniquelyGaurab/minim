@@ -139,6 +139,11 @@ class AppPreferences(context: Context) {
      * 5.7.0 u44: the "new" tag next to the tab shows until the tab is first tapped, then never again.
      * u47: the tab is "tapes" now, with its own key, so the tag shows once more for the new name.
      */
+    /** 5.10.1 (V6): the Settings note about Firebase going was closed (About → Read shows it again). */
+    var v6NoticeDismissed: Boolean
+        get() = prefs.getBoolean(KEY_V6_NOTICE_DISMISSED, false)
+        set(value) = prefs.edit().putBoolean(KEY_V6_NOTICE_DISMISSED, value).apply()
+
     var storiesTabSeen: Boolean
         get() = prefs.getBoolean("tapes_tab_seen", false)
         set(value) = prefs.edit().putBoolean("tapes_tab_seen", value).apply()
@@ -282,6 +287,7 @@ class AppPreferences(context: Context) {
     }
 
     companion object {
+        const val KEY_V6_NOTICE_DISMISSED = "v6_notice_dismissed"
         private const val KEY_THEME_MODE = "theme_mode_v4"
         private const val KEY_COLOUR_MODE = "colour_mode_v494"
         const val COLOURS_DYNAMIC = 1

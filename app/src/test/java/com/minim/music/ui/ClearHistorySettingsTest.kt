@@ -100,18 +100,20 @@ class ClearHistorySettingsTest {
     }
 
     @Test
-    fun theClearRowSitsUnderCacheAndOpensAConfirmSheet() {
+    fun theClearRowSitsAloneAtTheBottomAndOpensAConfirmSheet() {
         val a = launch()
         openSettings(a)
         val clear = a.findViewById<TextView>(R.id.set_clear_history)
         assertEquals(View.VISIBLE, clear.visibility)
         assertEquals(a.getString(R.string.history_clear), clear.text.toString())
-        // right after the Cache row, in the same group
-        val cacheRow = a.findViewById<View>(R.id.set_clear_cache).parent as ViewGroup
-        val clearRow = clear.parent as ViewGroup
-        val group = cacheRow.parent as ViewGroup
-        assertEquals(group, clearRow.parent)
-        assertEquals(group.indexOfChild(cacheRow) + 1, group.indexOfChild(clearRow))
+        // 5.10.1 (V6): no longer under Cache; alone in the last group, below a dividing line
+        val danger = a.findViewById<ViewGroup>(R.id.settings_group_danger)
+        var p: android.view.ViewParent? = clear.parent
+        while (p != null && p !== danger) p = p.parent
+        assertEquals(danger, p)
+        val list = danger.parent as ViewGroup
+        assertEquals(list.childCount - 1, list.indexOfChild(danger))
+        assertTrue(a.findViewById<View>(R.id.set_clear_cache).let { c -> generateSequence(c.parent) { it.parent }.none { it === danger } })
         clear.performClick()
         idle(1)
         val shown = texts(a.window.decorView)

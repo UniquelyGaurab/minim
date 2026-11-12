@@ -90,9 +90,8 @@ class SettingsRevampTest {
 
     /** Every id the 5.8.3 Settings page had (bar the version label beside the update check). */
     private val oldIds = listOf(
-        "screen_settings", "settings_content", "settings_close", "settings_account", "account_signed_out",
-        "account_sign_in", "account_signed_in", "account_avatar", "account_name", "account_status",
-        "account_sync_problem", "account_sign_out", "account_delete", "account_message", "account_privacy",
+        // 5.10.1 (V6): the account rows are gone with sign-in; the profile replaces them
+        "screen_settings", "settings_content", "settings_close", "profile_photo", "profile_hint",
         "settings_name", "set_theme_light", "set_theme_dark", "set_colours_dynamic", "set_colours_default",
         "set_boost_off", "set_boost_normal", "set_boost_loud", "set_bass_off", "set_bass_warm",
         "set_bass_punchy", "set_bass_heavy", "set_fade_off", "set_fade_2", "set_fade_4",
@@ -100,7 +99,8 @@ class SettingsRevampTest {
         "set_swipe_skip", "set_swipe_off", "set_dtap_play", "set_dtap_like", "set_dtap_off",
         "set_lpress_lyrics", "set_lpress_off", "set_haptics_on", "set_haptics_off", "set_gemini_header",
         "set_gemini_model_pick", "set_gemini_key_status", "set_gemini_key_add", "set_gemini_key_remove",
-        "set_gemini_token_box", "set_gemini_token_value", "set_gemini_token_copy", "set_offline_storage",
+        // 5.10.1: the App Check token box went with Firebase
+        "set_offline_storage",
         "set_offline_remove_all", "set_clear_cache", "set_about", "set_check_updates", "set_credits"
     )
 
@@ -120,8 +120,8 @@ class SettingsRevampTest {
         val order = listOf("you", "look", "sound", "lyrics", "gestures", "gemini", "storage", "about")
             .map { xml.indexOf("@+id/settings_group_$it\"") }
         assertTrue(order.toString(), order.all { it > 0 } && order == order.sorted())
-        // account and name are in You; the update check and credits are in About
-        assertTrue(xml.indexOf("@+id/settings_account") in order[0] until order[1])
+        // the profile photo and name are in You; the update check and credits are in About
+        assertTrue(xml.indexOf("@+id/profile_photo") in order[0] until order[1])
         assertTrue(xml.indexOf("@+id/settings_name") in order[0] until order[1])
         assertTrue(xml.indexOf("@+id/set_check_updates\"") > order[7])
         assertTrue(xml.indexOf("@+id/set_credits") > order[7])
@@ -142,10 +142,10 @@ class SettingsRevampTest {
     }
 
     @Test
-    fun versionIs5100Build61() {
+    fun versionIs5101Build62() {
         val gradle = file("build.gradle.kts")
-        assertTrue(gradle.contains("versionCode = 61"))
-        assertTrue(gradle.contains("versionName = \"5.10.0\""))
+        assertTrue(gradle.contains("versionCode = 62"))
+        assertTrue(gradle.contains("versionName = \"5.10.1\""))
     }
 
     @Test
@@ -200,7 +200,6 @@ class SettingsRevampTest {
     fun privacyNotesFoldOpenAndShut() {
         val a = openSettings()
         for ((toggle, body) in listOf(
-            R.id.account_privacy_toggle to R.id.account_privacy,
             R.id.set_gemini_privacy_toggle to R.id.set_gemini_privacy
         )) {
             assertEquals(View.GONE, a.findViewById<View>(body).visibility)
@@ -216,8 +215,8 @@ class SettingsRevampTest {
     @Test
     fun aboutShowsTheVersion_andTheModelRowOpensThePicker() {
         val a = openSettings()
-        assertEquals("Minim 5.10.0", a.findViewById<TextView>(R.id.set_about).text.toString())
-        assertTrue(a.findViewById<TextView>(R.id.set_about_build).text.startsWith("Build 61"))
+        assertEquals("Minim 5.10.1", a.findViewById<TextView>(R.id.set_about).text.toString())
+        assertTrue(a.findViewById<TextView>(R.id.set_about_build).text.startsWith("Build 62"))
         assertFalse(a.findViewById<TextView>(R.id.set_gemini_model_pick).text.contains("▾"))
         assertTrue(a.findViewById<View>(R.id.set_gemini_model_row).contentDescription.startsWith("Gemini model: "))
         a.findViewById<View>(R.id.set_gemini_model_row).performClick()
@@ -236,5 +235,71 @@ class SettingsRevampTest {
         a.onBackPressedDispatcher.onBackPressed()
         idle(2)
         assertFalse(a.isFinishing)
+    }
+
+    /** 5.10.1 (V6): Profile first, the notice, Backup & restore, the old groups, Clear history last. */
+    @Test
+    fun v6SettingsOrder() {
+        app.preferences.v6NoticeDismissed = false
+        val a = openSettings()
+        val you = a.findViewById<View>(R.id.settings_group_you)
+        val list = you.parent as ViewGroup
+        val order = listOf(
+            R.id.settings_group_you, R.id.settings_v6_notice, R.id.settings_group_backup,
+            R.id.settings_group_look, R.id.settings_group_sound, R.id.settings_group_lyrics,
+            R.id.settings_group_gestures, R.id.settings_group_gemini, R.id.settings_group_storage,
+            R.id.settings_group_about, R.id.settings_group_danger
+        ).map { id -> list.indexOfChild(a.findViewById(id)) }
+        assertTrue(order.toString(), order.all { it >= 0 })
+        assertEquals(order.sorted(), order)
+        val danger = a.findViewById<View>(R.id.settings_group_danger)
+        val lastShown = (0 until list.childCount).map { list.getChildAt(it) }.last { it.visibility == View.VISIBLE }
+        assertEquals("Clear history's group is the last thing in Settings", danger, lastShown)
+        assertTrue(isInside(a.findViewById(R.id.set_clear_history), danger))
+    }
+
+    private fun isInside(v: View, group: View): Boolean {
+        var p: android.view.ViewParent? = v.parent
+        while (p != null) { if (p === group) return true; p = p.parent }
+        return false
+    }
+
+    /** 5.10.1 (V6): the notice closes, stays closed, and About brings it back. */
+    @Test
+    fun v6NoticeDismissAndReopen() {
+        app.preferences.v6NoticeDismissed = false
+        val a = openSettings()
+        val notice = a.findViewById<View>(R.id.settings_v6_notice)
+        assertEquals(View.VISIBLE, notice.visibility)
+        a.findViewById<View>(R.id.settings_v6_notice_close).performClick()
+        idle(2)
+        assertEquals(View.GONE, notice.visibility)
+        assertTrue(app.preferences.v6NoticeDismissed)
+
+        // still closed the next time Settings opens
+        val b = openSettings()
+        assertEquals(View.GONE, b.findViewById<View>(R.id.settings_v6_notice).visibility)
+
+        b.findViewById<View>(R.id.set_v6_notice_read).performClick()
+        idle(2)
+        assertEquals(View.VISIBLE, b.findViewById<View>(R.id.settings_v6_notice).visibility)
+        assertFalse(app.preferences.v6NoticeDismissed)
+    }
+
+    /** 5.10.1: Take photo's file survives Android closing Minim while the camera is open. */
+    @Test
+    fun takePhotoFileSurvivesTheActivityBeingRecreated() {
+        app.preferences.welcomeDone = true
+        val c = Robolectric.buildActivity(MainActivity::class.java).setup()
+        idle(3)
+        val f = MainActivity::class.java.getDeclaredField("profileCameraFile").apply { isAccessible = true }
+        val shot = File(app.cacheDir, "profile/camera.jpg")
+        f.set(c.get(), shot)
+        val state = android.os.Bundle()
+        c.saveInstanceState(state)
+        c.pause().stop().destroy()
+        val again = Robolectric.buildActivity(MainActivity::class.java).create(state)
+        idle(2)
+        assertEquals(shot, f.get(again.get()))
     }
 }

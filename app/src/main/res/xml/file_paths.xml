@@ -4,4 +4,6 @@
     <cache-path name="recap" path="recap/" />
     <!-- v4.9.6: downloaded update APKs, opened by Android's package installer -->
     <cache-path name="updates" path="updates/" />
+    <!-- 5.10.1: the camera app writes a profile photo here (deleted once it's cropped) -->
+    <cache-path name="profile" path="profile/" />
 </paths>

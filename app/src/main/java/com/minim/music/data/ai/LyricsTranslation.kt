@@ -15,7 +15,7 @@ import java.security.MessageDigest
  * 5.6.0: AI lyrics translation for Full Screen Lyrics.
  *
  * One Gemini call per song, on the same route and model as the Gemini chat ([GeminiRoute]: your
- * own key from Settings, else Minim's built-in Gemini through Firebase AI Logic with App Check).
+ * own key from Settings; without one it asks for a key).
  * Every lyric line that has words goes in one request with a fixed instruction ([SYSTEM_PROMPT]),
  * each with its line number, and Gemini answers in JSON that must follow [responseSchema]: one
  * `{id, en}` item per line. Translations are matched to lines by that number, never by position

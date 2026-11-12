@@ -1,6 +1,5 @@
 package com.minim.music
 
-import kotlinx.coroutines.launch
 import android.app.Application
 import android.content.ComponentCallbacks2
 import com.minim.music.data.greetings.OkHttpGreetingsFetcher
@@ -82,7 +81,6 @@ open class MinimApp : Application(), com.minim.fermata.android.FermataHolder {
         )
     }
 
-    /** v5.0: the optional Google account (Firebase Auth). Created on first use, never throws. */
     /** 5.7.0 u46: how far you got into each stories upload (resume, Continue listening, dimming). */
     val storyProgress: com.minim.music.data.stories.StoryProgressStore by lazy {
         com.minim.music.data.stories.StoryProgressStore(this)
@@ -98,15 +96,10 @@ open class MinimApp : Application(), com.minim.fermata.android.FermataHolder {
         com.minim.music.data.artists.LikedArtistsStore(this)
     }
 
-    val account: com.minim.music.data.account.MinimAccount by lazy {
-        com.minim.music.data.account.MinimAccount(this)
+    /** 5.10.1 (V6): your name and photo at the top of Settings (this phone only, never backed up). */
+    val profile: com.minim.music.data.profile.ProfileStore by lazy {
+        com.minim.music.data.profile.ProfileStore(filesDir, preferences)
     }
-
-    /** v5.0.0: cloud sync of likes, playlists and listening history (only while signed in). */
-    val sync: com.minim.music.data.sync.CloudSync by lazy {
-        com.minim.music.data.sync.CloudSync(this, database, account)
-    }
-    @Volatile private var syncStarted = false
 
     // ---- 5.10.0: Fermata (likes, playlists and history go through its log; folder backups) -----
 
@@ -161,10 +154,7 @@ open class MinimApp : Application(), com.minim.fermata.android.FermataHolder {
 
     private fun startFermata() {
         try {
-            val bridge = com.minim.music.data.fermata.FermataBridge(
-                this, database, appVersion,
-                signedIn = { try { account.user.value != null } catch (_: Throwable) { false } },
-            )
+            val bridge = com.minim.music.data.fermata.FermataBridge(this, database, appVersion)
             bridge.attach()
             fermataBridge = bridge
             val b = com.minim.fermata.android.FermataBackups(this, bridge.fermata, appVersion)
@@ -225,14 +215,18 @@ open class MinimApp : Application(), com.minim.fermata.android.FermataHolder {
         // Hotfix 4.9.10: save any crash's stack trace; MainActivity shows it once on the next launch
         installCrashReporter()
         registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
+            // 5.10.1: automatic backups. The whole app coming to the foreground merges the other
+            // phones' backups; going to the background backs up what changed. A rotation is
+            // neither (the tracker ignores configuration changes).
             override fun onActivityStarted(activity: android.app.Activity) {
                 val wasForeground = foreground.isInForeground
                 foreground.onActivityStarted()
-                if (!wasForeground && syncStarted) try { sync.onForeground() } catch (_: Throwable) { }
+                if (!wasForeground && foreground.isInForeground) mergeBackupsOnOpen()
             }
             override fun onActivityStopped(activity: android.app.Activity) {
+                val wasForeground = foreground.isInForeground
                 foreground.onActivityStopped(activity.isChangingConfigurations)
-                if (!foreground.isInForeground && syncStarted) try { sync.onBackground() } catch (_: Throwable) { }
+                if (wasForeground && !foreground.isInForeground) backUpOnBackground()
             }
             override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) = Unit
             override fun onActivityResumed(activity: android.app.Activity) = Unit
@@ -255,6 +249,12 @@ open class MinimApp : Application(), com.minim.fermata.android.FermataHolder {
             .build()
 
         database = LibraryDatabase(this)
+        // 5.10.1: no more Google sign-in or cloud sync; forget a 5.x sign-in quietly (local only)
+        try {
+            com.minim.music.data.local.LegacyCloudCleanup.runOnce(this, database)
+        } catch (t: Throwable) {
+            android.util.Log.w("MinimApp", "legacy cloud cleanup", t)
+        }
         startFermata()
         sourceAdapter = MusicSourceAdapter(okHttpClient)
         lyricsProvider = LrcLibLyricsAdapter(okHttpClient)
@@ -274,20 +274,14 @@ open class MinimApp : Application(), com.minim.fermata.android.FermataHolder {
         syncThemes()
         updates = com.minim.music.data.update.AppUpdates(this, okHttpClient)
         updates.cleanUp()
-        try {
-            sync.start()
-            syncStarted = true
-        } catch (t: Throwable) {
-            android.util.Log.w("MinimApp", "sync unavailable", t)
-        }
-        startVibe()
     }
 
-    // ---- 5.0.0 part 3: the cloud config (Firestore config/app) ------------------------------
-
-    /** Festivals, announcements, switches, extra greetings and the update lock. */
+    /**
+     * Festivals, announcements, switches and the update lock. 5.10.1: the Firestore document is
+     * gone, so this stays at the built-in defaults (festival themes still come from GitHub).
+     */
     val vibe: com.minim.music.data.config.VibeConfigSource by lazy {
-        com.minim.music.data.config.VibeConfigSource(account)
+        com.minim.music.data.config.VibeConfigSource()
     }
 
     // ------------------------------------------------------------------------------------------
@@ -372,34 +366,6 @@ open class MinimApp : Application(), com.minim.fermata.android.FermataHolder {
         geminiMain.post { try { geminiChat.clear() } catch (_: Throwable) { } }
     }
 
-    @Volatile private var githubGreetings = com.minim.music.data.greetings.RemoteGreetingFile.EMPTY
-    @Volatile private var configGreetings = com.minim.music.data.greetings.RemoteGreetingFile.EMPTY
-
-    /** Home's extra greetings: the GitHub file, then the cloud config's (and today's festival's). */
-    @Synchronized
-    private fun publishGreetings() {
-        val merged = com.minim.music.data.greetings.RemoteGreetingFile.merge(githubGreetings, configGreetings)
-        if (merged != Greetings.remote) Greetings.remote = merged
-    }
-
-    private fun startVibe() {
-        try {
-            val main = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
-            main.launch {
-                vibe.config.collect { cfg ->
-                    configGreetings = cfg.greetingFile()
-                    publishGreetings()
-                    if (syncStarted) try {
-                        sync.setRemoteEnabled(cfg.isOn(com.minim.music.data.config.VibeConfig.SWITCH_SYNC))
-                    } catch (_: Throwable) { }
-                }
-            }
-            vibe.refresh()
-        } catch (t: Throwable) {
-            android.util.Log.w("MinimApp", "cloud config unavailable", t)
-        }
-    }
-
     private val greetingsExecutor by lazy {
         java.util.concurrent.Executors.newSingleThreadExecutor { r ->
             Thread(r, "minim-greetings").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }
@@ -419,8 +385,11 @@ open class MinimApp : Application(), com.minim.fermata.android.FermataHolder {
                     fetcher = OkHttpGreetingsFetcher(okHttpClient),
                     seed = { assets.open(GREETINGS_SEED_ASSET).bufferedReader().use { it.readText() } }
                 ) { file ->
-                    githubGreetings = file
-                    publishGreetings()
+                    // 5.10.1: only the GitHub file now (the cloud config's greetings went with Firestore)
+                    val merged = com.minim.music.data.greetings.RemoteGreetingFile.merge(
+                        file, com.minim.music.data.greetings.RemoteGreetingFile.EMPTY
+                    )
+                    if (merged != Greetings.remote) Greetings.remote = merged
                 }
             }
         } catch (e: Exception) {
