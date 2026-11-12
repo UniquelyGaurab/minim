@@ -112,6 +112,15 @@ open class MinimApp : Application(), com.minim.fermata.android.FermataHolder {
     override val fermata: com.minim.fermata.Fermata
         get() = fermataBridge?.fermata ?: error("Fermata did not start")
 
+    /**
+     * 6.1: Fermata's recommendations for the radio and Discover. Gives back Minim's own order
+     * until Fermata has started and built its taste model (on a background thread), and while
+     * there's too little history.
+     */
+    val recommendations = com.minim.music.data.fermata.Recommendations({
+        if (fermataReady) fermataBridge?.fermata?.recs else null
+    })
+
     override val appVersion: String? by lazy {
         try {
             @Suppress("DEPRECATION")
@@ -172,6 +181,7 @@ open class MinimApp : Application(), com.minim.fermata.android.FermataHolder {
             Thread({
                 bridge.finishStart()
                 fermataReady = true
+                recommendations.warmUpAsync()
                 if (mergeWaiting) { mergeWaiting = false; mergeBackupsOnOpen() }
                 if (backupWaiting) { backupWaiting = false; backUpOnBackground() }
                 try {
@@ -261,7 +271,7 @@ open class MinimApp : Application(), com.minim.fermata.android.FermataHolder {
         artworkPipeline = ArtworkPipeline(this, okHttpClient)
         setUpOffline()
         playbackController = PlaybackController(this, database, preferences, artworkPipeline)
-        discoverEngine = com.minim.music.data.discover.DiscoverEngine(this, database, sourceAdapter)
+        discoverEngine = com.minim.music.data.discover.DiscoverEngine(this, database, sourceAdapter, recommendations)
         sleepTimerManager = SleepTimerManager(playbackController)
         syncRemoteGreetings()
         // 5.5.2: the festival theme from what's on the phone first (tiny files), so the first

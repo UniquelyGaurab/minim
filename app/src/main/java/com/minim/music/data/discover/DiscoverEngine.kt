@@ -1,6 +1,7 @@
 package com.minim.music.data.discover
 
 import android.content.Context
+import com.minim.music.R
 import com.minim.music.data.local.LibraryDatabase
 import com.minim.music.data.model.SourceResult
 import com.minim.music.data.model.Track
@@ -62,8 +63,12 @@ data class DiscoverSnapshot(
 class DiscoverEngine(
     context: Context,
     private val db: LibraryDatabase,
-    private val source: MusicSourceAdapter
+    private val source: MusicSourceAdapter,
+    /** 6.1: Fermata's taste model; null (or not ready, or too little history) builds the shelves as in 6.0. */
+    private val recommendations: com.minim.music.data.fermata.Recommendations? = null
 ) {
+
+    private val res = (context.applicationContext ?: context).resources
 
     private val cacheFile = File(context.filesDir, "discover_cache_v1.json")
     private val buildLock = Mutex()
@@ -131,7 +136,9 @@ class DiscoverEngine(
     suspend fun rebuild(): DiscoverSnapshot = buildLock.withLock {
         val previous = cached()
         val built = try {
-            build()
+            // 6.1: with shelves already on screen, a rebuild may wait a moment for Fermata's model;
+            // a first build (nothing to show yet) never waits and uses it only if it's ready.
+            build(waitForFermata = previous != null && previous.shelves.isNotEmpty())
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -164,7 +171,7 @@ class DiscoverEngine(
         val newArtistsOnly: Boolean = false
     )
 
-    private suspend fun build(): DiscoverSnapshot = withContext(Dispatchers.IO) {
+    private suspend fun build(waitForFermata: Boolean): DiscoverSnapshot = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val zone = ZoneId.systemDefault()
         val day = today()
@@ -194,6 +201,15 @@ class DiscoverEngine(
         fun ok(t: Track) = t.id !in blocked
         fun songLength(t: Track) = t.durationSec <= MAX_SONG_SEC
 
+        // 6.1: Fermata's shelves, once it has enough history; null keeps every 6.0 shelf as it was
+        val recs = recommendations?.let { if (waitForFermata) it.awaitReady(FERMATA_WAIT_MS) else it.ready() }
+        val fermata = recs?.let { r ->
+            val library = HashMap<String, Track>()
+            stats.forEach { library[it.track.id] = it.track }
+            playlistTracks.values.forEach { list -> list.forEach { library.putIfAbsent(it.id, it) } }
+            try { FermataShelves.read(r, library, blocked, MAX_SONG_SEC, SHELF_SIZE, now) } catch (_: Exception) { null }
+        }
+
         val candidates = ArrayList<Candidate>()
 
         // 1. Because you played {song}: one of the 8 most recently played songs
@@ -216,8 +232,15 @@ class DiscoverEngine(
             .sortedByDescending { it.second }
             .map { it.first }
 
+        // 6.1: Because you like {artist}: Fermata's top artist by taste, their own best songs as seeds
+        val fanArtist = fermata?.becauseArtist
+        if (fanArtist != null && fermata.becauseSeeds.isNotEmpty()) {
+            candidates += Candidate("fan", res.getString(R.string.discover_because_you_like, fanArtist), fermata.becauseSeeds.take(3))
+        }
+
         // 3. More like {artist}: mixes of a few of that artist's played songs
         val topFew = artistRank.take(5).shuffled(rng)
+            .let { few -> if (fanArtist == null) few else few.filter { norm(it.first().track.artist) != norm(fanArtist) } }
         val moreLike = topFew.getOrNull(0)
         if (moreLike != null) {
             val seeds = moreLike.sortedByDescending { it.playCount }.take(3).map { it.track }
@@ -259,7 +282,11 @@ class DiscoverEngine(
         val week = events.filter { it.playedAt >= now - 7L * DAY_MS }
         val repeat = week.groupBy { it.track.id }.filter { it.value.size >= 2 }
             .entries.sortedByDescending { it.value.size }.map { it.value.first().track }.filter { ok(it) }
-        if (repeat.size >= MIN_SHELF) {
+        // 6.1: Fermata's On repeat (counted plays this week, songs skipped out left out) when it has one
+        val fermataRepeat = fermata?.onRepeat.orEmpty()
+        if (fermataRepeat.size >= MIN_SHELF) {
+            candidates += Candidate("repeat", "On repeat", local = fermataRepeat, isMix = false)
+        } else if (repeat.size >= MIN_SHELF) {
             candidates += Candidate("repeat", "On repeat", local = repeat, isMix = false)
         }
 
@@ -269,7 +296,11 @@ class DiscoverEngine(
             val last = maxOf(lastCounted[it.track.id] ?: 0L, it.lastPlayedAt)
             ok(it.track) && last < cutoff && it.likedAt < cutoff
         }.shuffled(rng).map { it.track }
-        if (stale.size >= MIN_SHELF) {
+        // 6.1: Forgotten favourites (liked or much played, not heard for a month) takes its place
+        val forgotten = fermata?.forgotten.orEmpty()
+        if (forgotten.size >= MIN_SHELF) {
+            candidates += Candidate("forgotten", res.getString(R.string.discover_forgotten_favourites), local = forgotten, isMix = false)
+        } else if (stale.size >= MIN_SHELF) {
             candidates += Candidate("while", "Haven't played in a while", local = stale, isMix = false)
         }
 
@@ -284,6 +315,8 @@ class DiscoverEngine(
         // ---- choose today's shelves: 6-8, by the daily seed --------------------------------------
         val target = 6 + rng.nextInt(3)
         val shuffled = candidates.shuffled(rng)
+            // 6.1: with Fermata, its shelves come first; the rest are still chosen by the daily seed
+            .let { list -> if (fermata == null) list else list.filter { it.key in FERMATA_KEYS } + list.filter { it.key !in FERMATA_KEYS } }
         val picked = shuffled.take(target + 2) // two spares in case a mix comes back thin
 
         // ---- fetch the mixes (3 at a time) --------------------------------------------------------
@@ -348,6 +381,11 @@ class DiscoverEngine(
                 }
                 else -> mixOf(c.seeds).filter { fresh(it) }
                     .filter { !c.newArtistsOnly || norm(it.artist) !in historyArtists }
+            }.let { list ->
+                // 6.1: Fermata reorders the mixes (liked artists up, artists skipped often down);
+                // "Something different" stays as it is, it's there for artists you've never played
+                val rec = recommendations
+                if (rec != null && recs != null && c.isMix && c.key != "different") rec.reorderShelf(list, recs) else list
             }
             val songs = ArrayList<Track>()
             val artistsOnShelf = HashMap<String, Int>()
@@ -465,9 +503,15 @@ class DiscoverEngine(
         private val BUCKET_NAMES = listOf("late night", "morning", "afternoon", "evening")
 
         private val DISPLAY_ORDER = listOf(
-            "because", "repeat", "time", "liked", "artist", "weekday", "playlist",
+            "because", "repeat", "fan", "time", "liked", "forgotten", "artist", "weekday", "playlist",
             "try", "artists", "while", "new", "different"
         )
+
+        /** 6.1: the shelves that come from Fermata, picked before the rest when it's ready. */
+        private val FERMATA_KEYS = setOf("repeat", "forgotten", "fan")
+
+        /** 6.1: how long a rebuild (with shelves already showing) waits for Fermata's first build. */
+        private const val FERMATA_WAIT_MS = 1_500L
 
         fun bucketOf(hour: Int): Int = when (hour) {
             in 5..11 -> 1

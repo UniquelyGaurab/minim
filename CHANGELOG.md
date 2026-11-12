@@ -2,6 +2,17 @@
 
 Every Minim release, newest first. Download any of them from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page.
 
+## 6.1.0 (unreleased)
+
+Recommendations from Minim Fermata, worked out on your phone.
+
+- **Radio:** YouTube still picks the songs, and Minim Fermata puts them in your order. Songs and artists you like move up, songs you skip early move down, and a song you've skipped early twice in a row is left out until you play it again. Nothing you've heard in the last three hours comes back, unless the radio would otherwise run short
+- **Skips count:** a skip in the first 30 seconds (or the first fifth of a long song) pushes that song down. Skipping the same artist early three times within two weeks lowers the artist a little
+- **Discover:** new "Because you like" shelf for your top artist, "Forgotten favourites" for songs you loved but haven't played in a month, and "On repeat" now counts this week's plays. Mixes are put in your order too
+- **New listeners:** until you've played about 30 songs across 10 different ones, Discover and the radio work exactly as before
+- **No waiting:** the order is worked out in the background. Discover and the radio show straight away, in the old order if Minim Fermata isn't ready yet
+- Backups are unchanged and still work between phones on 6.0.0 and 6.1.0
+
 ## 6.0.0 (2026-11-12)
 
 V6: no accounts, no Firebase and no data collection. Your library and history stay on your phone, kept by Minim Fermata. This covers everything since 5.9.1, including the 5.10.0 and 5.10.1 test builds.

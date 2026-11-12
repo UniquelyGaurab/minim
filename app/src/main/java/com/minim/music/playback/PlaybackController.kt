@@ -571,6 +571,7 @@ class PlaybackController(
     // ---- v4.3: radio queue -----------------------------------------------------------------------
 
     private val sourceAdapter get() = com.minim.music.MinimApp.instance.sourceAdapter
+    private val recommendations get() = com.minim.music.MinimApp.instance.recommendations
     private var radioMode = preferences.radioQueue
     private var radioSession = 0
     private var radioJob: Job? = null
@@ -620,9 +621,15 @@ class PlaybackController(
             val blocked = database.notInterestedIds.value
             val mix = (result as? SourceResult.Success)?.data.orEmpty()
             var addSource: String? = FermataSource.RADIO
-            var add = mix.filter {
+            val pool = mix.filter {
                 it.id !in queued && it.id !in radioSeen && it.id !in blocked && isSongLength(it)
-            }.distinctBy { it.id }.take(RADIO_BATCH)
+            }.distinctBy { it.id }
+            // 6.1: Fermata reorders YouTube's mix (liked songs and artists up, early skips down,
+            // nothing heard in the last few hours). Same list back when it isn't ready or there's
+            // too little history yet. Off the main thread; it never waits for the model.
+            var add = (if (pool.size > 1) withContext(Dispatchers.Default) { recommendations.reorderRadio(pool) } else pool)
+                .take(RADIO_BATCH)
+            if (session != radioSession || !radioMode) return@launch
             if (add.isEmpty() && fallback.isNotEmpty()) {
                 // No mix (offline, blocked, removed video): queue the tapped list like before 4.3
                 add = fallback.filter { it.id !in queued && it.id !in blocked }.distinctBy { it.id }

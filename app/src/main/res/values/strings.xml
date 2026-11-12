@@ -217,6 +217,9 @@
     <!-- v4.7: Discover's big empty state, in the welcome screens' style -->
     <string name="discover_welcome_title">Play a few\nsongs and\nthis fills up.</string>
     <string name="discover_welcome_empty">Songs picked from what you play show up here.</string>
+    <!-- 6.1: Discover shelves from Fermata's taste model. %1$s is an artist name. -->
+    <string name="discover_forgotten_favourites">Forgotten favourites</string>
+    <string name="discover_because_you_like">Because you like %1$s</string>
     <string name="discover_welcome_thin">Almost there. Keep listening and it learns what you like.</string>
     <string name="discover_error">Couldn\'t load your picks. Tap to try again.</string>
     <string name="play_all">Play all</string>
