@@ -133,6 +133,27 @@ class GitHubReleaseTest {
         assertEquals("• Faster search\n• Round photos", u.notes)
     }
 
+    /** 6.0.0 (V6): the v6.0.0 release with Minim-v6.0.0.apk is offered to 5.9.1 and the 5.10.x tests. */
+    @Test
+    fun v600IsOfferedTo5xPhones() {
+        val url = "https://github.com/UniquelyGaurab/minim/releases/download/v6.0.0/Minim-v6.0.0.apk"
+        val r = GitHubReleaseParser.parse(
+            releaseJson(tag = "v6.0.0", assets = apk("Minim-v6.0.0.apk", 7_970_000, url = url))
+        )!!
+        for (installed in listOf("5.9.1-debug", "5.10.0-debug", "5.10.1-debug")) {
+            val u = UpdateRules.availableUpdate(installed, r)
+            assertNotNull(installed, u)
+            assertEquals("6.0.0", u!!.version.toString())
+            assertEquals("v6.0.0", u.tag)
+            assertEquals("Minim-v6.0.0.apk", u.apk.name)
+            assertEquals(url, u.apk.url)
+        }
+        assertNull(UpdateRules.availableUpdate("6.0.0-debug", r))
+        assertEquals("Minim-6.0.0.apk", UpdateRules.apkFileName(r.version))
+        assertFalse(UpdateRules.isStaleDownload("Minim-6.0.0.apk", AppVersion.installed("5.10.1-debug")))
+        assertTrue(UpdateRules.isStaleDownload("Minim-6.0.0.apk", AppVersion.installed("6.0.0-debug")))
+    }
+
     @Test
     fun sameOrOlderIsNotOffered() {
         assertNull(UpdateRules.availableUpdate("4.9.7-debug", GitHubReleaseParser.parse(releaseJson())))

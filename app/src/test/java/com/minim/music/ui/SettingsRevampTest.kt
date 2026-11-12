@@ -142,10 +142,10 @@ class SettingsRevampTest {
     }
 
     @Test
-    fun versionIs5101Build62() {
+    fun versionIs600Build63() {
         val gradle = file("build.gradle.kts")
-        assertTrue(gradle.contains("versionCode = 62"))
-        assertTrue(gradle.contains("versionName = \"5.10.1\""))
+        assertTrue(gradle.contains("versionCode = 63"))
+        assertTrue(gradle.contains("versionName = \"6.0.0\""))
     }
 
     @Test
@@ -215,8 +215,8 @@ class SettingsRevampTest {
     @Test
     fun aboutShowsTheVersion_andTheModelRowOpensThePicker() {
         val a = openSettings()
-        assertEquals("Minim 5.10.1", a.findViewById<TextView>(R.id.set_about).text.toString())
-        assertTrue(a.findViewById<TextView>(R.id.set_about_build).text.startsWith("Build 62"))
+        assertEquals("Minim 6.0.0", a.findViewById<TextView>(R.id.set_about).text.toString())
+        assertTrue(a.findViewById<TextView>(R.id.set_about_build).text.startsWith("Build 63"))
         assertFalse(a.findViewById<TextView>(R.id.set_gemini_model_pick).text.contains("▾"))
         assertTrue(a.findViewById<View>(R.id.set_gemini_model_row).contentDescription.startsWith("Gemini model: "))
         a.findViewById<View>(R.id.set_gemini_model_row).performClick()
@@ -262,6 +262,17 @@ class SettingsRevampTest {
         var p: android.view.ViewParent? = v.parent
         while (p != null) { if (p === group) return true; p = p.parent }
         return false
+    }
+
+    /** 6.0.0: the notice names the engine Minim Fermata and doesn't claim recommendations are on yet. */
+    @Test
+    fun v6NoticeNamesMinimFermata() {
+        val a = openSettings()
+        val body = a.findViewById<TextView>(R.id.settings_v6_notice_body).text.toString()
+        assertTrue(body, body.contains("Minim Fermata"))
+        assertTrue(body, body.contains("recommendations from Minim Fermata are coming next"))
+        assertFalse(body, body.contains("coming in V6"))
+        assertFalse(body, Regex("\\bFermata\\b").findAll(body).any { m -> !body.startsWith("Minim ", m.range.first - 6) })
     }
 
     /** 5.10.1 (V6): the notice closes, stays closed, and About brings it back. */

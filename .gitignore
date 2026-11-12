@@ -31,5 +31,5 @@ tmp/
 *.tmp
 *.log
 
-# v5.0: Firebase config is private: never commit it (see FIREBASE_SETUP.md)
+# 6.0.0: Minim has no Firebase. Keep any old Firebase config file out of the repo
 google-services.json

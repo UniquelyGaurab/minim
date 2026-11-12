@@ -2,23 +2,37 @@
 
 Every Minim release, newest first. Download any of them from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page.
 
-## 5.10.0 (not released yet)
+## 6.0.0 (2026-11-12)
 
-- **Backups to a folder:** Settings → Storage has a backup folder you pick. Minim backs up your likes, playlists and listening history there every day while charging, and Back up now does it right away. It shows when the last backup ran, or why it failed
-- **Restore:** pick any backup in the folder, from this phone or another one. On a phone that already has a library the backup is merged in: nothing on the phone is removed. A fresh install offers to restore once, and you can say no
-- **Several phones:** phones backing up into the same folder pick up each other's likes, playlists and plays, without counting anything twice
-- **Safer history:** your library and history are now kept in Minim's on-device event log, written together with everything the screens show, so closing the app mid-song can't leave them disagreeing. Your existing library is brought over once on first launch, and the 5.9.1 database is left untouched, so going back to 5.9.1 still works
-- **Clear listening history:** a new Clear button in Settings → Storage, under Cache, asks first, then removes your plays, stats and listening time from this phone, your backups, your other phones and your Firebase account. Likes and playlists stay
-- **Backup problems are shown:** if a backup from another phone couldn't be merged, or the folder couldn't be read, the line under Backup says so, and so does the note after Back up now
-- **Backups that always happen:** the backup at startup (only when there hasn't been one for a day) and the one right after a clear now run as background work, so they still happen if you close the app straight away
-- **Two phones agree on likes:** likes, "not interested" and playlist edits are ordered by the event log instead of each phone's clock, so a phone whose clock runs ahead can no longer win an older change
-- **Going back and forth with 5.9.1 is safer:** coming back to 5.10.0 after using 5.9.1 keeps the plays, unlikes, removals and clears you made in 5.10.0 the first time, and the copy of the 5.9.1 database checks free space first and recovers from being closed halfway
-- **Likes from before the upgrade:** a like or playlist edit from 5.9.1 now keeps the time you made it, so if you unliked that song on another phone since, both phones show it unliked after their first backup merge
-- **Low storage on upgrade:** if there isn't room to copy your 5.9.1 library, Minim says once that going back to an older version isn't safe until you free up space, and tries again next time it opens
-- **Clear history can't crash the app:** if clearing fails, nothing is removed and a note says so
-- **Backups only when something changed:** the daily and startup backups now skip writing when nothing is new, and the backup from the day before is kept as "previous" even if Minim backs up many times a day
-- **Faster merges:** Minim checks each other phone's backup summary first and only reads the whole backup when it has something new
-- **For automatic backups (developer note):** `MinimApp.mergeBackupsOnOpen()` (call when the app comes to the foreground) and `MinimApp.backUpOnBackground()` (call when it goes to the background) queue one-time WorkManager jobs, expedited where Android allows. They're safe on the main thread, wait for the first-launch import, and do nothing without a backup folder. Backups, merges and restores never run at the same time. Details are in Fermata's DESIGN.md under "Backups"
+V6: no accounts, no Firebase and no data collection. Your library and history stay on your phone, kept by Minim Fermata. This covers everything since 5.9.1, including the 5.10.0 and 5.10.1 test builds.
+
+**No accounts, nothing collected**
+- **Google sign-in and Firebase are gone:** the sign-in, the cloud sync, App Check and all Firebase and Google sign-in code are removed from the app. Minim has no server of its own and collects nothing. The app is down to about 8 MB from 9.3 MB
+- **Quiet sign-out on first launch:** Minim forgets the old sign-in and deletes Firebase's leftover files on the phone, without contacting the cloud. Your library isn't touched, and Minim never writes to the old cloud copy again
+- **The "No more accounts" note** at the top of Settings explains what changed and why. Close it, and bring it back with "Why there's no account" under About
+- **Gemini uses your own key:** lyrics translation, Gemini lyrics, the chat and the daily Search shelf need a free key from Google AI Studio. Without one, they show an Add your key button. Everything else works without a key
+
+**Minim Fermata**
+- **Minim Fermata is Minim's new on-device engine,** built from its own repo (minim-fermata) by Dev. It keeps your library and listening history as an on-device log, written together with everything the screens show, so closing the app mid-song can't leave them disagreeing. Your existing library is brought over once on first launch, and the 5.9.1 database is left untouched, so going back to 5.9.1 still works
+- **Recommendations aren't on yet:** Discover and the radio queue work as before. Minim Fermata is the foundation for on-device recommendations that come next
+
+**Backups and syncing phones**
+- **Backups to a folder you pick,** in Settings → Backup & restore. Minim backs up your likes, playlists and listening history when you leave the app, once a day while charging, and when you tap Back up now. It only writes when something changed, and keeps the backup from the day before as "previous"
+- **Merge on open:** opening Minim picks up the changes your other phones backed up to the same folder, without counting anything twice. Minim checks each phone's backup summary first and only reads the whole backup when there's something new
+- **Restore:** pick any backup in the folder, from this phone or another one. It's merged into what's on the phone. A fresh install offers to restore once, and you can say no
+- **Status line:** the line under Backup shows when the last backup ran, including the automatic ones, or why it failed. If another phone's backup couldn't be merged, or the folder couldn't be read, it says so
+- **Phones agree on likes:** likes, "not interested" and playlist edits are ordered by Minim Fermata's log instead of each phone's clock, so a phone whose clock runs ahead can't win an older change. A like from 5.9.1 keeps the time you made it
+- **Backups that always happen:** the open, close and startup backups and the one after a clear run as background work, so they still happen if you close the app straight away
+
+**Profile and Settings**
+- **Profile** at the top of Settings: your name and a round photo from the gallery or the camera (no camera permission needed). Your name is the one the Home greetings use, and the top bar shows your photo or your first letter. The photo stays on this phone and is left out of every backup
+- **New Settings order:** Profile, the note, Backup & restore, then Look, Sound, Lyrics, Gestures, Gemini, Storage and About
+- **Clear history** sits on its own at the bottom of Settings. It asks first, then removes your plays, stats and listening time from this phone, your backups and your other phones. Likes and playlists stay. If clearing fails, nothing is removed and a note says so
+
+**Safer upgrades**
+- **Going back and forth with 5.9.1:** coming back after using 5.9.1 keeps the plays, unlikes, removals and clears you made before. Copying the 5.9.1 database checks free space first and recovers if it's closed halfway
+- **Low storage on upgrade:** if there isn't room to copy your 5.9.1 library, Minim says so once and tries again next time it opens
+- **Installs as an update** over 5.9.1 and the 5.10.x test builds, and keeps your library, likes, playlists, stats and settings
 
 ## 5.9.1 (2026-11-11)
 

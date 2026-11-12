@@ -6,17 +6,18 @@
 
 <p align="center">
   A lightweight, minimal YouTube Music client for Android.<br>
-  Search, a clean player, your library and a few fun extras. Nothing else.
+  No account, no Firebase, no data collection. Your music life stays on your phone.
 </p>
 
 <p align="center">
   <a href="https://github.com/UniquelyGaurab/minim/releases/latest"><b>Download</b></a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
-  <a href="#build-from-source">Build</a> ·
-  <a href="#privacy">Privacy</a>
+  <a href="#minim-fermata">Minim Fermata</a> ·
+  <a href="#privacy">Privacy</a> ·
+  <a href="#build-from-source">Build</a>
 </p>
 
-<p align="center">Android 9 and newer · about 9.3 MB · GPL-3.0</p>
+<p align="center">Android 9 and newer · about 8 MB · GPL-3.0</p>
 
 <p align="center">
   <img src="screenshots/01-now-playing.jpg" width="30%" alt="Now Playing: you and your music, zero clutter">&nbsp;
@@ -31,18 +32,47 @@
 
 ---
 
+## What Minim is
+
+Minim plays YouTube Music without the clutter. Songs are found and streamed with [NewPipe Extractor](https://github.com/TeamNewPipe/NewPipeExtractor), lyrics come from [LRCLib](https://lrclib.net), and everything else (your likes, playlists, history, stats and settings) lives on your phone. There's nothing to sign in to and no API key to set up before you press play.
+
+## New in V6
+
+- **No accounts.** Google sign-in is gone. Minim doesn't know who you are and doesn't need to.
+- **No Firebase, zero data collection.** There's no Minim server, no analytics and no cloud copy of your library. The Firebase and Google sign-in code is removed from the app entirely.
+- **Everything stays on your phone.** Your library and history are kept by Minim Fermata, on the device. Your profile photo never leaves the phone, not even in backups.
+- **Minim Fermata.** Minim's own on-device engine for your library, history, backups and syncing between phones. [More below.](#minim-fermata)
+- **Backups and syncing through a folder you pick.** Minim backs up when you leave the app and once a day, and picks up your other phones' changes when you open it.
+- **Your own Gemini key.** Lyrics translation, Gemini lyrics, the chat and the daily Search shelf use a free key from Google AI Studio that you add yourself.
+
+Coming from 5.x? V6 installs as an update and keeps your library, likes, playlists, stats and settings. Settings has a short note, "No more accounts", explaining what changed. You can close it and read it again later under About → Why there's no account.
+
+## Minim Fermata
+
+A fermata is the music symbol that says "hold this note longer". Minim Fermata is the part of Minim that holds on to your music life, on your phone and nowhere else. It's developed in its own repo, [minim-fermata](https://github.com/UniquelyGaurab/minim-fermata), and built into Minim from source.
+
+What it does in V6:
+
+- **Keeps an on-device log** of everything you do in your library: likes and unlikes, playlist edits, "not interested", plays, skips and tapes. Your library, history and stats are built from that log, and each change is saved together with what the screens show, so closing Minim mid-song can't leave them disagreeing.
+- **Backs up** the log as a `.minim` file to a folder you pick. Your Gemini key and other settings are never written to a backup.
+- **Restores** any backup in that folder, from this phone or another one. A restore is merged into what's already on the phone; it never wipes the phone first.
+- **Merges your phones.** Phones that back up into the same folder pick up each other's likes, playlists and plays, without counting anything twice. When two phones disagree (a like on one, an unlike on the other), the newer change wins on both.
+- **Clears history everywhere.** Clear history removes your plays, stats and listening time from this phone, your backups and your other phones. Likes and playlists stay.
+
+What it doesn't do yet: **recommendations**. Minim Fermata's repo already has a simple on-device taste score and ranking, built and tested, but V6 doesn't use them. Discover is still built from your play history and YouTube mixes of your songs, and the radio queue still follows YouTube's mix. Minim Fermata is the foundation, and on-device recommendations that learn only from you are coming next.
+
 ## Install
 
-1. Download the latest `Minim-vX.Y.Z.apk` from [Releases](https://github.com/UniquelyGaurab/minim/releases/latest).
+1. Download `Minim-v6.0.0.apk` (or whatever the newest is) from [Releases](https://github.com/UniquelyGaurab/minim/releases/latest).
 2. Open it on your phone and allow installs from your browser or file manager if Android asks.
 
-After that, Minim keeps itself up to date. When it opens, or comes back after a few hours, it checks this repo's latest release and offers to download and install it. You can also check any time in Settings. What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
+After that, Minim keeps itself up to date. When it opens, or comes back after a few hours, it checks this repo's latest release and offers to download and install it. You can also tap Check for updates in Settings → About. Each release installs over the one before and keeps your library and settings. What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Features
 
 ### Listening
 
-- **Search and play** songs from YouTube Music, streamed through NewPipe Extractor. No account needed.
+- **Search and play** songs from YouTube Music, streamed through NewPipe Extractor.
 - **Radio queue** keeps playing similar songs after the one you picked.
 - **Up next** stretches out of its pill on Now Playing. Drag ≡ to reorder, tap × to remove.
 - **Track fade** between songs (Off, 2 or 4 seconds).
@@ -55,7 +85,7 @@ After that, Minim keeps itself up to date. When it opens, or comes back after a 
 - **Synced lyrics** from LRCLib, lit up word by word (Flow) or line by line, with a timing adjustment.
 - **Full screen lyrics** over a blurred cover. Tap any line to jump there.
 - **Translation** shows the English meaning under each line of non-English songs, using Gemini.
-- **Gemini lyrics** for songs with none: tap **Get lyrics with Gemini** and it listens to the song and writes synced lyrics with your own AI Studio key. They're saved on your phone and marked "Generated by AI · might not be accurate". Real lyrics always win if the song gets some later.
+- **Gemini lyrics** for songs with none: tap **Get lyrics with Gemini** and it listens to the song and writes synced lyrics. They're saved on your phone and marked "Generated by AI · might not be accurate". Real lyrics always win if the song gets some later.
 
 ### tapes
 
@@ -82,7 +112,12 @@ After that, Minim keeps itself up to date. When it opens, or comes back after a 
 
 ### Ask Gemini
 
-A chat that finds, plays and queues songs, opens artist pages, explains or translates lyrics, roasts your stats and builds playlists. Pick the model and add your own free key in Settings → Gemini.
+A chat that finds, plays and queues songs, opens artist pages, explains or translates lyrics, roasts your stats and builds playlists. Pick the model in Settings → Gemini.
+
+### You
+
+- **Profile** at the top of Settings: your name and a round photo from the gallery or the camera. Your name is the one the Home greetings use, and your photo or first letter shows in the top bar. Both stay on this phone.
+- **Crash screen:** if Minim ever crashes, it shows what happened next time, with Copy and Share. Nothing is sent unless you share it.
 
 ### Look and feel
 
@@ -91,52 +126,61 @@ A chat that finds, plays and queues songs, opens artist pages, explains or trans
 - **Rotating greetings** on Home, including lines about what you're playing and how much you've listened.
 - **Festival themes** with their own wallpaper, colours and greetings.
 - **Haptic feedback**, album art gestures and HD artwork.
-- **Tidy Settings** in eight short groups, with option pills that slide over when you pick one.
+- **Tidy Settings:** Profile, Backup & restore, then short groups for Look, Sound, Lyrics, Gestures, Gemini, Storage and About, with Clear history on its own at the bottom.
 
-### Account
+## Backups and syncing your phones
 
-- **Optional Google sign-in** backs up your likes, playlists, stats and history and syncs them across phones. Minim works fully without it.
-- **Crash screen:** if Minim ever crashes, it shows what happened next time, with Copy and Share. Nothing is sent unless you share it.
+Backups are optional, and they go only where you put them.
+
+1. Open Settings → Backup & restore and choose a backup folder. Android asks you to pick it, so Minim needs no storage permission and can only see that one folder.
+2. That's it. Minim backs up when you leave the app (only if something changed), once a day while your phone is charging, and whenever you tap **Back up now**. It keeps the backup from the day before as well. The line under Backup shows when the last one ran, or why it failed.
+
+**Restore:** tap Restore and pick any backup in the folder, from this phone or another one. A fresh install offers to restore once, and you can say no.
+
+**Sync two or more phones:** point each phone at the same folder, kept in sync by an app you already trust, such as Google Drive, Nextcloud, Dropbox or Syncthing. Each phone writes its own backup there, and when you open Minim it merges in what the other phones changed. Minim never talks to those services itself; it only reads and writes files in the folder.
+
+Backups hold your likes, playlists and listening history. They don't hold your settings, your Gemini key or your profile photo. A backup file isn't encrypted, so pick a folder you trust.
+
+Separately, if Google backup is turned on for your phone, Android can save Minim's library and settings with it, as it does for most apps. Your Gemini key and profile photo are always left out.
+
+## Gemini with your own key
+
+Minim has no built-in Gemini anymore. To use lyrics translation, Gemini lyrics, the chat and the daily Search shelf, get a free API key from [Google AI Studio](https://aistudio.google.com/apikey) and paste it in Settings → Gemini. Until you do, those features show an **Add your key** button instead. Everything else in Minim works without a key.
+
+Your key is encrypted on your phone, left out of Android backups and Minim backups, and never synced or logged. Requests go straight from your phone to Google with your key.
 
 ## Privacy
 
-Minim works without signing in. This is everything that leaves your phone, and when.
+Minim has no account, no server of its own and no analytics. Your library, history, stats, profile and settings are stored on your phone. This is everything that leaves it, and when.
 
-- **Google sign-in (optional):** Minim only gets your name, profile picture and email. It never sees your password and can't access your Gmail, Drive, contacts or anything else in your Google account. Sync stores song IDs, song details (title, artist, cover link, length) and times under your own account, and **Delete account** in Settings removes all of it. Settings stay on the phone.
-- **Gemini chat:** messages go to Google Gemini; on the free tier Google may use them to improve its models. Only what you type, the song you attach and what Gemini asks Minim for (song details, lyrics, your likes, recent songs and listening stats) are sent. The chat isn't saved and is wiped when you close the app.
+- **Music:** searching, playing and saving songs and tapes talks to YouTube through NewPipe Extractor, with no account. Album art loads from YouTube's image servers.
+- **Lyrics:** the song's title and artist go to LRCLib to find its lyrics.
+- **Playlist import:** when you import a playlist, Minim reads it from YouTube or Spotify.
+- **Updates, greetings and festival themes:** Minim checks this repo's latest release on GitHub and downloads the greetings and themes files from this repo.
+- **Backups:** written only to the folder you pick. If that folder syncs to a cloud service, that service gets the file, under your account with it.
+- **Gemini chat:** messages go to Google Gemini with your own key; on the free tier Google may use them to improve its models. Only what you type, the song you attach and what Gemini asks Minim for (song details, lyrics, your likes, recent songs and listening stats) are sent. The chat isn't saved and is wiped when you close the app.
 - **Lyrics translation:** when you tap translate, the song's lyrics, title and artist go to Google Gemini, and nothing else. The translation is saved only on your phone.
-- **Gemini lyrics:** only when you tap **Get lyrics with Gemini**, the song's audio, title and artist go to Google Gemini with your own key. The lyrics are saved only on your phone.
-- **Gemini shelf on Search:** at most once a day, a short summary of what you play (top songs and artists, recent plays and likes, as titles and artist names) goes to Google Gemini to pick that day's shelf. The shelf is saved only on your phone.
-- **Your API key**, if you add one, is encrypted on your phone, left out of Android backups, and never synced or logged.
-- **tapes:** the channels you follow, your place in each tape and your speed for each channel are saved only on your phone.
+- **Gemini lyrics:** only when you tap **Get lyrics with Gemini**, the song's audio, title and artist go to Google Gemini. The lyrics are saved only on your phone.
+- **Gemini shelf on Search:** at most once a day, and only with your key, a short summary of what you play (top songs and artists, recent plays and likes, as titles and artist names) goes to Google Gemini to pick that day's shelf. The shelf is saved only on your phone.
+- **Crash reports:** never sent on their own. You can copy or share one from the crash screen if you want to.
 
 ## Build from source
 
-You need JDK 17 and the Android SDK with platform 34 and build-tools 34.0.0.
+You need JDK 17 and the Android SDK with platform 34 and build-tools 34.0.0. Minim Fermata is a git submodule, so fetch it too.
 
 ```bash
 git clone https://github.com/UniquelyGaurab/minim.git
 cd minim
-echo "sdk.dir=/path/to/your/Android/Sdk" > local.properties   # or set ANDROID_HOME
+git submodule update --init
+export ANDROID_HOME=/path/to/your/Android/Sdk
 ./gradlew assembleDebug
 ```
 
-The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. Run the tests with `./gradlew testDebugUnitTest`.
+If you'd rather use `local.properties` than `ANDROID_HOME`, put the same `sdk.dir=/path/to/your/Android/Sdk` line in both `local.properties` and `fermata/local.properties`, because Minim Fermata is built as its own Gradle project.
 
-**No Firebase file needed.** Without one, Minim builds and runs the same, and the Account section in Settings stays hidden.
+The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. Run the tests with `./gradlew testDebugUnitTest`, and Minim Fermata's own tests with `./gradlew test` inside `fermata/`.
 
-<details>
-<summary><b>Firebase (optional): sign-in, sync and built-in Gemini</b></summary>
-
-<br>
-
-Sign-in, sync and the config document need your own Firebase project. Follow [FIREBASE_SETUP.md](FIREBASE_SETUP.md): create a project, put its `google-services.json` in `app/` (see `app/google-services.json.example`; the real file is ignored by git and must never be committed), and publish the rules in [`firestore.rules`](firestore.rules).
-
-The Gemini chat's built-in route uses Firebase AI Logic in the same project (step 4 in FIREBASE_SETUP.md). Without it, the chat still works with your own key from [Google AI Studio](https://aistudio.google.com/apikey), added in Settings → Gemini.
-
-If your project enforces App Check on Firebase AI Logic, each phone needs its debug token added: copy it from Settings → Gemini → Your device token, then in the Firebase console go to App Check → Apps → your app → Manage debug tokens → Add. The token stays on the phone, never synced, backed up or logged.
-
-</details>
+The submodule is pinned to one commit of [minim-fermata](https://github.com/UniquelyGaurab/minim-fermata), and Gradle builds it together with the app. If you see "The fermata submodule is missing", run `git submodule update --init`. No Firebase file, API key or other setup is needed.
 
 <details>
 <summary><b>Signing with your own key</b></summary>
@@ -167,12 +211,13 @@ Both live in this repo, so they change without an app update.
 
 Designed by **Gaurab**, built by **Charlie (Sesame AI)**.
 
+- **Dev**, for [Minim Fermata](https://github.com/UniquelyGaurab/minim-fermata) (Apache-2.0)
 - [NewPipe Extractor](https://github.com/TeamNewPipe/NewPipeExtractor) for search and streams (GPL-3.0)
 - [LRCLib](https://lrclib.net) for synced lyrics
 - [AndroidX Media3 / ExoPlayer](https://github.com/androidx/media) for playback
+- [AndroidX WorkManager](https://developer.android.com/topic/libraries/architecture/workmanager) for backups that still happen after you close the app
 - [OkHttp](https://github.com/square/okhttp) for networking
-- [Firebase](https://firebase.google.com) Authentication and Cloud Firestore for the optional sign-in and sync
-- [Google Gemini](https://ai.google.dev) (Gemini API and Firebase AI Logic) for the chat, translation, lyrics and the Search shelf
+- [Google Gemini API](https://ai.google.dev) for the chat, translation, lyrics and the Search shelf, with your own key
 - [Poppins](https://fonts.google.com/specimen/Poppins) font (SIL Open Font License)
 - [Simple Icons](https://simpleicons.org) for the one-colour Spotify, YouTube Music and YouTube logos (CC0; the logos are their owners' trademarks)
 

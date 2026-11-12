@@ -157,7 +157,7 @@
     <string name="crash_card_copied">Crash report copied</string>
     <string name="settings_about">About</string>
     <!-- 5.8.4 u56: the Settings revamp -->
-    <!-- 5.10.1 (V6): Profile, Backup & restore, and the notice about Firebase going -->
+    <!-- 5.10.1 (V6): Profile, Backup & restore, and the notice about Firebase going (6.0.0: names Minim Fermata) -->
     <string name="settings_group_backup">Backup &amp; restore</string>
     <string name="profile_hint">Tap your photo or name to change them. Only on this phone.</string>
     <string name="profile_photo_desc">Profile photo. Tap to change it</string>
@@ -170,7 +170,7 @@
     <string name="profile_photo_removed">Photo removed</string>
     <string name="v6_notice_title">No more accounts</string>
     <string name="v6_notice_close">Close this note</string>
-    <string name="v6_notice_body">Google sign-in and Firebase are gone from Minim. Minim collects nothing now, there are no accounts, and your library stays on your phone. Signing in with Google inside an app you install yourself felt sketchy, so it had to go.\n\nThe old cloud copy of your library is being deleted. Built-in Gemini went with it, so add your own free Google AI Studio key under Gemini to keep lyrics, translation and chat working.\n\nWhat\'s next: backups go to a folder you pick, your phones can sync through a shared folder, and an on-device recommendation engine is coming in V6.</string>
+    <string name="v6_notice_body">Google sign-in and Firebase are gone from Minim. Minim collects nothing now, there are no accounts, and your library stays on your phone. Signing in with Google inside an app you install yourself felt sketchy, so it had to go.\n\nThe old cloud copy of your library is being deleted. Built-in Gemini went with it, so add your own free Google AI Studio key under Gemini to keep lyrics, translation and chat working.\n\nNew in V6 is Minim Fermata, Minim\'s own on-device engine. It keeps your library and listening history on this phone, backs them up to a folder you pick, and syncs your phones through a shared folder. On-device recommendations from Minim Fermata are coming next.</string>
     <string name="v6_notice_about_label">Why there\'s no account</string>
     <string name="v6_notice_about_hint">What changed and what\'s next</string>
     <string name="v6_notice_read">Read</string>

@@ -88,4 +88,19 @@ class AppVersionTest {
         assertTrue(v("v6.0.0") > installed)
         assertTrue("5.10 is newer than 5.9, not older", v("5.10.1") > v("5.9.1"))
     }
+
+    /** 6.0.0 (V6): this build reads its own name, and v6.0.0 is newer than every 5.x build. */
+    @Test
+    fun v600ParsesAndIsNewerThanThe5xBuilds() {
+        val installed = AppVersion.installed("6.0.0-debug")
+        assertEquals(v("6.0.0"), installed)
+        assertFalse(installed!!.isPreRelease)
+        assertFalse(v("v6.0.0") > installed)
+        assertTrue(v("v6.0.1") > installed)
+        assertTrue(v("v6.1.0") > installed)
+        assertTrue("6.0.0 is newer than the 5.10.1 test", v("v6.0.0") > AppVersion.installed("5.10.1-debug")!!)
+        assertTrue("6.0.0 is newer than 5.10.0", v("v6.0.0") > AppVersion.installed("5.10.0-debug")!!)
+        assertTrue("6.0.0 is newer than 5.9.1", v("v6.0.0") > AppVersion.installed("5.9.1-debug")!!)
+        assertTrue("6.0 is not read as 6.00 below 5.10", v("6.0.0") > v("5.99.99"))
+    }
 }
