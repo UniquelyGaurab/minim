@@ -143,13 +143,25 @@ open class MinimApp : Application(), com.minim.fermata.android.FermataHolder {
             val b = com.minim.fermata.android.FermataBackups(this, bridge.fermata, appVersion)
             backups = b
             // Clear listening history: back up right away, replacing this phone's previous file
-            // too, so neither of its backups still holds the cleared history
+            // too, so neither of its backups still holds the cleared history. A one-time WorkManager
+            // job, so it still happens if the app is closed or killed right after the clear.
             database.afterClearHistory = {
-                if (b.folder() != null) Thread { try { b.backUpNow(replacePrevious = true) } catch (_: Throwable) { } }.start()
+                try { if (b.folder() != null) b.enqueueBackupOnce(replacePrevious = true) } catch (t: Throwable) {
+                    android.util.Log.w("MinimApp", "backup after clear", t)
+                }
             }
+            // The import has to run now (the screens wait for it), so it stays on a thread; the
+            // startup backup after it is a one-time WorkManager job, like the one after a clear.
             Thread({
                 bridge.finishStart()
-                try { if (b.folder() != null) b.scheduleDaily() } catch (_: Throwable) { }
+                try {
+                    if (b.folder() != null) {
+                        b.scheduleDaily()
+                        if (com.minim.music.data.fermata.BackupText.startupBackupDue(b.status().lastSuccessAt, System.currentTimeMillis())) b.enqueueBackupOnce()
+                    }
+                } catch (t: Throwable) {
+                    android.util.Log.w("MinimApp", "startup backup", t)
+                }
             }, "fermata-start").start()
         } catch (t: Throwable) {
             android.util.Log.w("MinimApp", "Fermata unavailable", t)

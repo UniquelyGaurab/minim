@@ -153,6 +153,8 @@ dependencies {
     // v5.10.0: Fermata, built from the pinned `fermata` submodule (see settings.gradle.kts).
     // The version here is only a placeholder: the included build always supplies the modules.
     implementation("com.github.UniquelyGaurab.minim-fermata:android:0.2.0-SNAPSHOT")
+    // 2.9.x is the newest WorkManager that builds with compileSdk 34 (2.10 needs 35), same as Fermata's
+    //noinspection GradleDependency
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     // Unit testing
@@ -164,5 +166,6 @@ dependencies {
     // hotfix 4.9.10: real Android views in JVM tests (the crash reproduction + crash catcher tests)
     testImplementation("org.robolectric:robolectric:4.11.1")
     testImplementation("androidx.test:core:1.5.0")
+    //noinspection GradleDependency
     testImplementation("androidx.work:work-testing:2.9.0")
 }

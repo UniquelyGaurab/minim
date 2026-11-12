@@ -185,6 +185,8 @@ class CloudSync(
                 store.setState("full", null)
                 store.setState("last", null)
                 if (!merge) {
+                    // the other account's history was never cleared here
+                    store.setState(LibraryDatabase.HISTORY_CLEARED_STATE, null)
                     store.wipeLibrary(File(context.filesDir, "library_before_account_switch.db"))
                     lib.refreshLikedCache()
                     lib.refreshNotInterestedCache()
@@ -462,7 +464,11 @@ class CloudSync(
                     val data = HashMap<String, Any?>(w.data)
                     data["u"] = FieldValue.serverTimestamp()
                     val ref = userDoc.collection(w.path.substringBefore('/')).document(w.path.substringAfter('/'))
-                    if (w.merge) batch.set(ref, data, SetOptions.merge()) else batch.set(ref, data)
+                    when {
+                        w.delete -> batch.delete(ref) // a day wholly before a history clear
+                        w.merge -> batch.set(ref, data, SetOptions.merge())
+                        else -> batch.set(ref, data)
+                    }
                 }
                 try {
                     tasks.add(batch.commit())

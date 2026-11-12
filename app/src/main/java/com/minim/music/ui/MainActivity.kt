@@ -5237,6 +5237,12 @@ class MainActivity : AppCompatActivity() {
             showNote(getString(R.string.cache_cleared))
         }
 
+        // 5.10.0: clear listening history (reaches backups, other phones and Firestore)
+        findViewById<View>(R.id.set_clear_history).setOnClickListener {
+            haptic(it)
+            confirmClearHistory()
+        }
+
         // 5.10.0: backups to a folder (Fermata)
         setupBackupSettings()
 
@@ -8863,6 +8869,33 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * 5.10.0: Settings → Clear listening history. Records Fermata's history clear (merged by every
+     * phone, so older history goes everywhere), deletes the cleared days from Firestore for a
+     * signed-in account, and backs up at once replacing this phone's previous backup too.
+     */
+    private fun confirmClearHistory() {
+        openSheet { box ->
+            sheetHeading(box, getString(R.string.history_clear_title), getString(R.string.history_clear_sub), wrapSub = true)
+            val v = layoutInflater.inflate(R.layout.sheet_confirm, box, false)
+            v.findViewById<TextView>(R.id.sheet_confirm_cancel).setOnClickListener { closeSheet() }
+            v.findViewById<TextView>(R.id.sheet_confirm_ok).apply {
+                setText(R.string.history_clear_ok)
+                setOnClickListener {
+                    if (sheetClosing) return@setOnClickListener
+                    haptic(it)
+                    closeSheet()
+                    lifecycleScope.launch {
+                        app.database.clearHistory()
+                        refreshData()
+                        showNote(getString(R.string.history_cleared))
+                    }
+                }
+            }
+            box.addView(v)
+        }
+    }
+
     private fun confirmDeletePlaylist(playlist: Playlist) {
         openSheet { box ->
             sheetHeading(box, getString(R.string.delete_playlist_title, playlist.name), getString(R.string.sheet_delete_sub))
@@ -9782,20 +9815,17 @@ class MainActivity : AppCompatActivity() {
         backupBusy = true
         renderBackupSettings()
         lifecycleScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                try { app.fermataBridge?.prepareBackup() } catch (_: Throwable) { }
-                try { b.merge() } catch (_: Throwable) { }
-                b.backUpNow()
+            val (result, errors) = withContext(Dispatchers.IO) {
+                // Nothing here is dropped silently: the merge saves what it left out in the
+                // status (shown in the status line), and a failure to save the plays in progress
+                // is shown in the note.
+                val prepareError = try { app.fermataBridge?.prepareBackup(); null } catch (t: Throwable) { t }
+                val mergeError = try { b.merge(); null } catch (t: Throwable) { t }
+                b.backUpNow() to (prepareError to mergeError)
             }
             backupBusy = false
             renderBackupSettings()
-            showNote(
-                when (result) {
-                    is com.minim.fermata.sync.BackupResult.Success -> getString(R.string.backup_done)
-                    is com.minim.fermata.sync.BackupResult.Failure ->
-                        getString(R.string.backup_failed, com.minim.music.data.fermata.BackupText.errorText(this@MainActivity, result.error))
-                }
-            )
+            showNote(com.minim.music.data.fermata.BackupText.backUpNowNote(this@MainActivity, result, b.status(), errors.first, errors.second))
         }
     }
 

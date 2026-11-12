@@ -6,6 +6,7 @@ import android.provider.DocumentsContract
 import android.text.format.DateUtils
 import com.minim.fermata.sync.BackupError
 import com.minim.fermata.sync.BackupInfo
+import com.minim.fermata.sync.BackupResult
 import com.minim.fermata.sync.BackupStatus
 import com.minim.fermata.sync.RestoreResult
 import com.minim.music.R
@@ -15,6 +16,13 @@ import com.minim.music.R
  * apart from MainActivity so tests can check them.
  */
 object BackupText {
+
+    /**
+     * At startup: back up once (a one-time WorkManager job) when the daily job has not managed
+     * to for a day (it only runs while charging), or never has. Not on every start.
+     */
+    fun startupBackupDue(lastSuccessAt: Long?, now: Long): Boolean =
+        lastSuccessAt == null || now - lastSuccessAt >= 24L * 60 * 60 * 1000
 
     /** "Music/Minim backups" for a tree picked with the system folder picker. */
     fun folderName(tree: Uri): String {
@@ -37,10 +45,42 @@ object BackupText {
     /** The line under "Backup": the last backup, or why the last attempt failed. */
     fun statusLine(ctx: Context, st: BackupStatus, now: Long, running: Boolean): String {
         if (running) return ctx.getString(R.string.backup_running)
-        st.lastError?.let { return ctx.getString(R.string.backup_failed, errorText(ctx, it)) }
-        val at = st.lastSuccessAt ?: return ctx.getString(R.string.backup_never)
-        val ago = DateUtils.getRelativeTimeSpanString(at, now, DateUtils.MINUTE_IN_MILLIS).toString()
-        return ctx.getString(R.string.backup_last, ago, ctx.getString(R.string.backup_events, st.lastEventCount.toInt()))
+        val line = st.lastError?.let { ctx.getString(R.string.backup_failed, errorText(ctx, it)) } ?: run {
+            val at = st.lastSuccessAt ?: return@run ctx.getString(R.string.backup_never)
+            val ago = DateUtils.getRelativeTimeSpanString(at, now, DateUtils.MINUTE_IN_MILLIS).toString()
+            ctx.getString(R.string.backup_last, ago, st.lastEventCount.toInt().let { n -> ctx.resources.getQuantityString(R.plurals.backup_events, n, n) })
+        }
+        val merge = mergeText(ctx, st) ?: return line
+        return "$line\n$merge"
+    }
+
+    /** What the last merge of the other phones' backups left out, or null when nothing. */
+    fun mergeText(ctx: Context, st: BackupStatus): String? {
+        st.lastMergeError?.let { return ctx.getString(R.string.backup_merge_failed, errorText(ctx, it)) }
+        if (st.lastMergeProblemCount <= 0) return null
+        val reason = st.lastMergeProblem?.substringAfter(": ", "")?.trim().orEmpty()
+        return ctx.resources.getQuantityString(
+            R.plurals.backup_merge_problems, st.lastMergeProblemCount, st.lastMergeProblemCount,
+            reason.ifEmpty { ctx.getString(R.string.backup_err_damaged) }
+        )
+    }
+
+    /** The note after Back up now: the backup's result, then anything the merge left out. */
+    fun backUpNowNote(
+        ctx: Context, result: BackupResult, st: BackupStatus, prepareError: Throwable?, mergeError: Throwable? = null,
+    ): String {
+        val first = when (result) {
+            is BackupResult.Success -> ctx.getString(R.string.backup_done)
+            is BackupResult.Failure -> ctx.getString(R.string.backup_failed, errorText(ctx, result.error))
+        }
+        // A merge that threw before saving its status still gets a line
+        val merge = mergeText(ctx, st)
+            ?: mergeError?.let { ctx.getString(R.string.backup_merge_failed, it.message ?: it.javaClass.simpleName) }
+        val extra = listOfNotNull(
+            merge,
+            prepareError?.let { ctx.getString(R.string.backup_prepare_failed, it.message ?: it.javaClass.simpleName) },
+        )
+        return (listOf(first) + extra).joinToString("\n")
     }
 
     fun errorText(ctx: Context, e: BackupError): String = ctx.getString(
@@ -74,7 +114,7 @@ object BackupText {
         } ?: info.fileName
         val label = ctx.getString(R.string.backup_restore_item, who, whenText)
         val trailing = info.problem?.let { ctx.getString(R.string.backup_unreadable, it) }
-            ?: info.eventCount?.let { ctx.getString(R.string.backup_events, it.toInt()) }
+            ?: info.eventCount?.let { n -> ctx.resources.getQuantityString(R.plurals.backup_events, n.toInt(), n.toInt()) }
         return label to trailing
     }
 
@@ -82,9 +122,9 @@ object BackupText {
     fun restoreDone(ctx: Context, r: RestoreResult, phoneHadLibrary: Boolean): String = when (r) {
         is RestoreResult.Failure -> ctx.getString(R.string.backup_restore_failed, errorText(ctx, r.error))
         is RestoreResult.Success -> when {
-            !phoneHadLibrary -> ctx.getString(R.string.backup_restored, r.added)
+            !phoneHadLibrary -> ctx.resources.getQuantityString(R.plurals.backup_restored, r.added, r.added)
             r.added == 0 -> ctx.getString(R.string.backup_merged_nothing)
-            else -> ctx.getString(R.string.backup_merged, r.added)
+            else -> ctx.resources.getQuantityString(R.plurals.backup_merged, r.added, r.added)
         }
     }
 }
