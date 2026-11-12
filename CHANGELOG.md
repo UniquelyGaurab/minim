@@ -8,6 +8,11 @@ Every Minim release, newest first. Download any of them from the [Releases](http
 - **Restore:** pick any backup in the folder, from this phone or another one. On a phone that already has a library the backup is merged in: nothing on the phone is removed. A fresh install offers to restore once, and you can say no
 - **Several phones:** phones backing up into the same folder pick up each other's likes, playlists and plays, without counting anything twice
 - **Safer history:** your library and history are now kept in Minim's on-device event log, written together with everything the screens show, so closing the app mid-song can't leave them disagreeing. Your existing library is brought over once on first launch, and the 5.9.1 database is left untouched, so going back to 5.9.1 still works
+- **Clear listening history:** a new Clear button in Settings → Storage, under Cache, asks first, then removes your plays, stats and listening time from this phone, your backups, your other phones and your Firebase account. Likes and playlists stay
+- **Backup problems are shown:** if a backup from another phone couldn't be merged, or the folder couldn't be read, the line under Backup says so, and so does the note after Back up now
+- **Backups that always happen:** the backup at startup (only when there hasn't been one for a day) and the one right after a clear now run as background work, so they still happen if you close the app straight away
+- **Two phones agree on likes:** likes, "not interested" and playlist edits are ordered by the event log instead of each phone's clock, so a phone whose clock runs ahead can no longer win an older change
+- **Going back and forth with 5.9.1 is safer:** coming back to 5.10.0 after using 5.9.1 keeps the plays, unlikes, removals and clears you made in 5.10.0 the first time, and the copy of the 5.9.1 database checks free space first and recovers from being closed halfway
 
 ## 5.9.1 (2026-11-11)
 
