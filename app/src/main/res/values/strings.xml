@@ -186,6 +186,9 @@
     <string name="history_clear_sub">Removes your plays, stats and listening time from this phone, your backups and your other phones. Likes and playlists stay.</string>
     <string name="history_clear_ok">Clear history</string>
     <string name="history_cleared">Listening history cleared</string>
+    <string name="history_clear_failed">Couldn\'t clear your listening history. Nothing was removed, try again in a bit.</string>
+    <string name="library_copy_low_space">Storage is almost full. Don\'t go back to an older Minim until you free up some space.</string>
+    <string name="library_copy_failed">Couldn\'t set up this version\'s library. Don\'t go back to an older Minim for now.</string>
     <string name="fold_open">Open</string>
     <string name="fold_closed">Closed</string>
     <string name="about_version">Minim %1$s</string>

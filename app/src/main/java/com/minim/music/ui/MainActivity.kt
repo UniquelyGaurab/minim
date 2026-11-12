@@ -462,6 +462,21 @@ class MainActivity : AppCompatActivity() {
         resumeUpdateInstallIfAllowed()
         checkRecapPopup()
         maybeOfferRestore()
+        maybeShowLibraryCopyNote()
+    }
+
+    /**
+     * 5.10.0: the first upgrade couldn't copy the 5.9.1 library (low storage, or the copy failed),
+     * so this version is writing the 5.9.1 file itself: say once that going back to an older
+     * version isn't safe until there's space. LibraryFiles tries the copy again on every start.
+     */
+    private fun maybeShowLibraryCopyNote() {
+        if (isWelcomeOpen || !::minimNote.isInitialized) return
+        when (com.minim.music.data.local.LibraryFiles.takeNote(this)) {
+            com.minim.music.data.local.LibraryFiles.Note.LOW_SPACE -> showNote(getString(R.string.library_copy_low_space))
+            com.minim.music.data.local.LibraryFiles.Note.COPY_FAILED -> showNote(getString(R.string.library_copy_failed))
+            null -> Unit
+        }
     }
 
     override fun onPause() {
@@ -8886,9 +8901,18 @@ class MainActivity : AppCompatActivity() {
                     haptic(it)
                     closeSheet()
                     lifecycleScope.launch {
-                        app.database.clearHistory()
+                        // a failed clear is rolled back as a whole: say so, never crash
+                        val cleared = try {
+                            app.database.clearHistory()
+                            true
+                        } catch (c: kotlinx.coroutines.CancellationException) {
+                            throw c
+                        } catch (e: Exception) {
+                            android.util.Log.w("MainActivity", "clear history failed", e)
+                            false
+                        }
                         refreshData()
-                        showNote(getString(R.string.history_cleared))
+                        showNote(getString(if (cleared) R.string.history_cleared else R.string.history_clear_failed))
                     }
                 }
             }

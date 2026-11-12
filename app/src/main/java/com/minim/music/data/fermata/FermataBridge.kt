@@ -13,6 +13,7 @@ import com.minim.fermata.android.MinimDatabaseReader
 import com.minim.fermata.android.SqliteEventStore
 import com.minim.fermata.log.Event
 import com.minim.fermata.log.EventBody
+import com.minim.fermata.log.Source
 import com.minim.fermata.log.Subject
 import com.minim.fermata.log.TrackRef
 import com.minim.music.data.local.LibraryDatabase
@@ -100,6 +101,13 @@ class FermataBridge(
 
     private val draining = ThreadLocal.withInitial { false }
     private val applying = ThreadLocal.withInitial { false }
+
+    /**
+     * Set while [importOnce] runs: the 5.9.1 state it records (likes, "not interested", playlists)
+     * goes into the log at the time each change was made, not at the time of the upgrade. See
+     * [recordImported].
+     */
+    private val importing = ThreadLocal.withInitial { false }
 
     /** Test hook: runs inside the first-launch import's transaction, after the import. */
     @Volatile internal var afterImportForTest: (() -> Unit)? = null
@@ -219,6 +227,7 @@ class FermataBridge(
     fun importOnce(): Boolean {
         if (imported()) return false
         applying.set(true) // the import's own events are not "news from elsewhere"
+        importing.set(true)
         try {
             lib.inWrite { db ->
                 if (meta("imported") != null) return@inWrite
@@ -236,9 +245,17 @@ class FermataBridge(
                     // or clear, and recoverPrevious applies that to the tables.
                     // The clear the kept copy recorded covers these tables' copies of the old
                     // history too: drop them first, so none of it is recorded again.
+                    // Listening time is kept per hour, so the clear's own hour needs care: when
+                    // the kept copy imported in or after that hour, 5.9.1's rows for it hold
+                    // minutes from before the clear (already in the kept log, and cleared there),
+                    // so that whole hour goes too. What 5.10.0 played in it after the clear comes
+                    // back from the kept log; only minutes played on 5.9.1 within that same clock
+                    // hour after going back are lost.
                     fermata.clearedBefore()?.let { point ->
-                        val hour = java.time.Instant.ofEpochMilli(point).atZone(java.time.ZoneId.systemDefault()).hour
-                        LibraryDatabase.deleteHistoryBefore(db, point, Days.keyOf(point), hour)
+                        val at = java.time.Instant.ofEpochMilli(point).atZone(java.time.ZoneId.systemDefault())
+                        val hourStart = at.truncatedTo(java.time.temporal.ChronoUnit.HOURS).toInstant().toEpochMilli()
+                        val upTo = if (since >= hourStart) at.hour + 1 else at.hour
+                        LibraryDatabase.deleteHistoryBefore(db, point, Days.keyOf(point), upTo)
                     }
                     val fromDay = Days.keyOf(since)
                     sync.enqueueChangedSince(since, fromDay)
@@ -249,6 +266,7 @@ class FermataBridge(
                 afterImportForTest?.invoke()
             }
         } finally {
+            importing.set(false)
             applying.set(false)
         }
         return true
@@ -349,7 +367,9 @@ class FermataBridge(
                     }
                 }
                 if (syncItems.isNotEmpty()) {
-                    for (w in sync.buildWrites(syncItems)) recordWrite(db, w.path, w.merge, w.data)
+                    for (w in sync.buildWrites(syncItems)) {
+                        if (importing.get()) recordImported(db, w) else recordWrite(db, w.path, w.merge, w.data)
+                    }
                     recordTyped(db, syncItems)
                 }
                 db.execSQL("DELETE FROM fermata_outbox WHERE id <= ?", arrayOf<Any>(items.last().id))
@@ -359,25 +379,68 @@ class FermataBridge(
         }
     }
 
+    /**
+     * The 5.9.1 tables' state, recorded by the first-launch import (or, after a rollback and back,
+     * what 5.9.1 changed since): each document write goes into the log at the time its change was
+     * made, the same time the document carries and the screens compare. Recorded at the time of
+     * the upgrade, an old like sorted after a newer unlike from another phone: the log (and
+     * Fermata's library) said "liked" while the screens, comparing the documents' own times, said
+     * "not liked", until the next merge re-recorded it.
+     * - likes/ and hidden/: one write at its `at`.
+     * - playlists/: a deleted playlist is one full write at its header time; otherwise the header
+     *   at its own time and the songs at theirs (grouped by time), so each field folds in the same
+     *   order the playlist merge compares.
+     * - Anything else (history, the clear): as before.
+     */
+    private fun recordImported(db: SQLiteDatabase, w: LibrarySync.CloudWrite) {
+        fun t(v: Any?) = num(v).coerceAtLeast(1L)
+        when {
+            w.path.startsWith("likes/") || w.path.startsWith("hidden/") ->
+                recordWrite(db, w.path, w.merge, w.data, at = t(w.data["at"]))
+            w.path.startsWith("playlists/") -> {
+                val header = w.data.filterKeys { it != "t" }
+                val headerAt = maxOf(t(w.data["c"]), t(w.data["h"]), t(w.data["b"]))
+                if (!w.merge) {
+                    recordWrite(db, w.path, false, w.data, at = headerAt)
+                    return
+                }
+                recordWrite(db, w.path, true, header, at = headerAt)
+                @Suppress("UNCHECKED_CAST")
+                val songs = w.data["t"] as? Map<String, Any?> ?: return
+                val byTime = java.util.TreeMap<Long, LinkedHashMap<String, Any?>>()
+                for ((song, entry) in songs) {
+                    val at = com.minim.music.data.sync.SyncCodec.decodeEntry(entry)?.at?.coerceAtLeast(1L) ?: headerAt
+                    byTime.getOrPut(at) { LinkedHashMap() }[song] = entry
+                }
+                for ((at, group) in byTime) recordWrite(db, w.path, true, mapOf("t" to group), at = at)
+            }
+            else -> recordWrite(db, w.path, w.merge, w.data)
+        }
+    }
+
     /** Likes, unlikes and "not interested" also as Fermata's typed events (taste reads those). */
     private fun recordTyped(db: SQLiteDatabase, items: List<LibrarySync.OutboxItem>) {
         if (applying.get() && !importing()) return // merged from elsewhere: the other phone recorded it
+        val stamped = importing.get()
         for (item in items) {
             val parts = item.key.split('|')
             val song = parts.getOrNull(1) ?: continue
             when (parts[0]) {
-                "L" -> db.rawQuery("SELECT is_liked, title, artist, duration_sec FROM tracks WHERE id = ?", arrayOf(song)).use { c ->
+                "L" -> db.rawQuery("SELECT is_liked, title, artist, duration_sec, like_changed_at FROM tracks WHERE id = ?", arrayOf(song)).use { c ->
                     if (!c.moveToFirst()) return@use
                     val ref = TrackRef(song, c.getString(1) ?: "", c.getString(2) ?: "", c.getLong(3) * 1000)
                     val liked = c.getInt(0) == 1
                     val last = meta("like|$song")
                     if (last == liked.toString()) return@use
-                    fermata.record(if (liked) EventBody.Like(Subject.Track(ref)) else EventBody.Unlike(Subject.Track(ref)))
+                    val body = if (liked) EventBody.Like(Subject.Track(ref)) else EventBody.Unlike(Subject.Track(ref))
+                    // imported: at the time of the change, like its write (see recordImported)
+                    if (stamped) fermata.recordAt(body, c.getLong(4).coerceAtLeast(1L)) else fermata.record(body)
                     setMeta(db, "like|$song", liked.toString())
                 }
-                "H" -> db.rawQuery("SELECT title, artist FROM not_interested WHERE track_id = ?", arrayOf(song)).use { c ->
+                "H" -> db.rawQuery("SELECT title, artist, added_at FROM not_interested WHERE track_id = ?", arrayOf(song)).use { c ->
                     if (!c.moveToFirst() || meta("hide|$song") != null) return@use
-                    fermata.record(EventBody.NotInterested(Subject.Track(TrackRef(song, c.getString(0) ?: "", c.getString(1) ?: ""))))
+                    val body = EventBody.NotInterested(Subject.Track(TrackRef(song, c.getString(0) ?: "", c.getString(1) ?: "")))
+                    if (stamped) fermata.recordAt(body, c.getLong(2).coerceAtLeast(1L)) else fermata.record(body)
                     setMeta(db, "hide|$song", "1")
                 }
             }
@@ -386,8 +449,11 @@ class FermataBridge(
 
     private fun importing(): Boolean = meta("imported") == null
 
-    /** Records one document write, unless it equals the last one recorded for that path. */
-    private fun recordWrite(db: SQLiteDatabase, path: String, merge: Boolean, data: Map<String, Any?>) {
+    /**
+     * Records one document write, unless it equals the last one recorded for that path. [at]: an
+     * imported change, recorded at the time it was made ([recordImported]); otherwise now.
+     */
+    private fun recordWrite(db: SQLiteDatabase, path: String, merge: Boolean, data: Map<String, Any?>, at: Long? = null) {
         val json = JSONObject().put("p", path).put("m", merge).put("d", toJson(data)).toString()
         val hash = sha1(json)
         val last = db.rawQuery("SELECT hash FROM fermata_written WHERE path = ?", arrayOf(path)).use { c ->
@@ -395,7 +461,8 @@ class FermataBridge(
         }
         if (last == hash) return
         val history = path.startsWith("history/") || path.startsWith("tape_")
-        fermata.record(EventBody.Unknown(if (history) HISTORY_WRITE else WRITE, json))
+        val body = EventBody.Unknown(if (history) HISTORY_WRITE else WRITE, json)
+        if (at != null) fermata.recordAt(body, at) else fermata.record(body)
         db.execSQL("INSERT OR REPLACE INTO fermata_written (path, hash) VALUES (?, ?)", arrayOf<Any>(path, hash))
     }
 

@@ -1544,7 +1544,12 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
             deleteHistoryBefore(db, Long.MAX_VALUE, Int.MAX_VALUE, 0)
             onClearHistory?.invoke(db)
         }
-        afterClearHistory?.invoke()
+        // the clear is committed: a backup that can't be asked for doesn't make it fail
+        try {
+            afterClearHistory?.invoke()
+        } catch (e: Exception) {
+            android.util.Log.w("LibraryDatabase", "backup after clearing history", e)
+        }
     }
 
     internal fun upsertTrackInternal(db: SQLiteDatabase, track: Track) {

@@ -157,6 +157,57 @@ class ClearHistorySettingsTest {
         assertEquals(a.getString(R.string.history_cleared), a.findViewById<TextView>(R.id.minim_note).text.toString())
     }
 
+    @Test
+    fun aClearThatFailsShowsANoteAndKeepsTheHistory() {
+        seedLibrary()
+        val a = launch()
+        val after = AtomicInteger()
+        app.database.afterClearHistory = { after.incrementAndGet() }
+        app.database.onClearHistory = { throw android.database.sqlite.SQLiteFullException("database or disk is full") }
+        openSettings(a)
+        a.findViewById<View>(R.id.set_clear_history).performClick()
+        idle(1)
+        clickText(a, a.getString(R.string.history_clear_ok))
+        waitFor { a.findViewById<TextView>(R.id.minim_note).text.toString() == a.getString(R.string.history_clear_failed) }
+        assertEquals(a.getString(R.string.history_clear_failed), a.findViewById<TextView>(R.id.minim_note).text.toString())
+        assertEquals("rolled back: the plays are still there", 2, count("SELECT COUNT(*) FROM plays"))
+        assertEquals("no backup for a clear that didn't happen", 0, after.get())
+        assertFalse(a.isFinishing)
+    }
+
+    @Test
+    fun aBackupThatCantBeAskedForAfterAClearStillSaysCleared() {
+        seedLibrary()
+        val a = launch()
+        app.database.afterClearHistory = { throw IllegalStateException("WorkManager is not initialized") }
+        openSettings(a)
+        a.findViewById<View>(R.id.set_clear_history).performClick()
+        idle(1)
+        clickText(a, a.getString(R.string.history_clear_ok))
+        waitFor { a.findViewById<TextView>(R.id.minim_note).text.toString() == a.getString(R.string.history_cleared) }
+        assertEquals(a.getString(R.string.history_cleared), a.findViewById<TextView>(R.id.minim_note).text.toString())
+        assertEquals(0, count("SELECT COUNT(*) FROM plays"))
+    }
+
+    @Test
+    fun aSkippedLibraryCopyShowsTheLowStorageNoteOnce() {
+        app.getSharedPreferences(com.minim.music.data.local.LibraryFiles.PREFS, 0).edit()
+            .putString("note_pending", com.minim.music.data.local.LibraryFiles.Note.LOW_SPACE.name).commit()
+        val c = Robolectric.buildActivity(MainActivity::class.java)
+        app.preferences.welcomeDone = true
+        RestoreOfferGate(app).markAnswered()
+        c.setup()
+        idle(1)
+        val a = c.get()
+        assertEquals(a.getString(R.string.library_copy_low_space), a.findViewById<TextView>(R.id.minim_note).text.toString())
+        // once: the next resume shows nothing new
+        a.findViewById<TextView>(R.id.minim_note).text = ""
+        c.pause().resume()
+        idle(1)
+        assertEquals("", a.findViewById<TextView>(R.id.minim_note).text.toString())
+        assertNull(com.minim.music.data.local.LibraryFiles.takeNote(app))
+    }
+
     // ---- what a merge left out --------------------------------------------------------------
 
     @Test

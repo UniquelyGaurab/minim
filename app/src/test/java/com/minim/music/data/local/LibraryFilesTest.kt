@@ -72,6 +72,50 @@ class LibraryFilesTest {
     }
 
     @Test
+    fun lowStorageOnTheFirstUpgradeShowsANoteOnceAndRetriesTheCopy() {
+        with591("A")
+        LibraryFiles.freeSpace = { 1024L }
+        assertEquals(LibraryDatabase.DB_NAME, LibraryFiles.prepare(context))
+        assertEquals(LibraryFiles.Note.LOW_SPACE, LibraryFiles.takeNote(context))
+        assertEquals("shown once", null, LibraryFiles.takeNote(context))
+        // still low on the next start: still the 5.9.1 file, no second note
+        assertEquals(LibraryDatabase.DB_NAME, LibraryFiles.prepare(context))
+        assertEquals(null, LibraryFiles.takeNote(context))
+        // space again: copied, and the note is reset for a later episode
+        LibraryFiles.freeSpace = { Long.MAX_VALUE }
+        assertEquals(LibraryFiles.FILE_NAME, LibraryFiles.prepare(context))
+        assertEquals(null, LibraryFiles.takeNote(context))
+        assertEquals(setOf("A"), likedIn(LibraryFiles.FILE_NAME))
+        assertFalse(context.getSharedPreferences(LibraryFiles.PREFS, 0).contains("note_shown"))
+    }
+
+    @Test
+    fun aDiskFillingUpCountsAsLowSpaceAndOtherFailuresGetTheirOwnNote() {
+        with591("A")
+        LibraryFiles.afterCopyingFile = { throw IOException("ENOSPC (No space left on device)") }
+        assertEquals(LibraryDatabase.DB_NAME, LibraryFiles.prepare(context))
+        assertEquals(LibraryFiles.Note.LOW_SPACE, LibraryFiles.takeNote(context))
+        LibraryFiles.afterCopyingFile = null
+        assertEquals(LibraryFiles.FILE_NAME, LibraryFiles.prepare(context))
+        TestLibraryFiles.wipe(context)
+        with591("A")
+        LibraryFiles.beforePlacingCopy = { error("could not move the library copy into place") }
+        assertEquals(LibraryDatabase.DB_NAME, LibraryFiles.prepare(context))
+        assertEquals(LibraryFiles.Note.COPY_FAILED, LibraryFiles.takeNote(context))
+    }
+
+    @Test
+    fun noNoteWhenTheCopyWorksOrAfterARollbackKeepsTheOldCopy() {
+        with591("A")
+        assertEquals(LibraryFiles.FILE_NAME, LibraryFiles.prepare(context))
+        assertEquals(null, LibraryFiles.takeNote(context))
+        touch591()
+        LibraryFiles.freeSpace = { 1024L }
+        assertEquals(LibraryFiles.FILE_NAME, LibraryFiles.prepare(context))
+        assertEquals("the 5.9.1 file is still untouched: going back is safe", null, LibraryFiles.takeNote(context))
+    }
+
+    @Test
     fun aDiskThatFillsUpDuringTheCopyLeavesNoPartialFiles() {
         with591("A")
         LibraryFiles.afterCopyingFile = { throw IOException("ENOSPC (No space left on device)") }

@@ -13,6 +13,9 @@ Every Minim release, newest first. Download any of them from the [Releases](http
 - **Backups that always happen:** the backup at startup (only when there hasn't been one for a day) and the one right after a clear now run as background work, so they still happen if you close the app straight away
 - **Two phones agree on likes:** likes, "not interested" and playlist edits are ordered by the event log instead of each phone's clock, so a phone whose clock runs ahead can no longer win an older change
 - **Going back and forth with 5.9.1 is safer:** coming back to 5.10.0 after using 5.9.1 keeps the plays, unlikes, removals and clears you made in 5.10.0 the first time, and the copy of the 5.9.1 database checks free space first and recovers from being closed halfway
+- **Likes from before the upgrade:** a like or playlist edit from 5.9.1 now keeps the time you made it, so if you unliked that song on another phone since, both phones show it unliked after their first backup merge
+- **Low storage on upgrade:** if there isn't room to copy your 5.9.1 library, Minim says once that going back to an older version isn't safe until you free up space, and tries again next time it opens
+- **Clear history can't crash the app:** if clearing fails, nothing is removed and a note says so
 
 ## 5.9.1 (2026-11-11)
 

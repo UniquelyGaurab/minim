@@ -29,6 +29,10 @@ import java.io.IOException
  *   next start with space copies it, Fermata's log included, so nothing is lost (a rollback
  *   meanwhile would just show the newer state). After a rollback and back, a failed copy puts
  *   the old copy back and keeps using it, and tries again on the next start.
+ * - The copy skipped on the first upgrade (low storage, or the copy failing): Minim opens the
+ *   5.9.1 file and shows a short note once ([takeNote]) that going back to an older version isn't
+ *   safe until there's space, since that file now holds 5.10.0's changes too. The copy is tried
+ *   again on every start; once it works the note is reset, so a later failure is shown again.
  * - A kill before the 5.9.1 file's size and time are saved: they are saved before the copy is
  *   renamed into place, and a copy found without them counts as changed, so it is redone with the
  *   old copy kept as [PREVIOUS_NAME] (nothing lost; the old way, a later rollback went unseen).
@@ -42,6 +46,13 @@ object LibraryFiles {
     /** SharedPreferences with the 5.9.1 file's size and time at the copy. Not in Android's backups. */
     const val PREFS = "minim_db_copy"
     private const val MOVING = "moving_to_previous"
+    private const val NOTE_PENDING = "note_pending"
+    private const val NOTE_SHOWN = "note_shown"
+
+    /** Why the first upgrade's copy was skipped, for the one-time note ([takeNote]). */
+    enum class Note { LOW_SPACE, COPY_FAILED }
+
+    private class LowSpace : IOException("not enough free space to copy the library")
     private val SUFFIXES = listOf("", "-wal", "-shm", "-journal")
     private const val SPARE_BYTES = 8L * 1024 * 1024
 
@@ -91,8 +102,10 @@ object LibraryFiles {
         }
         if (!legacy.exists()) return FILE_NAME
         try {
-            if (!enoughSpace(legacy)) throw IOException("not enough free space to copy the library")
+            if (!enoughSpace(legacy)) throw LowSpace()
             copy(legacy, target, prefs)
+            // a copy that works again ends that episode: a later failure gets its own note
+            if (prefs.contains(NOTE_PENDING) || prefs.contains(NOTE_SHOWN)) prefs.edit().remove(NOTE_PENDING).remove(NOTE_SHOWN).commit()
         } catch (e: Exception) {
             android.util.Log.w("LibraryFiles", "copy failed", e)
             if (moved) {
@@ -104,11 +117,30 @@ object LibraryFiles {
                 }
                 if (File(target.path).exists()) return FILE_NAME
             }
-            // never block the app: open the 5.9.1 file itself, as 5.9.1 did
+            // never block the app: open the 5.9.1 file itself, as 5.9.1 did, and say so once
+            if (!prefs.getBoolean(NOTE_SHOWN, false)) {
+                prefs.edit().putString(NOTE_PENDING, (if (isSpace(e)) Note.LOW_SPACE else Note.COPY_FAILED).name).commit()
+            }
             return LibraryDatabase.DB_NAME
         }
         return FILE_NAME
     }
+
+    /**
+     * The note to show for a skipped copy, once: null when there is none or it was shown already
+     * (until a copy works again). Read on the main screen, after the library was opened.
+     */
+    @SuppressLint("ApplySharedPref") // see prepare()
+    fun takeNote(context: Context): Note? {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val pending = prefs.getString(NOTE_PENDING, null) ?: return null
+        prefs.edit().remove(NOTE_PENDING).putBoolean(NOTE_SHOWN, true).commit()
+        return runCatching { Note.valueOf(pending) }.getOrNull()
+    }
+
+    private fun isSpace(e: Exception): Boolean = e is LowSpace ||
+        e is android.database.sqlite.SQLiteFullException ||
+        (e is IOException && (e.message ?: "").contains("space", ignoreCase = true))
 
     private fun enoughSpace(legacy: File): Boolean {
         val dir = legacy.parentFile ?: return true
