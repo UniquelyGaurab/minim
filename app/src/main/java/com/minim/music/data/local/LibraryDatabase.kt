@@ -155,9 +155,19 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
         /** Runs inside the committing transaction; throwing rolls the whole write back. */
         fun onCommit(db: SQLiteDatabase)
         fun onRollback()
+        /** The time a change written now is stamped with (see [changeTime]). */
+        fun timestamp(): Long = System.currentTimeMillis()
     }
 
     @Volatile var writeGate: WriteGate? = null
+
+    /**
+     * The time stored with a like, a "not interested" or a playlist change (the `at` other phones
+     * and Firestore compare). With Fermata it is the time the change's event gets under the clock
+     * rule, so it never sorts before an event this phone has already seen from another phone
+     * whose clock runs ahead; otherwise the merge by change time and the log's order disagree.
+     */
+    internal fun changeTime(): Long = writeGate?.timestamp() ?: System.currentTimeMillis()
     private val gateStack = ThreadLocal.withInitial { ArrayList<WriteGate?>() }
 
     internal fun beginWrite(db: SQLiteDatabase) {
@@ -1176,7 +1186,7 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
             put("track_id", track.id)
             put("title", track.title)
             put("artist", track.artist)
-            put("added_at", System.currentTimeMillis())
+            put("added_at", changeTime())
         }
         val db = writableDatabase
         beginWrite(db)
@@ -1204,7 +1214,7 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
                 }
             }
             newLiked = if (currentlyLiked) 0 else 1
-            val changedAt = System.currentTimeMillis()
+            val changedAt = changeTime()
             val cv = ContentValues().apply {
                 put("is_liked", newLiked)
                 put("liked_at", if (newLiked == 1) changedAt else 0L)
@@ -1244,10 +1254,10 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
         val clean = name.trim()
         if (clean.isEmpty()) return@withContext -1L
         val db = writableDatabase
-        val now = System.currentTimeMillis()
         var id = -1L
         beginWrite(db)
         try {
+            val now = changeTime()
             val uid = freePlaylistUid(db, clean)
             // made again after a delete (here or on another phone): it starts empty
             var born = 0L
@@ -1313,7 +1323,7 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
                     } else {
                         val cv = ContentValues().apply {
                             put("name", clean)
-                            put("changed_at", System.currentTimeMillis())
+                            put("changed_at", changeTime())
                         }
                         db.update("playlists", cv, "id = ?", arrayOf(playlistId.toString()))
                         uid?.let { queueSync(db, "P|$it") }
@@ -1344,7 +1354,7 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
                         put("uid", uid)
                         put("name", c.getString(1))
                         put("created_at", c.getLong(2))
-                        put("at", System.currentTimeMillis())
+                        put("at", changeTime())
                         put("born", c.getLong(3))
                     }
                     db.insertWithOnConflict("playlist_deleted", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
@@ -1388,9 +1398,9 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
 
     suspend fun addTrackToPlaylist(playlistId: Long, track: Track) = withContext(Dispatchers.IO) {
         val db = writableDatabase
-        val now = System.currentTimeMillis()
         beginWrite(db)
         try {
+            val now = changeTime()
             upsertTrackInternal(db, track)
             val cv = ContentValues().apply {
                 put("playlist_id", playlistId)
@@ -1417,9 +1427,9 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
     suspend fun addTracksToPlaylist(playlistId: Long, tracks: List<Track>) = withContext(Dispatchers.IO) {
         if (tracks.isEmpty()) return@withContext
         val db = writableDatabase
-        val now = System.currentTimeMillis()
         beginWrite(db)
         try {
+            val now = changeTime()
             val uid = playlistUidOf(db, playlistId)
             tracks.forEachIndexed { i, track ->
                 upsertTrackInternal(db, track)
@@ -1469,7 +1479,7 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
                 val cv = ContentValues().apply {
                     put("playlist_uid", uid)
                     put("track_id", trackId)
-                    put("at", System.currentTimeMillis())
+                    put("at", changeTime())
                 }
                 db.insertWithOnConflict("playlist_removed", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
                 queueSync(db, "T|$uid|$trackId")
@@ -1519,6 +1529,12 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
      * everything before now" event there, so the clear and its event commit together).
      */
     @Volatile var onClearHistory: ((SQLiteDatabase) -> Unit)? = null
+
+    /**
+     * 5.10.0: called (inside the write) when a newer history clear came from Firestore, with its
+     * point; Fermata records it so folder backups and other phones get it too.
+     */
+    @Volatile var onRemoteHistoryClear: ((Long) -> Unit)? = null
 
     /** 5.10.0: called after a clear committed (Minim backs up right away, replacing `previous`). */
     @Volatile var afterClearHistory: (() -> Unit)? = null
@@ -1585,7 +1601,50 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
          * moment as Minim's day key and hour, for the hourly listening-time tables). Likes,
          * playlists and "not interested" stay. Long.MAX_VALUE clears everything, as 5.9.1 did.
          */
+        /** sync_state key: the newest listening-history clear point (see [markHistoryCleared]). */
+        const val HISTORY_CLEARED_STATE = "history_cleared"
+
+        /**
+         * 5.10.0: makes a history clear reach Firestore (see LibrarySync's notes): saves the clear
+         * point, and queues history/cleared and a delete for each day wholly before it that this
+         * phone had. Days found only in Firestore are deleted when a pull meets them. Queued even
+         * while signed out: signing in clears the queue and the full merge queues the clear again.
+         */
+        internal fun markHistoryCleared(db: SQLiteDatabase, point: Long, days: Set<Int> = historyDays(db)) {
+            val old = db.rawQuery("SELECT v FROM sync_state WHERE k = ?", arrayOf(HISTORY_CLEARED_STATE)).use { c ->
+                if (c.moveToFirst()) c.getString(0)?.toLongOrNull() else null
+            }
+            if (old != null && old >= point) return
+            db.execSQL("INSERT OR REPLACE INTO sync_state (k, v) VALUES (?, ?)", arrayOf<Any>(HISTORY_CLEARED_STATE, point.toString()))
+            // a cleared play or day queued earlier would put it back
+            db.execSQL("DELETE FROM sync_outbox WHERE k LIKE 'E|%' AND substr(k, 3) NOT IN (SELECT event_id FROM plays WHERE event_id IS NOT NULL)")
+            val cutoff = com.minim.music.data.stats.Days.keyOf(point)
+            db.execSQL("DELETE FROM sync_outbox WHERE (k LIKE 'M|%' OR k LIKE 'N|%') AND CAST(substr(k, 3, instr(substr(k, 3), '|') - 1) AS INTEGER) < ?", arrayOf<Any>(cutoff))
+            db.execSQL("INSERT OR REPLACE INTO sync_outbox (k) VALUES ('C|')")
+            for (d in days) if (d < cutoff) db.execSQL("INSERT OR IGNORE INTO sync_outbox (k) VALUES (?)", arrayOf<Any>("XD|$d"))
+        }
+
+        private fun historyDays(db: SQLiteDatabase): Set<Int> {
+            val out = HashSet<Int>()
+            db.rawQuery("SELECT DISTINCT day FROM listen_time", null).use { c -> while (c.moveToNext()) out.add(c.getInt(0)) }
+            db.rawQuery("SELECT played_at FROM plays", null).use { c ->
+                while (c.moveToNext()) out.add(com.minim.music.data.stats.Days.keyOf(c.getLong(0)))
+            }
+            return out
+        }
+
+        /**
+         * Deletes the listening history before [before] ([Long.MAX_VALUE]: all of it). Clearing
+         * all of it (the Settings button) also marks the clear for Firestore; a clear merged from
+         * elsewhere is marked by its caller, before this, with its own point.
+         */
         internal fun deleteHistoryBefore(db: SQLiteDatabase, before: Long, day: Int, hour: Int) {
+            val days = if (before == Long.MAX_VALUE) historyDays(db) else null
+            deleteHistoryBeforeInner(db, before, day, hour)
+            if (days != null) markHistoryCleared(db, System.currentTimeMillis(), days)
+        }
+
+        private fun deleteHistoryBeforeInner(db: SQLiteDatabase, before: Long, day: Int, hour: Int) {
             val all = before == Long.MAX_VALUE
             val slot = "(day < ? OR (day = ? AND hour < ?))"
             val slotArgs = arrayOf(day.toString(), day.toString(), hour.toString())

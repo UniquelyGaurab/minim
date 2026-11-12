@@ -20,6 +20,15 @@ import java.io.File
  * - E|eventId          a counted play             -> history/{day} (p.{eventId})
  * - M|day|song         this phone's listening time and taps for a song on a day -> history/{day}
  * - N|day|song         same, every phone's numbers (only the full merge after signing in)
+ * - C|                 5.10.0: listening history cleared before a time -> history/cleared
+ * - XD|day             5.10.0: a day wholly before that time           -> history/{day} deleted
+ *
+ * Clearing listening history (on this phone, or a clear merged from another phone's backup)
+ * reaches Firestore twice over: history/cleared holds the newest clear point, which every 5.10.0
+ * phone signed in to the account applies and then filters its pulls by, and the day documents
+ * wholly before it are deleted, so a full merge (signing in again) cannot bring them back. The
+ * day of the clear itself is kept and filtered (it can hold other phones' later plays); 5.9.1
+ * phones skip history/cleared (its id is not a day).
  */
 class LibrarySync(
     private val lib: LibraryDatabase,
@@ -39,7 +48,7 @@ class LibrarySync(
     data class OutboxItem(val id: Long, val key: String)
 
     /** One Firestore write, relative to users/{uid}. [CloudSync] adds the "u" server time. */
-    data class CloudWrite(val path: String, val data: Map<String, Any?>, val merge: Boolean)
+    data class CloudWrite(val path: String, val data: Map<String, Any?>, val merge: Boolean, val delete: Boolean = false)
 
     data class RemoteDoc(val id: String, val data: Map<String, Any?>)
 
@@ -48,6 +57,9 @@ class LibrarySync(
     /** This phone's device key in synced listening time (set by [ensureDevice]). */
     @Volatile var myDevice: String = ""
         private set
+
+    /** The newest listening-history clear point this phone knows (its own or merged), or null. */
+    fun clearedBefore(): Long? = state(LibraryDatabase.HISTORY_CLEARED_STATE)?.toLongOrNull()
 
     // ---- small state table ---------------------------------------------------------------------
 
@@ -154,6 +166,8 @@ class LibrarySync(
             d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'H|' || track_id FROM not_interested")
             d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'P|' || uid FROM playlists WHERE uid IS NOT NULL")
             d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'P|' || uid FROM playlist_deleted")
+            // a history clear goes up with the full merge after signing in (cleared while signed out)
+            if (outbox == "sync_outbox" && clearedBefore() != null) enqueue(d, "C|")
             d.execSQL(
                 """
                 INSERT OR IGNORE INTO $outbox (k)
@@ -166,6 +180,47 @@ class LibrarySync(
             d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'N|' || day || '|' || track_id FROM listen_time GROUP BY day, track_id")
             val taps = ArrayList<Pair<String, Long>>()
             d.rawQuery("SELECT id, last_played_at FROM tracks WHERE last_played_at > 0", null).use { c ->
+                while (c.moveToNext()) taps.add(c.getString(0) to c.getLong(1))
+            }
+            for ((id, lp) in taps) enqueue(d, "N|${Days.keyOf(lp)}|$id")
+            d.setTransactionSuccessful()
+        } finally {
+            lib.endWrite(d)
+        }
+    }
+
+    /**
+     * Like [enqueueAll], but only what changed after [since] (a wall-clock time), with listening
+     * time from day [listenFromDay] on. For the import after a rollback to 5.9.1 and back: 5.9.1
+     * stores a change time with every like, "not interested", playlist edit and play, so anything
+     * older than the first upgrade is already in the log of the kept 5.10.0 copy, maybe changed
+     * since (an unlike, a removal, a clear). Recording it again would stamp it newer than those.
+     */
+    fun enqueueChangedSince(since: Long, listenFromDay: Int) {
+        val d = db
+        val at = arrayOf<Any>(since)
+        lib.beginWrite(d)
+        try {
+            d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'L|' || id FROM tracks WHERE like_changed_at > ?", at)
+            d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'H|' || track_id FROM not_interested WHERE added_at > ?", at)
+            d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'P|' || uid FROM playlists WHERE uid IS NOT NULL AND (changed_at > ? OR created_at > ?)", arrayOf<Any>(since, since))
+            d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'P|' || uid FROM playlist_deleted WHERE at > ?", at)
+            d.execSQL(
+                """
+                INSERT OR IGNORE INTO $outbox (k)
+                SELECT 'T|' || p.uid || '|' || pt.track_id FROM playlist_tracks pt
+                INNER JOIN playlists p ON p.id = pt.playlist_id WHERE p.uid IS NOT NULL AND pt.changed_at > ?
+                """.trimIndent(),
+                at
+            )
+            d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'T|' || playlist_uid || '|' || track_id FROM playlist_removed WHERE at > ?", at)
+            d.execSQL("INSERT OR IGNORE INTO $outbox (k) SELECT 'E|' || event_id FROM plays WHERE event_id IS NOT NULL AND played_at > ?", at)
+            d.execSQL(
+                "INSERT OR IGNORE INTO $outbox (k) SELECT 'N|' || day || '|' || track_id FROM listen_time WHERE day >= ? GROUP BY day, track_id",
+                arrayOf<Any>(listenFromDay)
+            )
+            val taps = ArrayList<Pair<String, Long>>()
+            d.rawQuery("SELECT id, last_played_at FROM tracks WHERE last_played_at > ?", arrayOf(since.toString())).use { c ->
                 while (c.moveToNext()) taps.add(c.getString(0) to c.getLong(1))
             }
             for ((id, lp) in taps) enqueue(d, "N|${Days.keyOf(lp)}|$id")
@@ -239,6 +294,15 @@ class LibrarySync(
                             }
                         }
                     }
+                }
+                "C" -> {
+                    val point = clearedBefore() ?: continue
+                    writes.add(CloudWrite(CLEARED_PATH, mapOf("c" to point), merge = false))
+                }
+                "XD" -> {
+                    val day = parts.getOrNull(1)?.toIntOrNull() ?: continue
+                    val point = clearedBefore() ?: continue
+                    if (day < Days.keyOf(point)) writes.add(CloudWrite("history/$day", emptyMap(), merge = false, delete = true))
                 }
                 "M", "N" -> {
                     val day = parts.getOrNull(1)?.toIntOrNull() ?: continue
@@ -542,8 +606,28 @@ class LibrarySync(
     fun applyHistory(docs: List<RemoteDoc>): Boolean = inTx { d ->
         var changed = false
         val me = myDevice
+        // a newer clear from another phone first, wherever it is in the page
+        docs.firstOrNull { it.id == CLEARED_ID }?.let { doc ->
+            val point = SyncCodec.num(doc.data["c"]) ?: return@let
+            val mine = clearedBefore()
+            if (mine == null || point > mine) {
+                LibraryDatabase.markHistoryCleared(d, point)
+                LibraryDatabase.deleteHistoryBefore(d, point, Days.keyOf(point), Days.hourOf(point))
+                lib.onRemoteHistoryClear?.invoke(point)
+                changed = true
+            }
+        }
+        val cleared = clearedBefore()
+        val clearDay = cleared?.let { Days.keyOf(it) }
+        val clearHour = cleared?.let { Days.hourOf(it) } ?: 0
         for (doc in docs) {
+            if (doc.id == CLEARED_ID) continue
             val day = SyncCodec.num(doc.data["d"])?.toInt() ?: doc.id.toIntOrNull() ?: continue
+            if (clearDay != null && day < clearDay) {
+                // wholly cleared: never applied, and deleted from Firestore when it came from there
+                if (outbox == "sync_outbox") enqueue(d, "XD|$day")
+                continue
+            }
             val songs = HashMap<String, SongMeta>()
             for ((k, v) in SyncCodec.map(doc.data["s"])) SyncCodec.decodeMeta(v)?.let { songs[k] = it }
 
@@ -551,6 +635,7 @@ class LibrarySync(
             for ((eid, v) in SyncCodec.map(doc.data["p"])) {
                 val ev = SyncCodec.decodePlay(v) ?: continue
                 if (!SyncIds.isSyncableSongId(ev.songId)) continue
+                if (cleared != null && ev.playedAt < cleared) continue
                 var localMs: Long? = null
                 d.rawQuery("SELECT listened_ms FROM plays WHERE event_id = ?", arrayOf(eid)).use { c ->
                     if (c.moveToFirst()) localMs = c.getLong(0)
@@ -591,6 +676,7 @@ class LibrarySync(
                     entries[k] = ms
                     val (hour, song) = SyncCodec.parseListenKey(k) ?: continue
                     if (!SyncIds.isSyncableSongId(song)) continue
+                    if (clearDay != null && day == clearDay && hour < clearHour) continue
                     if (skipOtherListening && dev != me) continue
                     val localDev = if (dev == me) "" else dev
                     val m = songs[song]
@@ -690,5 +776,10 @@ class LibrarySync(
         } finally {
             lib.endWrite(d)
         }
+    }
+
+    companion object {
+        const val CLEARED_ID = "cleared"
+        const val CLEARED_PATH = "history/$CLEARED_ID"
     }
 }

@@ -1,5 +1,6 @@
 package com.minim.music.data.fermata
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.provider.Settings
@@ -103,10 +104,14 @@ class FermataBridge(
     /** Test hook: runs inside the first-launch import's transaction, after the import. */
     @Volatile internal var afterImportForTest: (() -> Unit)? = null
 
+    /** Tests: runs as the log is applied to the tables (throw to stand in for a kill there). */
+    @Volatile internal var beforeApplyForTest: (() -> Unit)? = null
+
     private val gate = object : LibraryDatabase.WriteGate {
         override val lock get() = fermata.writeLock
         override fun onCommit(db: SQLiteDatabase) = drain(db)
         override fun onRollback() = fermata.rolledBack()
+        override fun timestamp(): Long = fermata.timestamp()
     }
 
     /**
@@ -125,7 +130,41 @@ class FermataBridge(
         sync.ensureDevice(deviceKey())
         lib.writeGate = gate
         lib.onClearHistory = { db -> onClearHistory(db) }
+        // a clear that came from Firestore goes into the log too, so folder backups carry it
+        lib.onRemoteHistoryClear = { point -> fermata.clearHistory(point) }
+        // Ids the import will bring in under their own numbers are taken from the first write on,
+        // not only once the import has run (a like in between took id 1 and dropped an old play).
+        fermata.reserveCountersThrough(takenCounters())
+        fermata.setApplier { change -> applyChange(change) }
         fermata.addListener { change -> onChange(change) }
+    }
+
+    /**
+     * The highest id of this phone that is not in the log yet but will be: 5.9.0's
+     * `fermata_events` rows (imported as `EventId(device_id, id)`), and after a rollback to 5.9.1
+     * and back, the kept 5.10.0 copy's log (loaded in [finishStart]).
+     */
+    internal fun takenCounters(): Long {
+        var max = 0L
+        try {
+            lib.readableDatabase.rawQuery(
+                "SELECT MAX(id) FROM fermata_events WHERE device_id = ?", arrayOf(fermata.deviceId)
+            ).use { c -> if (c.moveToFirst() && !c.isNull(0)) max = c.getLong(0) }
+        } catch (_: Exception) {
+            // no fermata_events table (a library from before 5.9.0)
+        }
+        val prev = context.getDatabasePath(LibraryFiles.PREVIOUS_NAME)
+        if (prev.exists() && !imported()) {
+            try {
+                SQLiteDatabase.openDatabase(prev.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+                    SqliteEventStore.inDatabase(LibraryDatabase.FERMATA_LOG_TABLE) { db }.heads()[fermata.deviceId]
+                        ?.let { if (it > max) max = it }
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "previous copy's ids", t)
+            }
+        }
+        return max
     }
 
     /** The slow part of [start] (the first-launch import), on a background thread. */
@@ -184,11 +223,28 @@ class FermataBridge(
             lib.inWrite { db ->
                 if (meta("imported") != null) return@inWrite
                 val r = fermata.importMinim(MinimDatabaseReader.read(db))
-                sync.enqueueAll()
-                db.execSQL("INSERT OR IGNORE INTO fermata_outbox (k) SELECT 'TP|' || id FROM tape_plays WHERE fermata_key IS NULL")
-                db.execSQL("INSERT OR IGNORE INTO fermata_outbox (k) SELECT DISTINCT 'TL|' || day || '|' || video_id FROM tape_listen_time")
-                // Likes and "not interested" as Fermata's own events too, for taste
-                db.execSQL("INSERT OR IGNORE INTO fermata_outbox (k) SELECT 'L|' || id FROM tracks WHERE is_liked = 1")
+                val since = reUpgrade
+                if (since == null) {
+                    sync.enqueueAll()
+                    db.execSQL("INSERT OR IGNORE INTO fermata_outbox (k) SELECT 'TP|' || id FROM tape_plays WHERE fermata_key IS NULL")
+                    db.execSQL("INSERT OR IGNORE INTO fermata_outbox (k) SELECT DISTINCT 'TL|' || day || '|' || video_id FROM tape_listen_time")
+                    // Likes and "not interested" as Fermata's own events too, for taste
+                    db.execSQL("INSERT OR IGNORE INTO fermata_outbox (k) SELECT 'L|' || id FROM tracks WHERE is_liked = 1")
+                } else {
+                    // After a rollback and back: only what 5.9.1 changed since the kept copy's
+                    // import. The rest is in the kept copy's log, with any later unlike, removal
+                    // or clear, and recoverPrevious applies that to the tables.
+                    // The clear the kept copy recorded covers these tables' copies of the old
+                    // history too: drop them first, so none of it is recorded again.
+                    fermata.clearedBefore()?.let { point ->
+                        val hour = java.time.Instant.ofEpochMilli(point).atZone(java.time.ZoneId.systemDefault()).hour
+                        LibraryDatabase.deleteHistoryBefore(db, point, Days.keyOf(point), hour)
+                    }
+                    val fromDay = Days.keyOf(since)
+                    sync.enqueueChangedSince(since, fromDay)
+                    db.execSQL("INSERT OR IGNORE INTO fermata_outbox (k) SELECT 'TP|' || id FROM tape_plays WHERE fermata_key IS NULL AND played_at > ?", arrayOf<Any>(since))
+                    db.execSQL("INSERT OR IGNORE INTO fermata_outbox (k) SELECT DISTINCT 'TL|' || day || '|' || video_id FROM tape_listen_time WHERE day >= ?", arrayOf<Any>(fromDay))
+                }
                 setMeta(db, "imported", "${System.currentTimeMillis()} ${r.added}")
                 afterImportForTest?.invoke()
             }
@@ -219,6 +275,7 @@ class FermataBridge(
         val prev = context.getDatabasePath(LibraryFiles.PREVIOUS_NAME)
         if (!prev.exists() || imported()) return
         val events = previousEvents(prev)
+        reUpgrade = previousImportTime(prev) ?: events.minOfOrNull { it.ctx.timestamp } ?: 0L
         applying.set(true)
         try {
             fermata.merge(events)
@@ -227,11 +284,40 @@ class FermataBridge(
         }
     }
 
+    /**
+     * When the kept copy did its own first-launch import: everything 5.9.1's tables held then is
+     * in that copy's log already, so the import after the rollback only records what changed
+     * after it. Null when the copy never finished its import.
+     */
+    private fun previousImportTime(prev: File): Long? = try {
+        SQLiteDatabase.openDatabase(prev.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+            db.rawQuery("SELECT v FROM fermata_meta WHERE k = 'imported'", null).use { c ->
+                if (c.moveToFirst()) c.getString(0)?.substringBefore(' ')?.toLongOrNull() else null
+            }
+        }
+    } catch (t: Throwable) {
+        Log.w(TAG, "previous copy's import time", t)
+        null
+    }
+
+    /** Set by [loadPreviousLog]: this start is a re-upgrade, and when the kept copy imported. */
+    @Volatile private var reUpgrade: Long? = null
+
     private fun recoverPrevious() {
         val prev = context.getDatabasePath(LibraryFiles.PREVIOUS_NAME)
         if (!prev.exists() || !imported()) return
         fermata.merge(previousEvents(prev))
-        applyPaths(null)
+        // One transaction: the kept copy's clears, unlikes and removals win over the older
+        // state 5.9.1's tables still hold. A kill before the copy is deleted runs this again.
+        applying.set(true)
+        try {
+            lib.inWrite {
+                fermata.clearedBefore()?.let { applyClear(it) }
+                applyPaths(null)
+            }
+        } finally {
+            applying.set(false)
+        }
         changed()
         for (sfx in listOf("", "-wal", "-shm", "-journal")) File(prev.path + sfx).delete()
     }
@@ -344,17 +430,28 @@ class FermataBridge(
 
     // ---- the log back into the tables ----------------------------------------------------------
 
+    /**
+     * Brings a merge, import or restore into the screens' tables. Fermata runs this inside the
+     * transaction that adds the events to the log (the log lives in this database), so both are
+     * saved together. If it throws, the merge throws and nothing of it is kept: the next merge
+     * brings the same events again, and the error reaches the caller (the status line).
+     */
+    private fun applyChange(change: Fermata.Change) {
+        if (applying.get() || !imported()) return
+        if (change.historyCleared) fermata.clearedBefore()?.let { applyClear(it) }
+        val paths = pathsOf(change)
+        if (paths == null || paths.isNotEmpty()) applyPaths(paths)
+    }
+
+    private fun pathsOf(change: Fermata.Change): Set<String>? =
+        if (change.origin == Fermata.ChangeOrigin.RESTORE) null
+        else change.added.mapNotNullTo(HashSet()) { writeOf(it)?.first }
+
+    /** After the change is saved: reload caches and tell the screens. */
     private fun onChange(change: Fermata.Change) {
         if (applying.get() || !imported()) return
-        try {
-            if (change.historyCleared) fermata.clearedBefore()?.let { applyClear(it) }
-            val paths = if (change.origin == Fermata.ChangeOrigin.RESTORE) null
-            else change.added.mapNotNullTo(HashSet()) { writeOf(it)?.first }
-            if (paths == null || paths.isNotEmpty()) applyPaths(paths)
-            if (change.historyCleared || paths == null || paths.isNotEmpty()) changed()
-        } catch (t: Throwable) {
-            Log.w(TAG, "applying ${change.origin}", t)
-        }
+        val paths = pathsOf(change)
+        if (change.historyCleared || paths == null || paths.isNotEmpty()) changed()
     }
 
     /**
@@ -362,23 +459,54 @@ class FermataBridge(
      * Firestore merges them: a full write replaces the document, a merge write merges map fields
      * into it, nested maps included.
      */
-    fun foldedDocs(): Map<String, Map<String, Any?>> {
+    fun foldedDocs(): Map<String, Map<String, Any?>> = fold().first
+
+    /**
+     * [foldedDocs], and for each path whose latest write replaces the document, that write as
+     * recorded (what [recordWrite] hashes).
+     */
+    private fun fold(): Pair<Map<String, Map<String, Any?>>, Map<String, String>> {
         val writes = fermata.events().mapNotNull { e -> writeOf(e)?.let { e to it } }
             .sortedWith(compareBy({ it.first.timestamp }, { it.first.id.device }, { it.first.id.counter }))
         val docs = LinkedHashMap<String, MutableMap<String, Any?>>()
-        for ((_, w) in writes) {
+        val latest = HashMap<String, String>()
+        for ((e, w) in writes) {
             val (path, merge, data) = w
-            if (!merge) docs[path] = deepCopy(data) else deepMerge(docs.getOrPut(path) { LinkedHashMap() }, data)
+            if (!merge) {
+                docs[path] = deepCopy(data)
+                latest[path] = (e.body as EventBody.Unknown).json
+            } else {
+                deepMerge(docs.getOrPut(path) { LinkedHashMap() }, data)
+                latest.remove(path)
+            }
         }
-        return docs
+        return docs to latest
     }
 
     /** Applies the folded documents at [paths] (all when null) to the tables. */
     fun applyPaths(paths: Set<String>?) {
-        val docs = foldedDocs().filterKeys { paths == null || it in paths }
+        beforeApplyForTest?.invoke()
+        val (all, latest) = fold()
+        val docs = all.filterKeys { paths == null || it in paths }
         if (docs.isEmpty()) return
+        // What recordWrite compares with is the log's latest write for the path, whichever phone
+        // made it, not this phone's own last write: when the tables keep a newer state than the
+        // log's latest (an older change merged in later), that state is recorded again even if
+        // this phone recorded the same document before. Skipping it left the log saying "liked"
+        // while the screen said "not liked", on one phone and then on the others.
+        lib.inWrite { db ->
+            for (path in docs.keys) {
+                val json = latest[path]
+                if (json != null) {
+                    db.execSQL("INSERT OR REPLACE INTO fermata_written (path, hash) VALUES (?, ?)", arrayOf<Any>(path, sha1(json)))
+                } else if (!path.startsWith("history/") && !path.startsWith("tape_")) {
+                    db.execSQL("DELETE FROM fermata_written WHERE path = ?", arrayOf<Any>(path))
+                }
+            }
+        }
         fun group(prefix: String) = docs.filterKeys { it.startsWith(prefix) }
             .map { (k, v) -> LibrarySync.RemoteDoc(k.substring(prefix.length), v) }
+        val was = applying.get()
         applying.set(true)
         try {
             group("likes/").takeIf { it.isNotEmpty() }?.let { sync.applyLikes(it) }
@@ -390,7 +518,7 @@ class FermataBridge(
             val tapes = docs.filterKeys { it.startsWith("tape_") }
             if (tapes.isNotEmpty()) lib.inWrite { db -> for ((p, d) in tapes) applyTape(db, p, d) }
         } finally {
-            applying.set(false)
+            applying.set(was)
         }
     }
 
@@ -442,11 +570,16 @@ class FermataBridge(
     internal fun applyClear(before: Long) {
         val day = Days.keyOf(before)
         val hour = java.time.Instant.ofEpochMilli(before).atZone(java.time.ZoneId.systemDefault()).hour
+        val was = applying.get()
         applying.set(true)
         try {
-            lib.inWrite { db -> LibraryDatabase.deleteHistoryBefore(db, before, day, hour) }
+            lib.inWrite { db ->
+                // a clear merged from another phone's backup reaches Firestore from here too
+                LibraryDatabase.markHistoryCleared(db, before)
+                LibraryDatabase.deleteHistoryBefore(db, before, day, hour)
+            }
         } finally {
-            applying.set(false)
+            applying.set(was)
         }
     }
 
@@ -454,6 +587,7 @@ class FermataBridge(
 
     /** Called by LibraryDatabase.clearHistory inside its transaction. */
     internal fun onClearHistory(db: SQLiteDatabase) {
+        // Firestore's history/cleared was marked by deleteHistoryBefore, at the wall-clock time
         fermata.clearHistory()
         db.execSQL("DELETE FROM fermata_written WHERE path LIKE 'history/%' OR path LIKE 'tape_%'")
         db.execSQL("DELETE FROM fermata_journal")
@@ -549,6 +683,7 @@ class FermataBridge(
     // ---- helpers -------------------------------------------------------------------------------
 
     /** Same key as CloudSync's, so Firestore and the backups name this phone the same way. */
+    @SuppressLint("HardwareIds") // hashed into the same key CloudSync uses, never sent as it is
     private fun deviceKey(): String {
         val androidId = try {
             Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
