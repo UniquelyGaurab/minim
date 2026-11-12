@@ -264,15 +264,26 @@ class SettingsRevampTest {
         return false
     }
 
-    /** 6.0.0: the notice names the engine Minim Fermata and doesn't claim recommendations are on yet. */
+    /** 6.0.0: the notice names the engine Minim Fermata. 6.1.1: and says its recommendations are here. */
     @Test
     fun v6NoticeNamesMinimFermata() {
         val a = openSettings()
         val body = a.findViewById<TextView>(R.id.settings_v6_notice_body).text.toString()
         assertTrue(body, body.contains("Minim Fermata"))
-        assertTrue(body, body.contains("recommendations from Minim Fermata are coming next"))
+        assertTrue(body, body.contains("Recommendations from Minim Fermata are here"))
+        assertTrue(body, body.contains("the radio and Discover"))
+        assertFalse(body, body.contains("coming next"))
         assertFalse(body, body.contains("coming in V6"))
         assertFalse(body, Regex("\\bFermata\\b").findAll(body).any { m -> !body.startsWith("Minim ", m.range.first - 6) })
+    }
+
+    /** 6.1.1: the notice's body text is painted with the readable body colour, not muted. */
+    @Test
+    fun v6NoticeBodyIsReadable() {
+        val a = openSettings()
+        val body = a.findViewById<TextView>(R.id.settings_v6_notice_body)
+        assertEquals("text:body", body.tag)
+        assertTrue(body.currentTextColor != a.findViewById<TextView>(R.id.set_credits).currentTextColor)
     }
 
     /** 5.10.1 (V6): the notice closes, stays closed, and About brings it back. */

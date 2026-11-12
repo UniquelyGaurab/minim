@@ -67,7 +67,7 @@ data class Pal(val bg: Int, val fg: Int, val muted: Int) {
  * Colours views from the `android:tag` roles written in the layouts:
  *   bg            -> background colour = bg
  *   fill:fg|bg    -> background drawable tinted (filled or outlined shapes)
- *   text:fg|bg|muted -> text colour
+ *   text:fg|bg|muted|body -> text colour (body: 6.1.1, readable paragraph text)
  *   tint:fg|bg    -> icon tint
  *   opt           -> settings option pill (filled when selected, outlined otherwise)
  *   unpainted     -> this view and everything inside keep their own colours (v4.9.8: the full
@@ -94,6 +94,8 @@ object Painter {
         "muted" -> p.muted
         // v4.8: soft tint of the main colour, for the pill rows in sheets
         "soft" -> ColorUtils.setAlphaComponent(p.fg, 0x1C)
+        // 6.1.1: softer than fg but far easier to read than muted, for longer text on a soft card
+        "body" -> bodyText(p)
         else -> p.fg
     }
 
@@ -120,6 +122,31 @@ object Painter {
             }
         }
     }
+
+    /**
+     * 6.1.1: text colour for paragraphs that need to be read, not glanced at (the "No more accounts"
+     * note). Muted got too faint on cover colours (about 2:1 on a dark teal card), so this is the
+     * main colour blended a little towards the background: softer than titles, still the cover's
+     * hue, and as readable as the palette allows. On strong palettes it softens until it's at 7:1;
+     * on cover colours, where the title itself is only about 5:1, it stays within 15% of the
+     * title's contrast.
+     */
+    fun bodyText(p: Pal): Int {
+        val card = ColorUtils.compositeColors(ColorUtils.setAlphaComponent(p.fg, 0x1C), p.bg)
+        val target = minOf(BODY_MIN_STRONG, ColorUtils.calculateContrast(p.fg, card) * BODY_OF_TITLE)
+        var f = BODY_MAX_BLEND
+        while (f > BODY_MIN_BLEND) {
+            val c = ColorUtils.blendARGB(p.fg, p.bg, f)
+            if (ColorUtils.calculateContrast(c, card) >= target) return c
+            f -= 0.02f
+        }
+        return ColorUtils.blendARGB(p.fg, p.bg, BODY_MIN_BLEND)
+    }
+
+    const val BODY_MAX_BLEND = 0.30f
+    const val BODY_MIN_BLEND = 0.06f
+    const val BODY_MIN_STRONG = 7.0
+    const val BODY_OF_TITLE = 0.85
 
     /** True when the background is light, so the status bar needs dark icons. */
     fun isLight(color: Int): Boolean = ColorUtils.calculateLuminance(color) > 0.5

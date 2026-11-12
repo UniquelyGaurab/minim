@@ -25,6 +25,12 @@ Fixes from Dev's review of 6.1.0.
 - **Clear history refreshes Discover straight away,** instead of showing shelves from the cleared plays for a few more hours
 - The radio rechecks the queue after putting a batch in your order, so a song you queued meanwhile isn't added twice, and one you hid isn't added at all
 
+Also in 6.1.1:
+
+- **Shorter backup counts:** Backup & restore shows "3.8K events" instead of "3785 events", then M and B for bigger numbers
+- **Tapes captions start off:** tap CC on Now Playing to turn them on, and tap it again to turn them off. The CC button is faded while they're off. Your choice carries over to the next tape until Minim is closed
+- **The "No more accounts" note** is easier to read, and now says Minim Fermata's recommendations are here, in the radio and Discover
+
 ## 6.1.0 (unreleased)
 
 Recommendations from Minim Fermata, worked out on your phone.

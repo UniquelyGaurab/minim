@@ -59,8 +59,8 @@
             android:src="@drawable/ic_more_vert"
             android:tag="tint:fg" />
 
-        <!-- 5.7.0 u46: stories uploads only: opens their captions (Full Screen Lyrics). Songs never
-             show it, so their top row is unchanged. -->
+        <!-- 5.7.0 u46: stories uploads only. 6.1.1: turns their captions on and off (off by default;
+             faded while off). Songs never show it, so their top row is unchanged. -->
         <ImageView
             android:id="@+id/np_cc"
             android:layout_width="40dp"

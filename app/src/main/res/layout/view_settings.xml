@@ -107,7 +107,7 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- 5.10.1 (V6): why Firebase went, and what's next. Close hides it; About → Read brings it back -->
+        <!-- 5.10.1 (V6): why Firebase went, and what's new. 6.1.1: the body uses text:body so it reads on any cover colour. Close hides it; About → Read brings it back -->
         <LinearLayout
             android:id="@+id/settings_v6_notice"
             android:layout_width="match_parent"
@@ -155,6 +155,7 @@
                 android:layout_marginTop="6dp"
                 android:layout_marginEnd="8dp"
                 android:lineSpacingExtra="4dp"
+                android:tag="text:body"
                 android:text="@string/v6_notice_body" />
         </LinearLayout>
 

@@ -804,6 +804,8 @@ class FullscreenLyrics(
         }
         val caps = isCaptions()
         showMessage(when {
+            // 6.1.1: captions switched off (CC on Now Playing turns them on)
+            mode == NowPlayingLyricSlot.Mode.NONE && com.minim.music.data.captions.CaptionLyrics.isOff(lyrics) -> R.string.captions_off
             mode == NowPlayingLyricSlot.Mode.NONE && caps -> R.string.captions_none
             mode == NowPlayingLyricSlot.Mode.NONE -> R.string.lyrics_unavailable
             caps -> R.string.captions_loading

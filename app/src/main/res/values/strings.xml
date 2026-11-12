@@ -53,6 +53,10 @@
     <string name="captions_switch">Captions: %1$s. Tap to switch</string>
     <string name="captions_auto">%1$s · auto</string>
     <string name="np_captions">Captions</string>
+    <!-- 6.1.1: captions on tapes start off; CC turns them on and off -->
+    <string name="captions_state_on">On</string>
+    <string name="captions_state_off">Off</string>
+    <string name="captions_off">Captions are off. Tap CC in Now Playing to turn them on.</string>
     <!-- 5.7.0 u46: stories shelves -->
     <string name="stories_continue">Continue listening</string>
     <string name="stories_new_week">New this week</string>
@@ -170,9 +174,9 @@
     <string name="profile_photo_removed">Photo removed</string>
     <string name="v6_notice_title">No more accounts</string>
     <string name="v6_notice_close">Close this note</string>
-    <string name="v6_notice_body">Google sign-in and Firebase are gone from Minim. Minim collects nothing now, there are no accounts, and your library stays on your phone. Signing in with Google inside an app you install yourself felt sketchy, so it had to go.\n\nThe old cloud copy of your library is being deleted. Built-in Gemini went with it, so add your own free Google AI Studio key under Gemini to keep lyrics, translation and chat working.\n\nNew in V6 is Minim Fermata, Minim\'s own on-device engine. It keeps your library and listening history on this phone, backs them up to a folder you pick, and syncs your phones through a shared folder. On-device recommendations from Minim Fermata are coming next.</string>
+    <string name="v6_notice_body">Google sign-in and Firebase are gone from Minim. Minim collects nothing now, there are no accounts, and your library stays on your phone. Signing in with Google inside an app you install yourself felt sketchy, so it had to go.\n\nThe old cloud copy of your library is being deleted. Built-in Gemini went with it, so add your own free Google AI Studio key under Gemini to keep lyrics, translation and chat working.\n\nNew in V6 is Minim Fermata, Minim\'s own on-device engine. It keeps your library and listening history on this phone, backs them up to a folder you pick, and syncs your phones through a shared folder. Recommendations from Minim Fermata are here too: the radio and Discover are put in your order on this phone, from what you like, play and skip.</string>
     <string name="v6_notice_about_label">Why there\'s no account</string>
-    <string name="v6_notice_about_hint">What changed and what\'s next</string>
+    <string name="v6_notice_about_hint">What changed in V6</string>
     <string name="v6_notice_read">Read</string>
     <string name="settings_group_look">Look</string>
     <string name="settings_group_sound">Sound</string>
@@ -700,8 +704,8 @@
     <string name="backup_running">Backing up…</string>
     <string name="backup_last">Last backup %1$s · %2$s</string>
     <plurals name="backup_events">
-        <item quantity="one">%1$d event</item>
-        <item quantity="other">%1$d events</item>
+        <item quantity="one">%1$s event</item>
+        <item quantity="other">%1$s events</item>
     </plurals>
     <string name="backup_failed">Last backup failed: %1$s</string>
     <string name="backup_restore_label">Restore</string>
@@ -717,12 +721,12 @@
     <string name="backup_other_phone">Phone %1$s</string>
     <string name="backup_unreadable">Can\'t be restored: %1$s</string>
     <plurals name="backup_restored">
-        <item quantity="one">Restored %1$d event</item>
-        <item quantity="other">Restored %1$d events</item>
+        <item quantity="one">Restored %1$s event</item>
+        <item quantity="other">Restored %1$s events</item>
     </plurals>
     <plurals name="backup_merged">
-        <item quantity="one">Merged %1$d new event from the backup</item>
-        <item quantity="other">Merged %1$d new events from the backup</item>
+        <item quantity="one">Merged %1$s new event from the backup</item>
+        <item quantity="other">Merged %1$s new events from the backup</item>
     </plurals>
     <string name="backup_merged_nothing">Nothing new in that backup</string>
     <string name="backup_restoring">Restoring…</string>

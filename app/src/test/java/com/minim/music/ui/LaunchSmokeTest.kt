@@ -782,4 +782,24 @@ class LaunchSmokeTest {
         assertTrue(NowPlayingLyricSlot.slotOpensFullscreen(NowPlayingLyricSlot.Mode.LINES, isStory = true))
         assertFalse(NowPlayingLyricSlot.slotOpensFullscreen(NowPlayingLyricSlot.Mode.NONE, isStory = true))
     }
+
+    /** 6.1.1: tape captions are off until CC is tapped, and the same button turns them off again. */
+    @Test
+    fun ccTurnsTapeCaptionsOnAndOff() {
+        val a = launch()
+        val pc = com.minim.music.MinimApp.instance.playbackController
+        val cc = a.findViewById<View>(R.id.np_cc)
+        assertFalse(pc.captionsOn.value)
+        assertEquals(com.minim.music.data.stories.NowPlayingCaptions.CC_OFF_ALPHA, cc.alpha, 0.001f)
+        cc.performClick()
+        idle(1)
+        assertTrue(pc.captionsOn.value)
+        assertEquals(1f, cc.alpha, 0.001f)
+        assertEquals("On", androidx.core.view.ViewCompat.getStateDescription(cc)?.toString())
+        cc.performClick()
+        idle(1)
+        assertFalse(pc.captionsOn.value)
+        assertEquals(com.minim.music.data.stories.NowPlayingCaptions.CC_OFF_ALPHA, cc.alpha, 0.001f)
+        assertEquals("Off", androidx.core.view.ViewCompat.getStateDescription(cc)?.toString())
+    }
 }

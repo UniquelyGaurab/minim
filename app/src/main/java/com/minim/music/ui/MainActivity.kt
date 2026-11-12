@@ -4360,10 +4360,14 @@ class MainActivity : AppCompatActivity() {
             if (on) removeOffline(listOf(track.id)) else saveOffline(listOf(track))
             renderNpDownload()
         }
+        // 6.1.1: CC turns a tape's captions on (they show in the lyric line; tap it for full screen)
+        // and off again. Captions start off. Before 6.1.1 they always loaded and CC opened them.
         findViewById<View>(R.id.np_cc).setOnClickListener { v ->
             haptic(v, HapticFeedbackConstants.KEYBOARD_TAP)
-            openFullscreenLyrics()
+            app.playbackController.setCaptionsOn(!app.playbackController.captionsOn.value)
+            renderNpCc()
         }
+        renderNpCc()
         // v4.9.8: "Up Next" pill (was "swipe up for lyrics"; the long-press for Up next is gone)
         findViewById<View>(R.id.np_up_next).setOnClickListener { v ->
             haptic(v)
@@ -5529,6 +5533,7 @@ class MainActivity : AppCompatActivity() {
                 launch { app.playbackController.uiState.collect { renderPlayback(it) } }
                 launch { app.playbackController.lyricsState.collect { renderLyrics(it) } }
                 launch { app.playbackController.captionChoice.collect { renderCaptionPill(it) } }
+                launch { app.playbackController.captionsOn.collect { renderNpCc() } }
                 // v4.9.6: update download progress / done / failed
                 launch { app.updates.state.collect { onUpdateFlowState(it) } }
                 launch { app.database.likedIds.collect { renderLikes(it); greetingFactsAt = 0L } }
@@ -5778,13 +5783,17 @@ class MainActivity : AppCompatActivity() {
         npLyricMode = NowPlayingLyricSlot.mode(npData)
         applyNpLyricMode()
         // v4.9.9: the line view fades out the old song's line in place (instant when it can't be seen)
-        npLyric.setLyrics(npData, getString(
-            when {
-                ai -> R.string.ai_lyrics_np_hint
-                com.minim.music.data.captions.CaptionLyrics.isCaptions(data) -> R.string.captions_none
-                else -> R.string.np_lyrics_unavailable
-            }
-        ), animate = true)
+        npLyric.setLyrics(npData, when {
+            // 6.1.1: captions switched off: the line stays empty
+            com.minim.music.data.captions.CaptionLyrics.isOff(data) -> ""
+            else -> getString(
+                when {
+                    ai -> R.string.ai_lyrics_np_hint
+                    com.minim.music.data.captions.CaptionLyrics.isCaptions(data) -> R.string.captions_none
+                    else -> R.string.np_lyrics_unavailable
+                }
+            )
+        }, animate = true)
         // v4.9.8: the full screen lyrics get the same lyrics (untimed ones show without highlighting)
         fsLyrics.setLyrics(data)
         updateAiLyricsSong(data)
@@ -5838,17 +5847,27 @@ class MainActivity : AppCompatActivity() {
             tappable && npLyricMode == NowPlayingLyricSlot.Mode.NONE -> getString(R.string.np_lyrics_unavailable) + ". " + getString(R.string.np_open_lyrics)
             tappable -> getString(R.string.np_open_lyrics)
             // v4.9.9: the slot is a layout now, so TalkBack reads the message from here
+            npLyricMode == NowPlayingLyricSlot.Mode.NONE && com.minim.music.data.captions.CaptionLyrics.isOff(lyrics) -> null
             npLyricMode == NowPlayingLyricSlot.Mode.NONE -> getString(
                 if (com.minim.music.data.captions.CaptionLyrics.isCaptions(lyrics)) R.string.captions_none else R.string.np_lyrics_unavailable
             )
             else -> null
         }
         npLyric.importantForAccessibility =
-            if (tappable || npLyricMode == NowPlayingLyricSlot.Mode.NONE) View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            if (tappable || (npLyricMode == NowPlayingLyricSlot.Mode.NONE && !com.minim.music.data.captions.CaptionLyrics.isOff(lyrics))) View.IMPORTANT_FOR_ACCESSIBILITY_YES
             else View.IMPORTANT_FOR_ACCESSIBILITY_NO
     }
 
     /** A light haptic tick, if it's on in Settings (the phone's own haptics setting also applies). */
+    /** 6.1.1: the CC button shows whether captions are on (full strength) or off (faded). */
+    private fun renderNpCc() {
+        val cc = findViewById<View>(R.id.np_cc) ?: return
+        val on = app.playbackController.captionsOn.value
+        cc.alpha = com.minim.music.data.stories.NowPlayingCaptions.ccAlpha(on)
+        cc.isSelected = on
+        androidx.core.view.ViewCompat.setStateDescription(cc, getString(if (on) R.string.captions_state_on else R.string.captions_state_off))
+    }
+
     /** 5.7.0 u46: the caption switch pill in Full Screen Lyrics (only with two or more tracks). */
     private fun renderCaptionPill(choice: com.minim.music.playback.PlaybackController.CaptionChoice?) {
         val current = app.playbackController.uiState.value.currentTrack

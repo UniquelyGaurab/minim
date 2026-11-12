@@ -51,15 +51,14 @@ Coming from 5.x? V6 installs as an update and keeps your library, likes, playlis
 
 A fermata is the music symbol that says "hold this note longer". Minim Fermata is the part of Minim that holds on to your music life, on your phone and nowhere else. It's developed in its own repo, [minim-fermata](https://github.com/UniquelyGaurab/minim-fermata), and built into Minim from source.
 
-What it does in V6:
+What it does:
 
 - **Keeps an on-device log** of everything you do in your library: likes and unlikes, playlist edits, "not interested", plays, skips and tapes. Your library, history and stats are built from that log, and each change is saved together with what the screens show, so closing Minim mid-song can't leave them disagreeing.
 - **Backs up** the log as a `.minim` file to a folder you pick. Your Gemini key and other settings are never written to a backup.
 - **Restores** any backup in that folder, from this phone or another one. A restore is merged into what's already on the phone; it never wipes the phone first.
 - **Merges your phones.** Phones that back up into the same folder pick up each other's likes, playlists and plays, without counting anything twice. When two phones disagree (a like on one, an unlike on the other), the newer change wins on both.
 - **Clears history everywhere.** Clear history removes your plays, stats and listening time from this phone, your backups and your other phones. Likes and playlists stay.
-
-What it doesn't do yet: **recommendations**. Minim Fermata's repo already has a simple on-device taste score and ranking, built and tested, but V6 doesn't use them. Discover is still built from your play history and YouTube mixes of your songs, and the radio queue still follows YouTube's mix. Minim Fermata is the foundation, and on-device recommendations that learn only from you are coming next.
+- **Recommendations, on your phone (6.1).** YouTube still picks the songs for the radio and Discover's mixes, and Minim Fermata puts them in your order from what you like, play and skip. Songs you skip early move down, a song you've skipped early twice in a row is left out until you play it again, and "Not interested" hides a song from Discover and the radio (with Undo). Discover also gets "Because you like" and "Forgotten favourites". New listeners get the old order until Minim has heard about 30 plays across 10 songs. None of it uses the network: it's worked out on the device from your own log.
 
 ## Install
 

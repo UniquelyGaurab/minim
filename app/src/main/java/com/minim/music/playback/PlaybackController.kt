@@ -191,9 +191,13 @@ class PlaybackController(
         if (com.minim.music.data.stories.StoryTracks.isStory(track)) {
             // 5.7.0 u44: stories uploads aren't songs, so no lyrics lookup (it would only find wrong ones).
             // 5.7.0 u46: their YouTube captions show instead.
-            lyricsJob = scope.launch { loadCaptions(track.id, null) }
+            // 6.1.1: only once the CC button has turned captions on; until then nothing is fetched.
+            captionVideoId = track.id
+            if (_captionsOn.value) lyricsJob = scope.launch { loadCaptions(track.id, null) }
+            else _lyricsState.value = com.minim.music.data.captions.CaptionLyrics.off(track.id)
             return
         }
+        captionVideoId = null
         lyricsJob = scope.launch {
             val lyrics = try {
                 lyricsProvider.getLyrics(track)
@@ -245,6 +249,32 @@ class PlaybackController(
     )
 
     private val _captionChoice = MutableStateFlow<CaptionChoice?>(null)
+
+    /**
+     * 6.1.1: whether captions show on tapes. Off until the CC button turns them on (and the same
+     * button turns them off). Kept while Minim runs, so the next tape follows the last choice.
+     */
+    private val _captionsOn = MutableStateFlow(com.minim.music.data.stories.NowPlayingCaptions.ON_BY_DEFAULT)
+    val captionsOn: StateFlow<Boolean> = _captionsOn.asStateFlow()
+
+    /** The tape whose captions the lyrics slot is for (null while a song plays). */
+    private var captionVideoId: String? = null
+
+    /** 6.1.1: the CC button. Turning captions on fetches them for the tape that's playing; off clears them. */
+    fun setCaptionsOn(on: Boolean) {
+        if (_captionsOn.value == on) return
+        _captionsOn.value = on
+        val id = captionVideoId ?: return
+        if (lyricsTrackId != id) return
+        lyricsJob?.cancel()
+        _captionChoice.value = null
+        if (on) {
+            _lyricsState.value = null
+            lyricsJob = scope.launch { loadCaptions(id, null) }
+        } else {
+            _lyricsState.value = com.minim.music.data.captions.CaptionLyrics.off(id)
+        }
+    }
     /** Set while an upload with more than one usable caption track is playing. */
     val captionChoice: StateFlow<CaptionChoice?> = _captionChoice.asStateFlow()
 
@@ -261,7 +291,7 @@ class PlaybackController(
     private suspend fun loadCaptions(videoId: String, pick: Int?) {
         val C = com.minim.music.data.captions.CaptionLyrics
         val list = sourceAdapter.fetchCaptionTracks(videoId)
-        if (lyricsTrackId != videoId) return
+        if (lyricsTrackId != videoId || !_captionsOn.value) return
         val options = com.minim.music.data.captions.CaptionPicker.choices(list?.tracks.orEmpty(), list?.videoLanguage)
         if (options.isEmpty()) {
             _captionChoice.value = null
@@ -272,7 +302,7 @@ class PlaybackController(
         for (i in order) {
             val t = options.getOrNull(i) ?: continue
             val lines = captionLinesFor(videoId, t)
-            if (lyricsTrackId != videoId) return
+            if (lyricsTrackId != videoId || !_captionsOn.value) return
             if (lines.isNotEmpty() || pick != null) {
                 _captionChoice.value = CaptionChoice(videoId, options, i)
                 _lyricsState.value = C.of(videoId, lines)
@@ -302,7 +332,7 @@ class PlaybackController(
     /** The caption pill: shows the next of the upload's caption tracks. */
     fun nextCaptionTrack() {
         val ch = _captionChoice.value ?: return
-        if (ch.options.size < 2 || lyricsTrackId != ch.trackId) return
+        if (ch.options.size < 2 || lyricsTrackId != ch.trackId || !_captionsOn.value) return
         val next = (ch.selected + 1) % ch.options.size
         _captionChoice.value = ch.copy(selected = next)
         lyricsJob?.cancel()

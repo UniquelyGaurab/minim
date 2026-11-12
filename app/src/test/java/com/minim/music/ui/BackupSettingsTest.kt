@@ -165,6 +165,23 @@ class BackupSettingsTest {
         for (e in BackupError.values()) assertTrue(BackupText.errorText(ctx, e).isNotBlank())
     }
 
+    /** 6.1.1: event counts read like "3.8K events", in the status line, the restore list and the notes. */
+    @Test
+    fun eventCountsAreCompact() {
+        val ctx = app
+        val now = 1_800_000_000_000L
+        val line = BackupText.statusLine(ctx, BackupStatus(lastSuccessAt = now, lastEventCount = 3785), now, false)
+        assertTrue(line, line.startsWith("Last backup ") && line.endsWith(" \u00B7 3.8K events"))
+        assertEquals("1 event", BackupText.events(ctx, 1))
+        assertEquals("999 events", BackupText.events(ctx, 999))
+        assertEquals("1K events", BackupText.events(ctx, 1_000))
+        assertEquals("1.3M events", BackupText.events(ctx, 1_250_000))
+        val ok = RestoreResult.Success(added = 3785, total = 3785, fromDevice = "abc", createdAt = 0L, fermataVersion = "0.2.0")
+        assertEquals("Restored 3.8K events", BackupText.restoreDone(ctx, ok, phoneHadLibrary = false))
+        assertEquals("Merged 12.3K new events from the backup", BackupText.restoreDone(ctx, ok.copy(added = 12_345), phoneHadLibrary = true))
+        assertEquals("Merged 1 new event from the backup", BackupText.restoreDone(ctx, ok.copy(added = 1), phoneHadLibrary = true))
+    }
+
     @Test
     fun folderNameIsThePathInsideTheStorage() {
         val tree = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AMusic%2FMinim%20backups")

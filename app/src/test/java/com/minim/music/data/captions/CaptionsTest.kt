@@ -135,4 +135,21 @@ class CaptionsTest {
         assertFalse(TopRowBranding.showsSearch("STORIES"))
         assertTrue(TopRowBranding.showsSearch("LIBRARY"))
     }
+
+    /** 6.1.1: captions on tapes start off; the off state shows nothing and isn't "no captions". */
+    @Test
+    fun tapeCaptionsStartOff() {
+        assertFalse(NowPlayingCaptions.ON_BY_DEFAULT)
+        val off = CaptionLyrics.off("vid")
+        assertTrue(CaptionLyrics.isOff(off))
+        assertTrue(CaptionLyrics.isCaptions(off))
+        assertTrue(off.lines.isEmpty())
+        assertFalse(CaptionLyrics.isOff(CaptionLyrics.none("vid")))
+        assertFalse(CaptionLyrics.isOff(CaptionLyrics.of("vid", listOf(Cue(0, 1_000, "hi")))))
+        assertFalse(CaptionLyrics.isOff(null))
+        assertEquals(1f, NowPlayingCaptions.ccAlpha(true), 0f)
+        assertTrue(NowPlayingCaptions.ccAlpha(false) < 1f)
+        assertEquals(com.minim.music.ui.NowPlayingLyricSlot.Mode.NONE, com.minim.music.ui.NowPlayingLyricSlot.mode(off))
+        assertFalse(com.minim.music.ui.NowPlayingLyricSlot.slotOpensFullscreen(com.minim.music.ui.NowPlayingLyricSlot.mode(off), isStory = true))
+    }
 }

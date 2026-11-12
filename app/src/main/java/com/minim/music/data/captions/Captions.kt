@@ -276,8 +276,22 @@ object CaptionLyrics {
     /** The upload has no captions (or they couldn't load): the view says so quietly. */
     const val PROVIDER_NONE = "captions-none"
 
+    /** 6.1.1: captions are switched off (the default until the CC button turns them on). */
+    const val PROVIDER_OFF = "captions-off"
+
     fun isCaptions(data: LyricsData?): Boolean =
-        data?.providerName == PROVIDER || data?.providerName == PROVIDER_NONE
+        data?.providerName == PROVIDER || data?.providerName == PROVIDER_NONE || data?.providerName == PROVIDER_OFF
+
+    /** 6.1.1: true while a tape's captions are switched off. */
+    fun isOff(data: LyricsData?): Boolean = data?.providerName == PROVIDER_OFF
+
+    fun off(trackId: String): LyricsData = LyricsData(
+        trackId = trackId,
+        lines = emptyList(),
+        isSynced = false,
+        hasWordTimestamps = false,
+        providerName = PROVIDER_OFF
+    )
 
     fun of(trackId: String, lines: List<Cue>): LyricsData = LyricsData(
         trackId = trackId,

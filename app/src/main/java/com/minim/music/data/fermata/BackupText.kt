@@ -17,6 +17,10 @@ import com.minim.music.R
  */
 object BackupText {
 
+    /** 6.1.1: "3.8K events" rather than "3785 events" (CompactCount). */
+    fun events(ctx: Context, n: Long): String =
+        ctx.resources.getQuantityString(R.plurals.backup_events, CompactCount.quantity(n), CompactCount.format(n))
+
     /**
      * At startup: back up once (a one-time WorkManager job) when the daily job has not managed
      * to for a day (it only runs while charging), or never has. Not on every start.
@@ -48,7 +52,7 @@ object BackupText {
         val line = st.lastError?.let { ctx.getString(R.string.backup_failed, errorText(ctx, it)) } ?: run {
             val at = st.lastSuccessAt ?: return@run ctx.getString(R.string.backup_never)
             val ago = DateUtils.getRelativeTimeSpanString(at, now, DateUtils.MINUTE_IN_MILLIS).toString()
-            ctx.getString(R.string.backup_last, ago, st.lastEventCount.toInt().let { n -> ctx.resources.getQuantityString(R.plurals.backup_events, n, n) })
+            ctx.getString(R.string.backup_last, ago, events(ctx, st.lastEventCount.toLong()))
         }
         val merge = mergeText(ctx, st) ?: return line
         return "$line\n$merge"
@@ -114,7 +118,7 @@ object BackupText {
         } ?: info.fileName
         val label = ctx.getString(R.string.backup_restore_item, who, whenText)
         val trailing = info.problem?.let { ctx.getString(R.string.backup_unreadable, it) }
-            ?: info.eventCount?.let { n -> ctx.resources.getQuantityString(R.plurals.backup_events, n.toInt(), n.toInt()) }
+            ?: info.eventCount?.let { n -> events(ctx, n.toLong()) }
         return label to trailing
     }
 
@@ -122,9 +126,9 @@ object BackupText {
     fun restoreDone(ctx: Context, r: RestoreResult, phoneHadLibrary: Boolean): String = when (r) {
         is RestoreResult.Failure -> ctx.getString(R.string.backup_restore_failed, errorText(ctx, r.error))
         is RestoreResult.Success -> when {
-            !phoneHadLibrary -> ctx.resources.getQuantityString(R.plurals.backup_restored, r.added, r.added)
+            !phoneHadLibrary -> ctx.resources.getQuantityString(R.plurals.backup_restored, CompactCount.quantity(r.added.toLong()), CompactCount.format(r.added.toLong()))
             r.added == 0 -> ctx.getString(R.string.backup_merged_nothing)
-            else -> ctx.resources.getQuantityString(R.plurals.backup_merged, r.added, r.added)
+            else -> ctx.resources.getQuantityString(R.plurals.backup_merged, CompactCount.quantity(r.added.toLong()), CompactCount.format(r.added.toLong()))
         }
     }
 }
@@ -163,4 +167,35 @@ class RestoreOfferGate(context: Context) {
         const val PREFS = "minim_backup_offer"
         private const val KEY = "answered"
     }
+}
+
+/**
+ * 6.1.1: event counts in Backup & restore read like "3.8K" instead of "3785". Under 1,000 they stay
+ * as they are; from there on one decimal with K, M or B, without a trailing ".0" (1000 -> 1K,
+ * 12,345 -> 12.3K, 1,250,000 -> 1.3M). Halves round up, and a count that would round to "1000K"
+ * moves up to the next letter (999,950 -> 1M).
+ */
+object CompactCount {
+    private val UNITS = listOf(1_000_000_000L to "B", 1_000_000L to "M", 1_000L to "K")
+
+    fun format(n: Long): String {
+        if (n < 0) return "-" + format(if (n == Long.MIN_VALUE) Long.MAX_VALUE else -n)
+        if (n < 1_000) return n.toString()
+        // Start at the smallest letter that fits, then move up if rounding reached 1000 of it.
+        val start = UNITS.indexOfLast { n >= it.first }
+        var i = start
+        while (true) {
+            val (div, letter) = UNITS[i]
+            val rounded = java.math.BigDecimal.valueOf(n)
+                .divide(java.math.BigDecimal.valueOf(div))
+                .setScale(1, java.math.RoundingMode.HALF_UP)
+            if (rounded >= THOUSAND && i > 0) { i--; continue }
+            return rounded.stripTrailingZeros().toPlainString() + letter
+        }
+    }
+
+    /** The plural form to use: "1 event", and "events" for everything else (3.8K included). */
+    fun quantity(n: Long): Int = if (n == 1L) 1 else 2
+
+    private val THOUSAND = java.math.BigDecimal.valueOf(1_000L)
 }

@@ -134,7 +134,9 @@ class NowPlayingLyricSlotTest {
         assertTrue(main.contains("npLyric.flowStyle = app.preferences.isFlowLyrics"))
         // 5.7.0 u46: stories uploads say "No captions for this one" instead
         // 5.8.1: AI lyrics show in full screen only; the slot gets "none" plus the AI hint
-        assertTrue(main.contains("npLyric.setLyrics(npData, getString("))
+        // 6.1.1: tapes with captions switched off leave the line empty
+        assertTrue(main.contains("npLyric.setLyrics(npData, when {"))
+        assertTrue(main.contains("CaptionLyrics.isOff(data) -> \"\""))
         assertTrue(main.contains("ai -> R.string.ai_lyrics_np_hint"))
         assertTrue(main.contains("CaptionLyrics.isCaptions(data) -> R.string.captions_none"))
         assertTrue(main.contains("else -> R.string.np_lyrics_unavailable"))

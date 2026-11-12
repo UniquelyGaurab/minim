@@ -92,6 +92,18 @@ object TopRowBranding {
 object NowPlayingCaptions {
     fun showCcButton(track: Track?): Boolean = StoryTracks.isStory(track)
 
+    /**
+     * 6.1.1: captions on tapes start off. The CC button turns them on and off again. The choice
+     * carries over to the next tape while Minim stays open, and starts off again after Minim is
+     * closed (it isn't saved).
+     */
+    const val ON_BY_DEFAULT = false
+
+    /** 6.1.1: the CC button is full strength while captions are on, faded while they're off. */
+    fun ccAlpha(on: Boolean): Float = if (on) 1f else CC_OFF_ALPHA
+
+    const val CC_OFF_ALPHA = 0.4f
+
     /** The caption pill's text: "English", or "English · auto" for YouTube's auto captions. */
     fun pillLabel(languageName: String, auto: Boolean): String =
         if (auto) "$languageName \u00B7 auto" else languageName
