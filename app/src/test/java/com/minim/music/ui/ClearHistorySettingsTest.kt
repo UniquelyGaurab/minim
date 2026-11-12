@@ -159,6 +159,47 @@ class ClearHistorySettingsTest {
         assertEquals(a.getString(R.string.history_cleared), a.findViewById<TextView>(R.id.minim_note).text.toString())
     }
 
+    /** 6.1.1 (dev's review): Discover's saved shelves came from the cleared plays. */
+    @Test
+    fun aClearRefreshesDiscoverRightAway() {
+        seedLibrary()
+        val a = launch()
+        val engine = app.discoverEngine
+        val seeded = runBlocking { engine.seedForTest(emptyList()) }
+        assertFalse("seeded as this hour's shelves", engine.isStale(seeded))
+        val after = AtomicInteger()
+        app.database.afterClearHistory = { after.incrementAndGet() }
+        openSettings(a)
+        a.findViewById<View>(R.id.set_clear_history).performClick()
+        idle(1)
+        clickText(a, a.getString(R.string.history_clear_ok))
+        waitFor { after.get() > 0 }
+        // Marked out of date, then built again from the (now empty) history.
+        waitFor { runBlocking { engine.cached() }.let { it != null && (it.bucket == com.minim.music.data.discover.DiscoverEngine.STALE_BUCKET || it.builtAt != seeded.builtAt) } }
+        val now = runBlocking { engine.cached() }
+        assertNotNull(now)
+        assertTrue(
+            "the old shelves are not kept as this hour's",
+            now!!.bucket == com.minim.music.data.discover.DiscoverEngine.STALE_BUCKET || now.builtAt != seeded.builtAt,
+        )
+        if (now.builtAt != seeded.builtAt) assertFalse("rebuilt from no history", now.hasHistory)
+    }
+
+    @Test
+    fun aFailedClearLeavesDiscoverAlone() {
+        seedLibrary()
+        val a = launch()
+        val engine = app.discoverEngine
+        val seeded = runBlocking { engine.seedForTest(emptyList()) }
+        app.database.onClearHistory = { throw android.database.sqlite.SQLiteFullException("database or disk is full") }
+        openSettings(a)
+        a.findViewById<View>(R.id.set_clear_history).performClick()
+        idle(1)
+        clickText(a, a.getString(R.string.history_clear_ok))
+        waitFor { a.findViewById<TextView>(R.id.minim_note).text.toString() == a.getString(R.string.history_clear_failed) }
+        assertEquals(seeded, runBlocking { engine.cached() })
+    }
+
     @Test
     fun aClearThatFailsShowsANoteAndKeepsTheHistory() {
         seedLibrary()

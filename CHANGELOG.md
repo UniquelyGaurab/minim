@@ -2,6 +2,17 @@
 
 Every Minim release, newest first. Download any of them from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page.
 
+## 6.1.1 (unreleased)
+
+Fixes from Dev's review of 6.1.0.
+
+- **"Not interested" can be undone:** the note now has Undo, and says the song is hidden from the radio too. Undo brings the song back everywhere, including the radio, Discover and your other phones
+- **"Not interested" hides one song, not the artist:** hiding a song no longer pushes down everything else by that artist
+- **Undoing an old like or "Not interested"** puts the song back where it would have been. Before, unliking a song you liked two months ago pushed it well below songs you'd never liked
+- **Early skips count in full:** a skip in the first 30 seconds no longer also counts as a short play, so skipped songs and artists move down as much as they should, and early skips never count towards On repeat, Forgotten favourites or the 30 songs new listeners need
+- **Clear history refreshes Discover straight away,** instead of showing shelves from the cleared plays for a few more hours
+- The radio rechecks the queue after putting a batch in your order, so a song you queued meanwhile isn't added twice, and one you hid isn't added at all
+
 ## 6.1.0 (unreleased)
 
 Recommendations from Minim Fermata, worked out on your phone.

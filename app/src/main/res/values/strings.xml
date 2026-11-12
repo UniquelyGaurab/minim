@@ -224,7 +224,11 @@
     <string name="discover_error">Couldn\'t load your picks. Tap to try again.</string>
     <string name="play_all">Play all</string>
     <string name="not_interested">Not interested</string>
-    <string name="not_interested_done">Got it. You won\'t see that song here.</string>
+    <!-- 6.1.1: the song also leaves the radio, and the note has Undo. Kept short: the note is one line. -->
+    <string name="not_interested_done">Hidden here and from radio</string>
+    <string name="not_interested_undo">Undo</string>
+    <string name="not_interested_undone">It\'s back</string>
+    <string name="not_interested_undo_failed">Couldn\'t undo that</string>
     <string name="shelf_back">Back</string>
     <!-- v4.6 Artist page -->
     <string name="artist_songs">Songs</string>

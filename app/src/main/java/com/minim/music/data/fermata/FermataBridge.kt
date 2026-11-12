@@ -430,10 +430,17 @@ class FermataBridge(
                     setMeta(db, "like|$song", liked.toString())
                 }
                 "H" -> db.rawQuery("SELECT title, artist, added_at FROM not_interested WHERE track_id = ?", arrayOf(song)).use { c ->
-                    if (!c.moveToFirst() || meta("hide|$song") != null) return@use
-                    val body = EventBody.NotInterested(Subject.Track(TrackRef(song, c.getString(0) ?: "", c.getString(1) ?: "")))
-                    if (stamped) fermata.recordAt(body, c.getLong(2).coerceAtLeast(1L)) else fermata.record(body)
-                    setMeta(db, "hide|$song", "1")
+                    val hidden = meta("hide|$song") == "1"
+                    if (c.moveToFirst()) {
+                        if (hidden) return@use
+                        val body = EventBody.NotInterested(Subject.Track(TrackRef(song, c.getString(0) ?: "", c.getString(1) ?: "")))
+                        if (stamped) fermata.recordAt(body, c.getLong(2).coerceAtLeast(1L)) else fermata.record(body)
+                        setMeta(db, "hide|$song", "1")
+                    } else if (hidden) {
+                        // 6.1.1: "not interested" undone. Same key as the hide (track:<id>).
+                        fermata.record(EventBody.Interested(Subject.Track(TrackRef(song))))
+                        setMeta(db, "hide|$song", "0")
+                    }
                 }
             }
         }
@@ -568,8 +575,9 @@ class FermataBridge(
         val was = applying.get()
         applying.set(true)
         try {
-            group("likes/").takeIf { it.isNotEmpty() }?.let { sync.applyLikes(it) }
-            group("hidden/").takeIf { it.isNotEmpty() }?.let { sync.applyHidden(it) }
+            val likes = group("likes/").also { if (it.isNotEmpty()) sync.applyLikes(it) }
+            val hidden = group("hidden/").also { if (it.isNotEmpty()) sync.applyHidden(it) }
+            noteMergedState(likes.map { it.id }, hidden.map { it.id })
             group("playlists/").takeIf { it.isNotEmpty() }?.let { sync.applyPlaylists(it) }
             group("history/").takeIf { it.isNotEmpty() }?.let {
                 sync.applyHistory(it)
@@ -578,6 +586,26 @@ class FermataBridge(
             if (tapes.isNotEmpty()) lib.inWrite { db -> for ((p, d) in tapes) applyTape(db, p, d) }
         } finally {
             applying.set(was)
+        }
+    }
+
+    /**
+     * 6.1.1: after a merge or restore set likes and "not interested" from another phone's change,
+     * remember that state as the one Fermata's log holds (the other phone recorded its typed
+     * event). Otherwise this phone's own next change could be skipped as "already recorded": a
+     * song hidden on another phone could not be un-hidden here, and a like this phone made
+     * before another phone's unlike could not be made again.
+     */
+    private fun noteMergedState(likes: List<String>, hidden: List<String>) {
+        if (likes.isEmpty() && hidden.isEmpty()) return
+        lib.inWrite { db ->
+            for (song in likes) db.rawQuery("SELECT is_liked FROM tracks WHERE id = ?", arrayOf(song)).use { c ->
+                if (c.moveToFirst()) setMeta(db, "like|$song", (c.getInt(0) == 1).toString())
+            }
+            for (song in hidden) {
+                val now = db.rawQuery("SELECT 1 FROM not_interested WHERE track_id = ?", arrayOf(song)).use { it.moveToFirst() }
+                setMeta(db, "hide|$song", if (now) "1" else "0")
+            }
         }
     }
 

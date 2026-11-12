@@ -15,7 +15,7 @@ import java.io.File
  *
  * Outbox keys (one per thing that changed, deduped):
  * - L|songId           like or unlike             -> likes/{songId}
- * - H|songId           "not interested"           -> hidden/{songId}
+ * - H|songId           "not interested"           -> hidden/{songId} ({"at", "u": 1} once undone, 6.1.1)
  * - P|playlistUid      playlist made / deleted    -> playlists/{uid}
  * - T|playlistUid|song song added / removed       -> playlists/{uid} (t.{song})
  * - E|eventId          a counted play             -> history/{day} (p.{eventId})
@@ -252,6 +252,10 @@ class LibrarySync(
                         if (c.moveToFirst()) {
                             val m = SongMeta(c.getString(0), c.getString(1), "", 0L)
                             writes.add(CloudWrite("hidden/$song", mapOf("at" to c.getLong(2), "m" to SyncCodec.encodeMeta(m)), merge = false))
+                        } else {
+                            // 6.1.1: "not interested" undone. Only unmarkNotInterested queues a
+                            // song that is no longer hidden, so this is the undo, at its own time.
+                            writes.add(CloudWrite("hidden/$song", mapOf("at" to lib.changeTime(), "u" to 1L), merge = false))
                         }
                     }
                 }
@@ -529,12 +533,32 @@ class LibrarySync(
         changed
     }
 
-    /** hidden/{songId}: "not interested" only ever adds. */
+    /**
+     * hidden/{songId}: "not interested". Since 6.1.1 it can be undone: the document then says
+     * `"u": 1` with the time of the undo, and the song comes back here unless this phone hid it
+     * again after that.
+     */
     fun applyHidden(docs: List<RemoteDoc>): Boolean = inTx { d ->
         var changed = false
         for (doc in docs) {
             val song = doc.id
             if (!SyncIds.isSyncableSongId(song)) continue
+            if (SyncCodec.num(doc.data["u"]) == 1L) {
+                val undoneAt = SyncCodec.num(doc.data["at"]) ?: Long.MAX_VALUE
+                val localAt = d.rawQuery("SELECT added_at FROM not_interested WHERE track_id = ?", arrayOf(song)).use { c ->
+                    if (c.moveToFirst()) c.getLong(0) else null
+                }
+                when {
+                    localAt == null -> dequeue(d, "H|$song")
+                    localAt <= undoneAt -> {
+                        d.delete("not_interested", "track_id = ?", arrayOf(song))
+                        dequeue(d, "H|$song")
+                        changed = true
+                    }
+                    else -> enqueue(d, "H|$song") // hidden again here after the undo: ours goes out
+                }
+                continue
+            }
             val m = SyncCodec.decodeMeta(doc.data["m"])
             val cv = ContentValues().apply {
                 put("track_id", song)

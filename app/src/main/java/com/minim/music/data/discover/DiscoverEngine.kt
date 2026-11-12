@@ -86,6 +86,12 @@ class DiscoverEngine(
         memory ?: readCache()?.also { memory = it }
     }
 
+    /** Tests: saves [shelves] as this time of day's shelves, as a build would. */
+    internal suspend fun seedForTest(shelves: List<Shelf>): DiscoverSnapshot = withContext(Dispatchers.IO) {
+        DiscoverSnapshot(today(), bucketOf(currentHour()), System.currentTimeMillis(), shelves, hasHistory = true)
+            .also { memory = it; writeCache(it) }
+    }
+
     /** True when the saved shelves are from an earlier day or another time of day. */
     fun isStale(s: DiscoverSnapshot?): Boolean {
         if (s == null) return true

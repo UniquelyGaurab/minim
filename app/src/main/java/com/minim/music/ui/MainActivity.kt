@@ -3708,7 +3708,33 @@ class MainActivity : AppCompatActivity() {
             app.discoverEngine.hideTrack(track.id)?.let { showDiscover(it, afterBuild = false) }
             // 5.7.0: the Gemini shelf drops it too
             renderSearchShelves()
-            showNote(getString(R.string.not_interested_done))
+            // 6.1.1: the song leaves the radio too, so the note says so, and it can be undone
+            showNote(getString(R.string.not_interested_done), action = getString(R.string.not_interested_undo)) {
+                undoNotInterested(track)
+            }
+        }
+    }
+
+    /**
+     * 6.1.1: Undo on the "not interested" note. The song comes back in the library, Fermata
+     * ("interested", so the radio and Discover take it again) and on the other phones. Discover's
+     * shelves are marked out of date so the next look builds them with the song.
+     */
+    private fun undoNotInterested(track: Track) {
+        lifecycleScope.launch {
+            val restored = try {
+                app.database.unmarkNotInterested(track.id)
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (e: Exception) {
+                android.util.Log.w("MainActivity", "undo not interested failed", e)
+                false
+            }
+            if (restored) {
+                try { app.discoverEngine.markStale() } catch (c: kotlinx.coroutines.CancellationException) { throw c } catch (_: Exception) {}
+                renderSearchShelves()
+            }
+            showNote(getString(if (restored) R.string.not_interested_undone else R.string.not_interested_undo_failed))
         }
     }
 
@@ -8149,11 +8175,35 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** v4.8: small Minim-style confirmation pill above the mini player ("Added to Gym"). */
-    private fun showNote(text: String) {
+    /**
+     * The note pill. 6.1.1: with an [action] ("Undo"), the pill shows it in bold after the text,
+     * stays up longer, and a tap on it runs [onAction] once.
+     */
+    private fun showNote(text: String, action: String? = null, onAction: (() -> Unit)? = null) {
         if (!::minimNote.isInitialized) return
         noteHide?.let { minimNote.removeCallbacks(it) }
         minimNote.animate().cancel()
-        minimNote.text = text
+        if (action != null && onAction != null) {
+            val shown = android.text.SpannableStringBuilder(text).append("   ")
+            val start = shown.length
+            shown.append(action)
+            shown.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), start, shown.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            shown.setSpan(android.text.style.UnderlineSpan(), start, shown.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            minimNote.text = shown
+            minimNote.contentDescription = "$text $action"
+            minimNote.isClickable = true
+            minimNote.setOnClickListener { v ->
+                minimNote.setOnClickListener(null)
+                minimNote.isClickable = false
+                haptic(v)
+                onAction()
+            }
+        } else {
+            minimNote.text = text
+            minimNote.contentDescription = null
+            minimNote.setOnClickListener(null)
+            minimNote.isClickable = false
+        }
         Painter.paint(minimNote, pal)
         minimNote.visibility = View.VISIBLE
         if (animationsOn()) {
@@ -8172,7 +8222,7 @@ class MainActivity : AppCompatActivity() {
             } else minimNote.visibility = View.GONE
         }
         noteHide = hide
-        minimNote.postDelayed(hide, 1900L)
+        minimNote.postDelayed(hide, if (action != null) NOTE_ACTION_MS else 1900L)
     }
 
     private fun sheetHeading(parent: android.widget.LinearLayout, title: String, sub: String? = null, wrapSub: Boolean = false) {
@@ -8941,6 +8991,9 @@ class MainActivity : AppCompatActivity() {
                             android.util.Log.w("MainActivity", "clear history failed", e)
                             false
                         }
+                        // 6.1.1: Discover's saved shelves came from the cleared plays: mark them
+                        // out of date (as a merge does) and build new ones now, not hours later.
+                        if (cleared) refreshDiscoverAfterClear()
                         refreshData()
                         showNote(getString(if (cleared) R.string.history_cleared else R.string.history_clear_failed))
                     }
@@ -8948,6 +9001,18 @@ class MainActivity : AppCompatActivity() {
             }
             box.addView(v)
         }
+    }
+
+    /** 6.1.1: after a clear history, Discover drops the shelves built from the old plays. */
+    private suspend fun refreshDiscoverAfterClear() {
+        try {
+            app.discoverEngine.markStale()
+        } catch (c: kotlinx.coroutines.CancellationException) {
+            throw c
+        } catch (e: Exception) {
+            android.util.Log.w("MainActivity", "discover refresh after clear failed", e)
+        }
+        loadDiscover(force = false)
     }
 
     private fun confirmDeletePlaylist(playlist: Playlist) {
@@ -10410,6 +10475,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        /** 6.1.1: how long a note with an action (Undo) stays up. */
+        private const val NOTE_ACTION_MS = 4000L
         /** 5.10.1: the file Take photo was writing into, kept across Android closing Minim. */
         private const val STATE_CAMERA_FILE = "profile_camera_file"
         /** 5.5.2: taps on the version in Settings that toggle the festival preview. */

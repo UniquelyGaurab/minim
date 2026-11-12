@@ -103,4 +103,14 @@ class AppVersionTest {
         assertTrue("6.0.0 is newer than 5.9.1", v("v6.0.0") > AppVersion.installed("5.9.1-debug")!!)
         assertTrue("6.0 is not read as 6.00 below 5.10", v("6.0.0") > v("5.99.99"))
     }
+
+    @Test
+    fun aPhoneOn610GetsThe611Update() {
+        // 6.1.1: the review fixes after the 6.1.0 test build, so a phone on 6.1.0 sees the update.
+        val installed = AppVersion.installed("6.1.0-debug")
+        assertEquals(v("6.1.0"), installed)
+        assertTrue(v("v6.1.1") > installed!!)
+        assertFalse(v("v6.1.0") > installed)
+        assertFalse(v("v6.1.1") > AppVersion.installed("6.1.1-debug")!!)
+    }
 }

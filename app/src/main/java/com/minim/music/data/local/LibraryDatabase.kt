@@ -1173,6 +1173,26 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
         _notInterestedIds.value = _notInterestedIds.value + track.id
     }
 
+    /**
+     * 6.1.1: undoes [markNotInterested]. The removal goes to Fermata as "interested" (so the radio
+     * and Discover take the song back) and to the other phones as a `hidden/` document marked
+     * undone. Returns whether the song was hidden.
+     */
+    suspend fun unmarkNotInterested(trackId: String): Boolean = withContext(Dispatchers.IO) {
+        val db = writableDatabase
+        var removed = false
+        beginWrite(db)
+        try {
+            removed = db.delete("not_interested", "track_id = ?", arrayOf(trackId)) > 0
+            if (removed) queueFermata(db, "H|$trackId")
+            db.setTransactionSuccessful()
+        } finally {
+            endWrite(db)
+        }
+        if (removed) _notInterestedIds.value = _notInterestedIds.value - trackId
+        removed
+    }
+
     suspend fun toggleLike(track: Track): Boolean = withContext(Dispatchers.IO) {
         val db = writableDatabase
         var newLiked = 0

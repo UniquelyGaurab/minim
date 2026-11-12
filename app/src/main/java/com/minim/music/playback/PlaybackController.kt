@@ -627,24 +627,31 @@ class PlaybackController(
             // 6.1: Fermata reorders YouTube's mix (liked songs and artists up, early skips down,
             // nothing heard in the last few hours). Same list back when it isn't ready or there's
             // too little history yet. Off the main thread; it never waits for the model.
-            var add = (if (pool.size > 1) withContext(Dispatchers.Default) { recommendations.reorderRadio(pool) } else pool)
-                .take(RADIO_BATCH)
+            val ordered = if (pool.size > 1) withContext(Dispatchers.Default) { recommendations.reorderRadio(pool) } else pool
             if (session != radioSession || !radioMode) return@launch
+            // 6.1.1: the reorder ran off the main thread, so the player (and its queue, and the
+            // "not interested" list) are read again: the controller can have been released or
+            // reconnected, and the user can have queued or hidden a song meanwhile.
+            val player = mediaController ?: return@launch
+            val queuedNow = HashSet<String>()
+            for (i in 0 until player.mediaItemCount) queuedNow.add(player.getMediaItemAt(i).mediaId)
+            val blockedNow = database.notInterestedIds.value
+            var add = ordered.filter { it.id !in queuedNow && it.id !in blockedNow }.take(RADIO_BATCH)
             if (add.isEmpty() && fallback.isNotEmpty()) {
                 // No mix (offline, blocked, removed video): queue the tapped list like before 4.3
-                add = fallback.filter { it.id !in queued && it.id !in blocked }.distinctBy { it.id }
+                add = fallback.filter { it.id !in queuedNow && it.id !in blockedNow }.distinctBy { it.id }
                 addSource = fallbackSource
             }
             if (add.isEmpty()) return@launch
             add.forEach { radioSeen.add(it.id) }
-            val ended = c.playbackState == Player.STATE_ENDED
-            val nextIndex = c.currentMediaItemIndex + 1
-            c.addMediaItems(add.map { it.toMediaItem(addSource) })
-            if (ended && nextIndex < c.mediaItemCount) {
-                c.seekToDefaultPosition(nextIndex)
-                c.play()
+            val ended = player.playbackState == Player.STATE_ENDED
+            val nextIndex = player.currentMediaItemIndex + 1
+            player.addMediaItems(add.map { it.toMediaItem(addSource) })
+            if (ended && nextIndex < player.mediaItemCount) {
+                player.seekToDefaultPosition(nextIndex)
+                player.play()
             }
-            trimPlayedRadioItems(c)
+            trimPlayedRadioItems(player)
             updateStateFromController()
         }
     }
