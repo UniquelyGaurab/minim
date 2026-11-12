@@ -9,7 +9,9 @@ object TestLibraryFiles {
         context.deleteDatabase(LibraryFiles.FILE_NAME)
         context.deleteDatabase(LibraryFiles.PREVIOUS_NAME)
         context.getDatabasePath(LibraryFiles.FILE_NAME + ".tmp").delete()
+        for (sfx in listOf("", "-wal", "-shm", "-journal")) context.getDatabasePath(LibraryFiles.FILE_NAME + ".tmp" + sfx).delete()
         context.getSharedPreferences(LibraryFiles.PREFS, Context.MODE_PRIVATE).edit().clear().commit()
+        LibraryFiles.resetHooksForTest()
     }
 
     /** Opens (creating) the 5.9.1 file itself, the way an older version left it. */
