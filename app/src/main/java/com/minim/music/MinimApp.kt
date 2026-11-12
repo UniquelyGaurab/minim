@@ -132,6 +132,33 @@ open class MinimApp : Application(), com.minim.fermata.android.FermataHolder {
         fermataBridge?.prepareBackup()
     }
 
+    /** True once Fermata's start (the first-launch import) is done; the two calls below wait for it. */
+    @Volatile private var fermataReady = false
+    @Volatile private var mergeWaiting = false
+    @Volatile private var backupWaiting = false
+
+    /**
+     * Automatic backups: call when the app comes to the foreground. Queues a merge of the other
+     * phones' backups (unique WorkManager job, expedited). It reads only their manifests unless
+     * one has something new, so it stays cheap. Main thread is fine; does nothing without a folder.
+     */
+    fun mergeBackupsOnOpen() {
+        val b = backups ?: return
+        if (!fermataReady) { mergeWaiting = true; return }
+        try { b.enqueueMergeOnOpen() } catch (t: Throwable) { android.util.Log.w("MinimApp", "merge on open", t) }
+    }
+
+    /**
+     * Automatic backups: call when the app goes to the background. Queues a backup that writes
+     * only if something changed since the last one (unique WorkManager job, expedited, survives
+     * the app being killed right after). Main thread is fine; does nothing without a folder.
+     */
+    fun backUpOnBackground() {
+        val b = backups ?: return
+        if (!fermataReady) { backupWaiting = true; return }
+        try { b.enqueueBackupOnBackground() } catch (t: Throwable) { android.util.Log.w("MinimApp", "backup on background", t) }
+    }
+
     private fun startFermata() {
         try {
             val bridge = com.minim.music.data.fermata.FermataBridge(
@@ -154,6 +181,9 @@ open class MinimApp : Application(), com.minim.fermata.android.FermataHolder {
             // startup backup after it is a one-time WorkManager job, like the one after a clear.
             Thread({
                 bridge.finishStart()
+                fermataReady = true
+                if (mergeWaiting) { mergeWaiting = false; mergeBackupsOnOpen() }
+                if (backupWaiting) { backupWaiting = false; backUpOnBackground() }
                 try {
                     if (b.folder() != null) {
                         b.scheduleDaily()

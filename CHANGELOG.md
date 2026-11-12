@@ -16,6 +16,9 @@ Every Minim release, newest first. Download any of them from the [Releases](http
 - **Likes from before the upgrade:** a like or playlist edit from 5.9.1 now keeps the time you made it, so if you unliked that song on another phone since, both phones show it unliked after their first backup merge
 - **Low storage on upgrade:** if there isn't room to copy your 5.9.1 library, Minim says once that going back to an older version isn't safe until you free up space, and tries again next time it opens
 - **Clear history can't crash the app:** if clearing fails, nothing is removed and a note says so
+- **Backups only when something changed:** the daily and startup backups now skip writing when nothing is new, and the backup from the day before is kept as "previous" even if Minim backs up many times a day
+- **Faster merges:** Minim checks each other phone's backup summary first and only reads the whole backup when it has something new
+- **For automatic backups (developer note):** `MinimApp.mergeBackupsOnOpen()` (call when the app comes to the foreground) and `MinimApp.backUpOnBackground()` (call when it goes to the background) queue one-time WorkManager jobs, expedited where Android allows. They're safe on the main thread, wait for the first-launch import, and do nothing without a backup folder. Backups, merges and restores never run at the same time. Details are in Fermata's DESIGN.md under "Backups"
 
 ## 5.9.1 (2026-11-11)
 

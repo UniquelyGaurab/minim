@@ -152,10 +152,10 @@ dependencies {
 
     // v5.10.0: Fermata, built from the pinned `fermata` submodule (see settings.gradle.kts).
     // The version here is only a placeholder: the included build always supplies the modules.
+    // It brings WorkManager (work-runtime 2.9.0, which brings Room for its own job database).
+    // Minim's code doesn't use WorkManager itself, and work-runtime-ktx 2.9 is an empty artifact,
+    // so there's no WorkManager line here.
     implementation("com.github.UniquelyGaurab.minim-fermata:android:0.2.0-SNAPSHOT")
-    // 2.9.x is the newest WorkManager that builds with compileSdk 34 (2.10 needs 35), same as Fermata's
-    //noinspection GradleDependency
-    implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     // Unit testing
     testImplementation("junit:junit:4.13.2")
