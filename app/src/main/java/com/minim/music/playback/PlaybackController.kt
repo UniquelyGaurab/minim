@@ -677,12 +677,13 @@ class PlaybackController(
 
     // v4.9: real listening time, to the second. Credited every tick while playing (and on
     // pause / skip for the part of a second since the last tick), split by hour so listening
-    // across midnight goes to the right day, and saved every few seconds.
+    // across midnight goes to the right day. 6.2.0: saved on pause, stop, song change and the app
+    // going to the background, plus a checkpoint every minute while playing (ListenSaves).
     private var lastCreditAt = 0L
     private var lastFlushAt = 0L
-    private val pendingListen = LinkedHashMap<String, LibraryDatabase.ListenAdd>()
+    private val pendingListen = com.minim.music.data.stats.ListenBuffer<LibraryDatabase.ListenAdd>({ it.slice }, { a, s -> a.copy(slice = s) })
     /** 5.7.0 u51: tape listening waiting to be saved. */
-    private val pendingTapeListen = LinkedHashMap<String, LibraryDatabase.TapeListenAdd>()
+    private val pendingTapeListen = com.minim.music.data.stats.ListenBuffer<LibraryDatabase.TapeListenAdd>({ it.slice }, { a, s -> a.copy(slice = s) })
 
     /** 1.5f -> 150. */
     private fun speedPctOf(speed: Float): Int = (speed * 100f + 0.5f).toInt().coerceIn(25, 400)
@@ -849,20 +850,14 @@ class PlaybackController(
             val channelId = com.minim.music.data.stories.StoryTracks.channelIdOf(track).orEmpty()
             val endWall = System.currentTimeMillis()
             for (slice in com.minim.music.data.stats.ListenSplit.split(endWall - step, endWall)) {
-                val key = "${slice.day}|${slice.hour}|${track.id}|$speedPct"
-                val old = pendingTapeListen[key]
-                pendingTapeListen[key] = if (old == null) LibraryDatabase.TapeListenAdd(slice, track, channelId, speedPct)
-                else old.copy(slice = old.slice.copy(ms = old.slice.ms + slice.ms))
+                pendingTapeListen.add("${slice.day}|${slice.hour}|${track.id}|$speedPct", LibraryDatabase.TapeListenAdd(slice, track, channelId, speedPct))
             }
             return
         }
         listenedMs += step
         val endWall = System.currentTimeMillis()
         for (slice in com.minim.music.data.stats.ListenSplit.split(endWall - step, endWall)) {
-            val key = "${slice.day}|${slice.hour}|${track.id}"
-            val old = pendingListen[key]
-            pendingListen[key] = if (old == null) LibraryDatabase.ListenAdd(slice, track)
-            else old.copy(slice = old.slice.copy(ms = old.slice.ms + slice.ms))
+            pendingListen.add("${slice.day}|${slice.hour}|${track.id}", LibraryDatabase.ListenAdd(slice, track))
         }
     }
 
@@ -875,8 +870,7 @@ class PlaybackController(
             fermata?.flush()
         }
         if (pendingTapeListen.isNotEmpty()) {
-            val tapeAdds = pendingTapeListen.values.toList()
-            pendingTapeListen.clear()
+            val tapeAdds = pendingTapeListen.drain()
             scope.launch {
                 try {
                     database.addTapeListenTime(tapeAdds)
@@ -886,8 +880,7 @@ class PlaybackController(
             }
         }
         if (pendingListen.isEmpty()) return
-        val adds = pendingListen.values.toList()
-        pendingListen.clear()
+        val adds = pendingListen.drain()
         val rowId = listenPlayRowId
         val heard = listenedMs
         scope.launch {
@@ -898,6 +891,13 @@ class PlaybackController(
             }
         }
     }
+
+    /**
+     * 6.2.0: true while the Stats tab is on screen. Listening time is then saved every 5 s, as
+     * before 6.2, so the numbers there move live; otherwise once a minute.
+     */
+    @Volatile
+    var liveStats: Boolean = false
 
     /** v4.9: saves what's been heard right now (the app going to the background). */
     fun flushListening() {
@@ -944,7 +944,7 @@ class PlaybackController(
                 fermataSafe { fermataStart(item) }
                 val now = SystemClock.elapsedRealtime()
                 creditListen(now)
-                if (now - lastFlushAt >= LISTEN_FLUSH_MS) flushListen()
+                if (com.minim.music.data.stats.ListenSaves.due(now, lastFlushAt, if (liveStats) com.minim.music.data.stats.ListenSaves.LIVE_STATS_MS else LISTEN_FLUSH_MS)) flushListen()
                 if (listenCounted) continue
                 val track = listenTrack ?: Track.fromMediaItem(item)
                 val durMs = if (c.duration > 0) c.duration else track.durationSec * 1000L
@@ -1126,8 +1126,8 @@ class PlaybackController(
         /** 5.9.0: how long the service's shutdown waits for the last Fermata save. */
         const val FERMATA_SHUTDOWN_WAIT_MS = 300L
         const val COUNT_AFTER_MS = 30_000L
-        /** Listening time is saved at least this often while playing (app killed = ~5 s lost). */
-        const val LISTEN_FLUSH_MS = 5_000L
+        /** Listening time is saved at least this often while playing (app killed = up to a minute lost). 6.2.0: was 5 s. */
+        const val LISTEN_FLUSH_MS = com.minim.music.data.stats.ListenSaves.CHECKPOINT_MS
         /** One tick never credits more than this (the phone sleeping, a stalled tick). */
         const val MAX_CREDIT_STEP_MS = 2_000L
         const val MAX_RADIO_SONG_SEC = 600L

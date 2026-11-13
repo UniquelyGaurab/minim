@@ -113,4 +113,15 @@ class AppVersionTest {
         assertFalse(v("v6.1.0") > installed)
         assertFalse(v("v6.1.1") > AppVersion.installed("6.1.1-debug")!!)
     }
+
+    @Test
+    fun aPhoneOn611GetsThe620Update() {
+        // 6.2.0: lean backups, so phones on 6.1.1 and 6.1.0 see the update.
+        val installed = AppVersion.installed("6.1.1-debug")
+        assertEquals(v("6.1.1"), installed)
+        assertTrue(v("v6.2.0") > installed!!)
+        assertTrue(v("v6.2.0") > AppVersion.installed("6.1.0-debug")!!)
+        assertFalse(v("v6.1.1") > installed)
+        assertFalse(v("v6.2.0") > AppVersion.installed("6.2.0-debug")!!)
+    }
 }

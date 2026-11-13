@@ -443,6 +443,7 @@ class MainActivity : AppCompatActivity() {
         renderFestival()
         if (wasStopped) {
             wasStopped = false
+            app.playbackController.liveStats = tab == Tab.STATS
             showTimeGreeting()
             showFirstTip()
             refreshStats()
@@ -506,6 +507,7 @@ class MainActivity : AppCompatActivity() {
         // 5.8.2: no recap song in the background
         recapMusic?.pause()
         // v4.9: save what's been heard so far right away (the app may be closed from here)
+        app.playbackController.liveStats = false
         app.playbackController.flushListening()
         super.onStop()
     }
@@ -830,6 +832,8 @@ class MainActivity : AppCompatActivity() {
         // 5.8.5 u57: leaving Library puts "Search Playlists" away (the full grid next time)
         if (target != Tab.LIBRARY && libraryFilterOpen) closeLibrarySearch(animate = false)
         tab = target
+        // 6.2.0: listening time is saved every 5 s only while Stats is on screen (else every minute)
+        app.playbackController.liveStats = target == Tab.STATS && !wasStopped
         // v4.9.9: the old screen stays up while it slides out (see animateTabChange)
         val slide = animate && from != target && animationsOn() && root.isShown
         val leaving = if (slide) screenOf(from) else null

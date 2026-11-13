@@ -2,6 +2,18 @@
 
 Every Minim release, newest first. Download any of them from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page.
 
+## 6.2.0 (unreleased)
+
+Smaller backups that only add what's new.
+
+- **Backups are about a third of the size:** a year of listening went from 286 KB to about 93 KB in our tests
+- **Backing up when you close the app writes about 1 KB,** just the new plays, instead of copying your whole history every time
+- **Now and then Minim tidies the small files into one,** and only removes the old ones once the new file is safely written, so a backup is never lost if your phone dies halfway
+- **Opening the app on a second phone is quicker:** it only reads the new files from your other phones
+- **Listening time is saved once a minute** while a song plays, and whenever you pause, skip, stop or leave the app, instead of every 5 seconds. Your listening minutes come out the same; if the app is killed you lose at most the last minute. Stats still updates every few seconds while it's open
+- **Older backups still restore and merge,** including ones from phones still on 6.1.1. But **6.1.1 and older can't read 6.2 backups,** so update every phone that shares a backup folder
+- Restore, clear history across phones, and undoing an old like or "Not interested" all work as before
+
 ## 6.1.1 (unreleased)
 
 Fixes from Dev's review of 6.1.0.

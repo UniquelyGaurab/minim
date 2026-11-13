@@ -289,6 +289,24 @@ class LibrarySyncDbTest {
         assertEquals(12_000L, l.getDayListens(day).single().ms)
     }
 
+    @Test
+    fun oldFiveSecondListenSavesReadTheSameAsOneMinuteSaves() = runBlocking {
+        // 6.2.0 saves listening time once a minute; 6.1.1 and older saved it every 5 s, each save
+        // a snapshot of the running total. Twelve old snapshots, in any order, give the same
+        // minutes as the one new one.
+        val day = 20261024
+        val key = SyncCodec.listenKey(9, "songAAAAAAA")
+        val l = open()
+        val sync = LibrarySync(l)
+        sync.ensureDevice("dMINE")
+        val snapshots = (1..12).map { historyDoc(day, emptyMap(), mapOf("dOTHER" to mapOf(key to it * 5_000L))) }
+        for (doc in snapshots.shuffled(java.util.Random(7))) sync.applyHistory(listOf(doc))
+        assertEquals(60_000L, l.getDayListens(day).single().ms)
+        val oneMinute = historyDoc(day, emptyMap(), mapOf("dOTHER" to mapOf(key to 60_000L)))
+        assertFalse("the one-minute save holds nothing the 5-second ones didn't", sync.applyHistory(listOf(oneMinute)))
+        assertEquals(60_000L, l.getDayListens(day).single().ms)
+    }
+
     // ---- playlists -----------------------------------------------------------------------------
 
     private fun playlistDoc(uid: String, s: PlState) = LibrarySync.RemoteDoc(

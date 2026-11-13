@@ -47,6 +47,52 @@ object Days {
 /** A piece of listening that falls inside one hour of one day. */
 data class ListenSlice(val day: Int, val hour: Int, val ms: Long)
 
+/**
+ * 6.2.0: heard time waiting to be saved, merged per key (day, hour and song), so saving it every
+ * minute instead of every 5 seconds gives exactly the same totals: only the number of saves
+ * changes. [V] is what gets saved (a song's or a tape's slice).
+ */
+class ListenBuffer<V : Any>(
+    private val sliceOf: (V) -> ListenSlice,
+    private val withSlice: (V, ListenSlice) -> V,
+) {
+    private val pending = LinkedHashMap<String, V>()
+
+    fun add(key: String, value: V) {
+        val old = pending[key]
+        pending[key] = if (old == null) value else {
+            val s = sliceOf(old)
+            withSlice(old, s.copy(ms = s.ms + sliceOf(value).ms))
+        }
+    }
+
+    fun isEmpty(): Boolean = pending.isEmpty()
+
+    fun isNotEmpty(): Boolean = pending.isNotEmpty()
+
+    /** Everything waiting, in the order it was first added; the buffer is empty after. */
+    fun drain(): List<V> {
+        val out = pending.values.toList()
+        pending.clear()
+        return out
+    }
+}
+
+object ListenSaves {
+    /**
+     * 6.2.0: while a song plays, listening time is saved at least this often, as a checkpoint in
+     * case the app is killed. It is also saved on pause, stop, song change and the app going to
+     * the background, so a kill loses at most this much. Was 5 s, which made those saves about
+     * two thirds of all Fermata events.
+     */
+    const val CHECKPOINT_MS = 60_000L
+
+    /** While Stats is on screen it is saved this often, so the numbers there move live. */
+    const val LIVE_STATS_MS = 5_000L
+
+    fun due(nowRt: Long, lastSavedAt: Long, every: Long = CHECKPOINT_MS): Boolean = nowRt - lastSavedAt >= every
+}
+
 object ListenSplit {
     /**
      * Splits listening between [startMs] and [endMs] at every hour boundary, so a song started at
