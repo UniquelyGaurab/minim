@@ -54,6 +54,67 @@
                 android:tag="tint:fg" />
         </LinearLayout>
 
+        <!-- 6.5.0: the V6 notice, first thing in Settings. One line, folded; a tap anywhere on the
+             card opens the full note in place and another tap folds it again. It can't be closed:
+             no X, no saved "dismissed" state. The body keeps 6.1.1's readable text:body colour. -->
+        <LinearLayout
+            android:id="@+id/settings_v6_notice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:background="@drawable/shape_card"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground"
+            android:orientation="vertical"
+            android:paddingStart="20dp"
+            android:paddingTop="16dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="16dp"
+            android:tag="fill:soft">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:minHeight="24dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/settings_v6_notice_line"
+                    style="@style/MinimText.Semi"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:accessibilityHeading="true"
+                    android:lineSpacingExtra="2dp"
+                    android:tag="text:fg"
+                    android:text="@string/v6_notice_line"
+                    android:textSize="14sp" />
+
+                <ImageView
+                    android:id="@+id/settings_v6_notice_chev"
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_marginStart="12dp"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_chevron_down"
+                    android:tag="tint:muted" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/settings_v6_notice_body"
+                style="@style/MinimSet.Hint"
+                android:layout_width="match_parent"
+                android:layout_marginTop="10dp"
+                android:layout_marginEnd="30dp"
+                android:lineSpacingExtra="4dp"
+                android:tag="text:body"
+                android:text="@string/v6_notice_body"
+                android:textSize="12.5sp"
+                android:visibility="gone" />
+        </LinearLayout>
+
         <!-- 5.10.1 (V6): Profile, in place of the Google account. Your photo and name, on this
              phone only. Tapping the photo opens Choose / Take / Remove; tapping the name edits it
              (the same name the Home greetings use). -->
@@ -105,58 +166,6 @@
                     android:layout_marginTop="0dp"
                     android:text="@string/profile_hint" />
             </LinearLayout>
-        </LinearLayout>
-
-        <!-- 5.10.1 (V6): why Firebase went, and what's new. 6.1.1: the body uses text:body so it reads on any cover colour. Close hides it; About → Read brings it back -->
-        <LinearLayout
-            android:id="@+id/settings_v6_notice"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
-            android:background="@drawable/shape_card"
-            android:orientation="vertical"
-            android:paddingStart="20dp"
-            android:paddingTop="18dp"
-            android:paddingEnd="12dp"
-            android:paddingBottom="18dp"
-            android:tag="fill:soft">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    style="@style/MinimText.Semi"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:accessibilityHeading="true"
-                    android:tag="text:fg"
-                    android:text="@string/v6_notice_title"
-                    android:textSize="15sp" />
-
-                <ImageView
-                    android:id="@+id/settings_v6_notice_close"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="@string/v6_notice_close"
-                    android:padding="10dp"
-                    android:src="@drawable/ic_close"
-                    android:tag="tint:muted" />
-            </LinearLayout>
-
-            <TextView
-                android:id="@+id/settings_v6_notice_body"
-                style="@style/MinimSet.Hint"
-                android:layout_width="match_parent"
-                android:layout_marginTop="6dp"
-                android:layout_marginEnd="8dp"
-                android:lineSpacingExtra="4dp"
-                android:tag="text:body"
-                android:text="@string/v6_notice_body" />
         </LinearLayout>
 
         <!-- 5.10.1: Backup &amp; restore, right under the profile (was at the bottom of Storage) -->
@@ -864,39 +873,6 @@
                     android:layout_marginStart="12dp"
                     android:layout_marginBottom="0dp"
                     android:text="@string/update_check" />
-            </LinearLayout>
-
-            <!-- 5.10.1: the V6 notice again, after it was closed -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:baselineAligned="false"
-                android:gravity="center_vertical"
-                android:minHeight="48dp"
-                android:orientation="horizontal">
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        style="@style/MinimSet.Label"
-                        android:layout_marginTop="0dp"
-                        android:text="@string/v6_notice_about_label" />
-
-                    <TextView
-                        style="@style/MinimSet.Hint"
-                        android:text="@string/v6_notice_about_hint" />
-                </LinearLayout>
-
-                <TextView
-                    android:id="@+id/set_v6_notice_read"
-                    style="@style/MinimSet.Action"
-                    android:layout_marginStart="12dp"
-                    android:text="@string/v6_notice_read" />
             </LinearLayout>
 
             <TextView

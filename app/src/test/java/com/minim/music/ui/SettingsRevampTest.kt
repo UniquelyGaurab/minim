@@ -142,10 +142,10 @@ class SettingsRevampTest {
     }
 
     @Test
-    fun versionIs620Build66() {
+    fun versionIs650Build67() {
         val gradle = file("build.gradle.kts")
-        assertTrue(gradle.contains("versionCode = 66"))
-        assertTrue(gradle.contains("versionName = \"6.2.0\""))
+        assertTrue(gradle.contains("versionCode = 67"))
+        assertTrue(gradle.contains("versionName = \"6.5.0\""))
     }
 
     @Test
@@ -215,8 +215,8 @@ class SettingsRevampTest {
     @Test
     fun aboutShowsTheVersion_andTheModelRowOpensThePicker() {
         val a = openSettings()
-        assertEquals("Minim 6.2.0", a.findViewById<TextView>(R.id.set_about).text.toString())
-        assertTrue(a.findViewById<TextView>(R.id.set_about_build).text.startsWith("Build 66"))
+        assertEquals("Minim 6.5.0", a.findViewById<TextView>(R.id.set_about).text.toString())
+        assertTrue(a.findViewById<TextView>(R.id.set_about_build).text.startsWith("Build 67"))
         assertFalse(a.findViewById<TextView>(R.id.set_gemini_model_pick).text.contains("▾"))
         assertTrue(a.findViewById<View>(R.id.set_gemini_model_row).contentDescription.startsWith("Gemini model: "))
         a.findViewById<View>(R.id.set_gemini_model_row).performClick()
@@ -237,21 +237,25 @@ class SettingsRevampTest {
         assertFalse(a.isFinishing)
     }
 
-    /** 5.10.1 (V6): Profile first, the notice, Backup & restore, the old groups, Clear history last. */
+    /**
+     * 5.10.1 (V6): Profile, Backup & restore, the old groups, Clear history last. 6.5.0: the notice
+     * moved above Profile, so it's the first thing under the Settings title; the rest keep their order.
+     */
     @Test
     fun v6SettingsOrder() {
-        app.preferences.v6NoticeDismissed = false
         val a = openSettings()
         val you = a.findViewById<View>(R.id.settings_group_you)
         val list = you.parent as ViewGroup
         val order = listOf(
-            R.id.settings_group_you, R.id.settings_v6_notice, R.id.settings_group_backup,
+            R.id.settings_v6_notice, R.id.settings_group_you, R.id.settings_group_backup,
             R.id.settings_group_look, R.id.settings_group_sound, R.id.settings_group_lyrics,
             R.id.settings_group_gestures, R.id.settings_group_gemini, R.id.settings_group_storage,
             R.id.settings_group_about, R.id.settings_group_danger
         ).map { id -> list.indexOfChild(a.findViewById(id)) }
         assertTrue(order.toString(), order.all { it >= 0 })
         assertEquals(order.sorted(), order)
+        assertEquals("the notice comes straight after the Settings title row", 1, order.first())
+        assertEquals("Profile comes straight after the notice", order.first() + 1, order[1])
         val danger = a.findViewById<View>(R.id.settings_group_danger)
         val lastShown = (0 until list.childCount).map { list.getChildAt(it) }.last { it.visibility == View.VISIBLE }
         assertEquals("Clear history's group is the last thing in Settings", danger, lastShown)
@@ -264,17 +268,34 @@ class SettingsRevampTest {
         return false
     }
 
-    /** 6.0.0: the notice names the engine Minim Fermata. 6.1.1: and says its recommendations are here. */
+    /** 6.5.0: the folded line, and the full note's facts, with no company or app named. */
     @Test
-    fun v6NoticeNamesMinimFermata() {
+    fun v6NoticeTextTellsTheFacts() {
         val a = openSettings()
+        val line = a.findViewById<TextView>(R.id.settings_v6_notice_line).text.toString()
+        assertEquals("No accounts. No cloud. Nobody watching you skip the same song at 3am.", line)
         val body = a.findViewById<TextView>(R.id.settings_v6_notice_body).text.toString()
-        assertTrue(body, body.contains("Minim Fermata"))
-        assertTrue(body, body.contains("Recommendations from Minim Fermata are here"))
-        assertTrue(body, body.contains("the radio and Discover"))
+        for (fact in listOf(
+            "Google sign-in and Firebase are gone", "there are no accounts", "Minim collects nothing",
+            "The old cloud copy of your library has been deleted",
+            "Minim Fermata", "a folder you pick", "syncs your phones through that same folder",
+            "recommendations are here too, in the radio and Discover", "worked out on your phone",
+            "Built-in Gemini left with Firebase", "free Google AI Studio key under Gemini",
+            "lyrics, translation and chat", "big streaming apps", "other clients",
+        )) assertTrue("missing \"$fact\": $body", body.contains(fact))
         assertFalse(body, body.contains("coming next"))
-        assertFalse(body, body.contains("coming in V6"))
+        assertFalse(body, body.contains("is being deleted"))
+        // every Fermata is "Minim Fermata"
         assertFalse(body, Regex("\\bFermata\\b").findAll(body).any { m -> !body.startsWith("Minim ", m.range.first - 6) })
+        // roast the category, never a name
+        for (name in listOf(
+            "Spotify", "YouTube", "Apple", "Amazon", "Deezer", "Tidal", "SoundCloud", "JioSaavn", "Gaana",
+            "Wynk", "Metrolist", "ViMusic", "InnerTune", "OuterTune", "Harmony", "NewPipe", "Wrapped",
+        )) assertFalse("names $name", (line + body).contains(name, ignoreCase = true))
+        // a few short paragraphs
+        val paragraphs = body.split("\n\n")
+        assertTrue(paragraphs.size.toString(), paragraphs.size in 3..5)
+        assertTrue(body.length.toString(), body.length < 1000)
     }
 
     /** 6.1.1: the notice's body text is painted with the readable body colour, not muted. */
@@ -286,26 +307,83 @@ class SettingsRevampTest {
         assertTrue(body.currentTextColor != a.findViewById<TextView>(R.id.set_credits).currentTextColor)
     }
 
-    /** 5.10.1 (V6): the notice closes, stays closed, and About brings it back. */
+    /** 6.5.0: folded to one line on open; a tap on the card opens it in place, another folds it. */
     @Test
-    fun v6NoticeDismissAndReopen() {
-        app.preferences.v6NoticeDismissed = false
+    fun v6NoticeExpandsAndCollapsesInPlace() {
         val a = openSettings()
         val notice = a.findViewById<View>(R.id.settings_v6_notice)
+        val body = a.findViewById<View>(R.id.settings_v6_notice_body)
+        val chev = a.findViewById<View>(R.id.settings_v6_notice_chev)
+        val list = notice.parent as ViewGroup
+        val at = list.indexOfChild(notice)
         assertEquals(View.VISIBLE, notice.visibility)
-        a.findViewById<View>(R.id.settings_v6_notice_close).performClick()
-        idle(2)
-        assertEquals(View.GONE, notice.visibility)
-        assertTrue(app.preferences.v6NoticeDismissed)
+        assertEquals(View.GONE, body.visibility)
+        val folded = notice.height
+        assertTrue(folded > 0)
 
-        // still closed the next time Settings opens
+        assertTrue(notice.performClick())
+        idle(1)
+        frame(a)
+        assertEquals(View.VISIBLE, body.visibility)
+        assertEquals(180f, chev.rotation, 0.5f)
+        assertTrue("opened card is taller ($folded -> ${notice.height})", notice.height > folded * 2)
+        assertEquals("it opens in place", at, list.indexOfChild(notice))
+
+        // tapping the open note (its body included) folds it again
+        assertTrue(notice.performClick())
+        idle(1)
+        frame(a)
+        assertEquals(View.GONE, body.visibility)
+        assertEquals(0f, chev.rotation, 0.5f)
+        assertEquals(folded, notice.height)
+        assertEquals(View.VISIBLE, notice.visibility)
+    }
+
+    /** 6.5.0: the notice can't be closed: no X, no About row to bring it back, no saved "closed" state. */
+    @Test
+    fun v6NoticeCannotBeDismissed() {
+        // a phone that closed it on 6.0.0 to 6.2.0
+        app.getSharedPreferences("minim_desk_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().putBoolean(AppPreferences.KEY_V6_NOTICE_DISMISSED, true).commit()
+        AppPreferences(app)
+        assertFalse(
+            "the old closed flag is removed",
+            app.getSharedPreferences("minim_desk_prefs", android.content.Context.MODE_PRIVATE)
+                .contains(AppPreferences.KEY_V6_NOTICE_DISMISSED)
+        )
+        app.getSharedPreferences("minim_desk_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().putBoolean(AppPreferences.KEY_V6_NOTICE_DISMISSED, true).commit()
+        val a = openSettings()
+        val notice = a.findViewById<View>(R.id.settings_v6_notice)
+        assertEquals("shown even with the old flag set", View.VISIBLE, notice.visibility)
+
+        for (gone in listOf("settings_v6_notice_close", "set_v6_notice_read")) {
+            assertEquals(gone, 0, a.resources.getIdentifier(gone, "id", a.packageName))
+        }
+        for (gone in listOf("v6_notice_close", "v6_notice_about_label", "v6_notice_read", "v6_notice_title")) {
+            assertEquals(gone, 0, a.resources.getIdentifier(gone, "string", a.packageName))
+        }
+        // nothing inside the card takes a tap of its own (the whole card is the toggle)
+        fun clickables(v: View, out: MutableList<View> = mutableListOf()): List<View> {
+            if (v !== notice && (v.isClickable || v.hasOnClickListeners())) out += v
+            if (v is ViewGroup) for (i in 0 until v.childCount) clickables(v.getChildAt(i), out)
+            return out
+        }
+        assertEquals(emptyList<View>(), clickables(notice))
+        // no "Why there's no account" row under About
+        val about = a.findViewById<ViewGroup>(R.id.settings_group_about)
+        fun texts(v: View, out: MutableList<String> = mutableListOf()): List<String> {
+            if (v is TextView) out += v.text.toString()
+            if (v is ViewGroup) for (i in 0 until v.childCount) texts(v.getChildAt(i), out)
+            return out
+        }
+        assertFalse(texts(about).toString(), texts(about).any { it.contains("no account", ignoreCase = true) || it == "What changed in V6" })
+
+        // open and fold it a few times, then reopen Settings: it's still there
+        repeat(3) { notice.performClick(); idle(1) }
         val b = openSettings()
-        assertEquals(View.GONE, b.findViewById<View>(R.id.settings_v6_notice).visibility)
-
-        b.findViewById<View>(R.id.set_v6_notice_read).performClick()
-        idle(2)
         assertEquals(View.VISIBLE, b.findViewById<View>(R.id.settings_v6_notice).visibility)
-        assertFalse(app.preferences.v6NoticeDismissed)
+        assertEquals(View.GONE, b.findViewById<View>(R.id.settings_v6_notice_body).visibility)
     }
 
     /** 5.10.1: Take photo's file survives Android closing Minim while the camera is open. */

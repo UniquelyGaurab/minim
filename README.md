@@ -41,11 +41,12 @@ Minim plays YouTube Music without the clutter. Songs are found and streamed with
 - **No accounts.** Google sign-in is gone. Minim doesn't know who you are and doesn't need to.
 - **No Firebase, zero data collection.** There's no Minim server, no analytics and no cloud copy of your library. The Firebase and Google sign-in code is removed from the app entirely.
 - **Everything stays on your phone.** Your library and history are kept by Minim Fermata, on the device. Your profile photo never leaves the phone, not even in backups.
-- **Minim Fermata.** Minim's own on-device engine for your library, history, backups and syncing between phones. [More below.](#minim-fermata)
-- **Backups and syncing through a folder you pick.** Minim backs up when you leave the app and once a day, and picks up your other phones' changes when you open it.
+- **Minim Fermata.** Minim's own on-device engine for your library, history, recommendations, backups and syncing between phones. [More below.](#minim-fermata)
+- **Recommendations that never leave your phone.** The radio and Discover are put in your order by Minim Fermata, from what you like, play and skip.
+- **Backups and syncing through a folder you pick.** Minim backs up when you leave the app and once a day, only adding what's new, and picks up your other phones' changes when you open it.
 - **Your own Gemini key.** Lyrics translation, Gemini lyrics, the chat and the daily Search shelf use a free key from Google AI Studio that you add yourself.
 
-Coming from 5.x? V6 installs as an update and keeps your library, likes, playlists, stats and settings. Settings has a short note, "No more accounts", explaining what changed. You can close it and read it again later under About → Why there's no account.
+Coming from 5.x or 6.0? 6.5 installs as an update and keeps your library, likes, playlists, stats and settings. The first line in Settings, "No accounts. No cloud. Nobody watching you skip the same song at 3am.", opens to explain why Google sign-in went and Minim went fully local. Tap it again to fold it.
 
 ## Minim Fermata
 
@@ -54,15 +55,15 @@ A fermata is the music symbol that says "hold this note longer". Minim Fermata i
 What it does:
 
 - **Keeps an on-device log** of everything you do in your library: likes and unlikes, playlist edits, "not interested", plays, skips and tapes. Your library, history and stats are built from that log, and each change is saved together with what the screens show, so closing Minim mid-song can't leave them disagreeing.
-- **Backs up** the log as a `.minim` file to a folder you pick. Your Gemini key and other settings are never written to a backup.
+- **Backs up** the log to a folder you pick. The first backup holds your whole history; after that, each backup only adds a small `.fermata` file with what's new, and now and then the small files are combined into one. Your Gemini key and other settings are never written to a backup.
 - **Restores** any backup in that folder, from this phone or another one. A restore is merged into what's already on the phone; it never wipes the phone first.
 - **Merges your phones.** Phones that back up into the same folder pick up each other's likes, playlists and plays, without counting anything twice. When two phones disagree (a like on one, an unlike on the other), the newer change wins on both.
 - **Clears history everywhere.** Clear history removes your plays, stats and listening time from this phone, your backups and your other phones. Likes and playlists stay.
-- **Recommendations, on your phone (6.1).** YouTube still picks the songs for the radio and Discover's mixes, and Minim Fermata puts them in your order from what you like, play and skip. Songs you skip early move down, a song you've skipped early twice in a row is left out until you play it again, and "Not interested" hides a song from Discover and the radio (with Undo). Discover also gets "Because you like" and "Forgotten favourites". New listeners get the old order until Minim has heard about 30 plays across 10 songs. None of it uses the network: it's worked out on the device from your own log.
+- **Recommendations, on your phone.** YouTube still picks the songs for the radio and Discover's mixes, and Minim Fermata puts them in your order from what you like, play and skip. Songs you skip early move down, a song you've skipped early twice in a row is left out until you play it again, and "Not interested" hides a song from Discover and the radio (with Undo). Discover also gets "Because you like", "Forgotten favourites" and "On repeat". New listeners get the old order until Minim has heard about 30 plays across 10 songs. None of it uses the network: it's worked out on the device from your own log.
 
 ## Install
 
-1. Download `Minim-v6.0.0.apk` (or whatever the newest is) from [Releases](https://github.com/UniquelyGaurab/minim/releases/latest).
+1. Download `Minim-v6.5.0.apk` (or whatever the newest is) from [Releases](https://github.com/UniquelyGaurab/minim/releases/latest).
 2. Open it on your phone and allow installs from your browser or file manager if Android asks.
 
 After that, Minim keeps itself up to date. When it opens, or comes back after a few hours, it checks this repo's latest release and offers to download and install it. You can also tap Check for updates in Settings → About. Each release installs over the one before and keeps your library and settings. What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
@@ -125,18 +126,18 @@ A chat that finds, plays and queues songs, opens artist pages, explains or trans
 - **Rotating greetings** on Home, including lines about what you're playing and how much you've listened.
 - **Festival themes** with their own wallpaper, colours and greetings.
 - **Haptic feedback**, album art gestures and HD artwork.
-- **Tidy Settings:** Profile, Backup & restore, then short groups for Look, Sound, Lyrics, Gestures, Gemini, Storage and About, with Clear history on its own at the bottom.
+- **Tidy Settings:** a one-line note on why there's no account (tap to read it), Profile, Backup & restore, then short groups for Look, Sound, Lyrics, Gestures, Gemini, Storage and About, with Clear history on its own at the bottom.
 
 ## Backups and syncing your phones
 
 Backups are optional, and they go only where you put them.
 
 1. Open Settings → Backup & restore and choose a backup folder. Android asks you to pick it, so Minim needs no storage permission and can only see that one folder.
-2. That's it. Minim backs up when you leave the app (only if something changed), once a day while your phone is charging, and whenever you tap **Back up now**. It keeps the backup from the day before as well. The line under Backup shows when the last one ran, or why it failed.
+2. That's it. Minim backs up when you leave the app (only if something changed), once a day while your phone is charging, and whenever you tap **Back up now**. The first backup writes your whole history; after that, each one only adds a small file with what's new (about 1 KB after one play), so backups are about a third of the size they used to be. Now and then Minim combines the small files into one, and only deletes old files once the new one is safely written. It also keeps a restore point from up to a day before. The line under Backup shows when the last one ran, or why it failed.
 
 **Restore:** tap Restore and pick any backup in the folder, from this phone or another one. A fresh install offers to restore once, and you can say no.
 
-**Sync two or more phones:** point each phone at the same folder, kept in sync by an app you already trust, such as Google Drive, Nextcloud, Dropbox or Syncthing. Each phone writes its own backup there, and when you open Minim it merges in what the other phones changed. Minim never talks to those services itself; it only reads and writes files in the folder.
+**Sync two or more phones:** point each phone at the same folder, kept in sync by an app you already trust, such as Google Drive, Nextcloud, Dropbox or Syncthing. Each phone writes its own backup there, and when you open Minim it merges in what the other phones changed. Update every phone to 6.5 or newer, because 6.0.0 can't read 6.5 backups. Minim never talks to those services itself; it only reads and writes files in the folder.
 
 Backups hold your likes, playlists and listening history. They don't hold your settings, your Gemini key or your profile photo. A backup file isn't encrypted, so pick a folder you trust.
 

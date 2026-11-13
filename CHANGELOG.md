@@ -2,45 +2,34 @@
 
 Every Minim release, newest first. Download any of them from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page.
 
-## 6.2.0 (unreleased)
+## 6.5.0 (2026-11-13)
 
-Smaller backups that only add what's new.
+Recommendations from Minim Fermata, worked out on your phone, and backups that only add what's new. This covers everything since 6.0.0, including the 6.1.0, 6.1.1 and 6.2.0 test builds.
 
-- **Backups are about a third of the size:** a year of listening went from 286 KB to about 93 KB in our tests
-- **Backing up when you close the app writes about 1 KB,** just the new plays, instead of copying your whole history every time
-- **Now and then Minim tidies the small files into one,** and only removes the old ones once the new file is safely written, so a backup is never lost if your phone dies halfway
-- **Opening the app on a second phone is quicker:** it only reads the new files from your other phones
-- **Listening time is saved once a minute** while a song plays, and whenever you pause, skip, stop or leave the app, instead of every 5 seconds. Your listening minutes come out the same; if the app is killed you lose at most the last minute. Stats still updates every few seconds while it's open
-- **Older backups still restore and merge,** including ones from phones still on 6.1.1. But **6.1.1 and older can't read 6.2 backups,** so update every phone that shares a backup folder
-- Restore, clear history across phones, and undoing an old like or "Not interested" all work as before
-
-## 6.1.1 (unreleased)
-
-Fixes from Dev's review of 6.1.0.
-
-- **"Not interested" can be undone:** the note now has Undo, and says the song is hidden from the radio too. Undo brings the song back everywhere, including the radio, Discover and your other phones
-- **"Not interested" hides one song, not the artist:** hiding a song no longer pushes down everything else by that artist
-- **Undoing an old like or "Not interested"** puts the song back where it would have been. Before, unliking a song you liked two months ago pushed it well below songs you'd never liked
-- **Early skips count in full:** a skip in the first 30 seconds no longer also counts as a short play, so skipped songs and artists move down as much as they should, and early skips never count towards On repeat, Forgotten favourites or the 30 songs new listeners need
-- **Clear history refreshes Discover straight away,** instead of showing shelves from the cleared plays for a few more hours
-- The radio rechecks the queue after putting a batch in your order, so a song you queued meanwhile isn't added twice, and one you hid isn't added at all
-
-Also in 6.1.1:
-
-- **Shorter backup counts:** Backup & restore shows "3.8K events" instead of "3785 events", then M and B for bigger numbers
-- **Tapes captions start off:** tap CC on Now Playing to turn them on, and tap it again to turn them off. The CC button is faded while they're off. Your choice carries over to the next tape until Minim is closed
-- **The "No more accounts" note** is easier to read, and now says Minim Fermata's recommendations are here, in the radio and Discover
-
-## 6.1.0 (unreleased)
-
-Recommendations from Minim Fermata, worked out on your phone.
-
+**Recommendations, on your phone**
 - **Radio:** YouTube still picks the songs, and Minim Fermata puts them in your order. Songs and artists you like move up, songs you skip early move down, and a song you've skipped early twice in a row is left out until you play it again. Nothing you've heard in the last three hours comes back, unless the radio would otherwise run short
-- **Skips count:** a skip in the first 30 seconds (or the first fifth of a long song) pushes that song down. Skipping the same artist early three times within two weeks lowers the artist a little
 - **Discover:** new "Because you like" shelf for your top artist, "Forgotten favourites" for songs you loved but haven't played in a month, and "On repeat" now counts this week's plays. Mixes are put in your order too
+- **Smarter skips:** a skip in the first 30 seconds (or the first fifth of a long song) pushes that song down, and counts in full instead of also counting as a short play. Skipping the same artist early three times within two weeks lowers the artist a little. Early skips never count towards On repeat or Forgotten favourites
+- **"Not interested" with Undo:** it hides one song, not the whole artist, from Discover and the radio. The note has Undo, which brings the song back everywhere, your other phones included
+- **Undoing an old like or "Not interested"** puts the song back where it would have been, instead of below songs you never liked
+- **Clear history refreshes Discover straight away**
 - **New listeners:** until you've played about 30 songs across 10 different ones, Discover and the radio work exactly as before
-- **No waiting:** the order is worked out in the background. Discover and the radio show straight away, in the old order if Minim Fermata isn't ready yet
-- Backups are unchanged and still work between phones on 6.0.0 and 6.1.0
+- **No waiting:** the order is worked out in the background. Discover and the radio show straight away, in the old order if Minim Fermata isn't ready yet. None of it uses the network
+
+**Leaner backups**
+- **Backups are about a third of the size or smaller:** the first backup writes your whole history once, and after that each backup only adds a small file with what's new. Backing up when you close the app writes about 1 KB instead of copying your whole history every time
+- **Now and then Minim tidies the small files into one,** and only removes old files once the new one is safely written, so a backup is never lost if your phone dies halfway
+- **Opening the app on a second phone is quicker:** it only reads the new files from your other phones
+- **Your old backups still restore and merge.** The old files stay next to the new ones for about a day, until the new backup has its own restore point, then they're removed
+- **6.0.0 can't read 6.5.0 backups,** so update every phone that shares a backup folder
+- **Listening time is saved once a minute** while a song plays, and whenever you pause, skip, stop or leave the app, instead of every 5 seconds. Your listening minutes come out the same; if the app is killed you lose at most the last minute. Stats still updates every few seconds while it's open
+
+**Look and feel**
+- **The notice at the top of Settings** is now one line: "No accounts. No cloud. Nobody watching you skip the same song at 3am." Tap it to read why Google sign-in went and Minim went fully local, and tap again to fold it. It can't be closed any more, so the "Why there's no account" row under About is gone
+- **Shorter backup counts:** Backup & restore shows "3.8K events" instead of "3785 events", then M and B for bigger numbers
+- **Tapes captions start off:** tap CC on Now Playing to turn them on, and tap it again to turn them off. The CC button is faded while they're off, and your choice carries over to the next tape until Minim is closed. To see the captions full screen, tap the caption line
+
+**Installs as an update** over 6.0.0 and the 6.1.0, 6.1.1 and 6.2.0 test builds, and keeps your library, likes, playlists, stats and settings.
 
 ## 6.0.0 (2026-11-12)
 

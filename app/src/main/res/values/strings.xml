@@ -172,12 +172,9 @@
     <string name="profile_photo_failed">Couldn\'t use that photo. Try another one.</string>
     <string name="profile_photo_no_camera">No camera app on this phone</string>
     <string name="profile_photo_removed">Photo removed</string>
-    <string name="v6_notice_title">No more accounts</string>
-    <string name="v6_notice_close">Close this note</string>
-    <string name="v6_notice_body">Google sign-in and Firebase are gone from Minim. Minim collects nothing now, there are no accounts, and your library stays on your phone. Signing in with Google inside an app you install yourself felt sketchy, so it had to go.\n\nThe old cloud copy of your library is being deleted. Built-in Gemini went with it, so add your own free Google AI Studio key under Gemini to keep lyrics, translation and chat working.\n\nNew in V6 is Minim Fermata, Minim\'s own on-device engine. It keeps your library and listening history on this phone, backs them up to a folder you pick, and syncs your phones through a shared folder. Recommendations from Minim Fermata are here too: the radio and Discover are put in your order on this phone, from what you like, play and skip.</string>
-    <string name="v6_notice_about_label">Why there\'s no account</string>
-    <string name="v6_notice_about_hint">What changed in V6</string>
-    <string name="v6_notice_read">Read</string>
+    <!-- 6.5.0: the V6 notice at the top of Settings. The line shows folded; the body opens under it. -->
+    <string name="v6_notice_line">No accounts. No cloud. Nobody watching you skip the same song at 3am.</string>
+    <string name="v6_notice_body">The big streaming apps want your email, your phone number and every song you\'ve ever played, so they can hand it back to you once a year as a slideshow. Some other clients ask you to sign in with Google inside an APK you downloaded off GitHub. Bold.\n\nMinim went the other way. Google sign-in and Firebase are gone, there are no accounts, and Minim collects nothing. The old cloud copy of your library has been deleted.\n\nEverything stays on your phone now, kept by Minim Fermata. It backs up to a folder you pick, and syncs your phones through that same folder. Its recommendations are here too, in the radio and Discover, worked out on your phone. Your taste isn\'t anyone\'s ad target.\n\nBuilt-in Gemini left with Firebase, so add your own free Google AI Studio key under Gemini to keep lyrics, translation and chat working.</string>
     <string name="settings_group_look">Look</string>
     <string name="settings_group_sound">Sound</string>
     <string name="settings_group_lyrics">Lyrics</string>

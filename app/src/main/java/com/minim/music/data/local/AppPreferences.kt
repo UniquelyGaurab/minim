@@ -10,6 +10,12 @@ class AppPreferences(context: Context) {
 
     private val prefs = context.getSharedPreferences("minim_desk_prefs", Context.MODE_PRIVATE)
 
+    init {
+        // 6.5.0: the V6 notice can't be closed any more, so a "closed" flag saved by 6.0.0 to 6.2.0
+        // means nothing. Drop it once so it can't hide anything later.
+        if (prefs.contains(KEY_V6_NOTICE_DISMISSED)) prefs.edit().remove(KEY_V6_NOTICE_DISMISSED).apply()
+    }
+
     /** The app's own Light/Dark setting (it does not follow the phone's dark mode). */
     var themeMode: Int
         get() = if (prefs.getInt(KEY_THEME_MODE, THEME_LIGHT) == THEME_DARK) THEME_DARK else THEME_LIGHT
@@ -139,11 +145,6 @@ class AppPreferences(context: Context) {
      * 5.7.0 u44: the "new" tag next to the tab shows until the tab is first tapped, then never again.
      * u47: the tab is "tapes" now, with its own key, so the tag shows once more for the new name.
      */
-    /** 5.10.1 (V6): the Settings note about Firebase going was closed (About → Read shows it again). */
-    var v6NoticeDismissed: Boolean
-        get() = prefs.getBoolean(KEY_V6_NOTICE_DISMISSED, false)
-        set(value) = prefs.edit().putBoolean(KEY_V6_NOTICE_DISMISSED, value).apply()
-
     var storiesTabSeen: Boolean
         get() = prefs.getBoolean("tapes_tab_seen", false)
         set(value) = prefs.edit().putBoolean("tapes_tab_seen", value).apply()
@@ -287,6 +288,7 @@ class AppPreferences(context: Context) {
     }
 
     companion object {
+        /** 5.10.1 to 6.2.0 saved the V6 notice as closed here; 6.5.0 removes it on first launch. */
         const val KEY_V6_NOTICE_DISMISSED = "v6_notice_dismissed"
         private const val KEY_THEME_MODE = "theme_mode_v4"
         private const val KEY_COLOUR_MODE = "colour_mode_v494"

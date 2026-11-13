@@ -9673,21 +9673,7 @@ class MainActivity : AppCompatActivity() {
         }
         // Tapping the name (or the hint under it) edits the name in place
         findViewById<View>(R.id.profile_hint).setOnClickListener { focusName() }
-        findViewById<View>(R.id.settings_v6_notice_close).setOnClickListener { v ->
-            haptic(v)
-            app.preferences.v6NoticeDismissed = true
-            renderV6Notice()
-        }
-        findViewById<View>(R.id.set_v6_notice_read).setOnClickListener { v ->
-            haptic(v)
-            app.preferences.v6NoticeDismissed = false
-            renderV6Notice()
-            // back up to where the note is, so it's read where it lives
-            val scroll = screenSettings as? android.widget.ScrollView
-            val note = findViewById<View>(R.id.settings_v6_notice)
-            scroll?.post { scroll.smoothScrollTo(0, (note.top - dp(24f).toInt()).coerceAtLeast(0)) }
-        }
-        renderV6Notice()
+        setupV6Notice()
         renderProfile()
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -9720,9 +9706,43 @@ class MainActivity : AppCompatActivity() {
         imm?.showSoftInput(settingsName, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
     }
 
-    private fun renderV6Notice() {
-        findViewById<View>(R.id.settings_v6_notice).visibility =
-            if (app.preferences.v6NoticeDismissed) View.GONE else View.VISIBLE
+    /**
+     * 6.5.0: the V6 notice is the first thing in Settings: one line, folded. A tap anywhere on the
+     * card opens the full note in place (the same soft fold as the privacy notes, chevron turning
+     * with it), and another tap folds it again. It can't be closed, so there's no X and no saved
+     * "dismissed" state; [AppPreferences] drops the old one.
+     */
+    private fun setupV6Notice() {
+        val card = findViewById<View>(R.id.settings_v6_notice)
+        val chev = findViewById<View>(R.id.settings_v6_notice_chev)
+        val body = findViewById<View>(R.id.settings_v6_notice_body)
+        card.visibility = View.VISIBLE
+        body.visibility = View.GONE
+        chev.rotation = 0f
+        fun describe(open: Boolean) {
+            androidx.core.view.ViewCompat.setStateDescription(
+                card, getString(if (open) R.string.fold_open else R.string.fold_closed)
+            )
+        }
+        describe(false)
+        card.setOnClickListener { v ->
+            val open = body.visibility != View.VISIBLE
+            haptic(v)
+            if (animationsOn()) {
+                android.transition.TransitionManager.beginDelayedTransition(
+                    findViewById(R.id.settings_content),
+                    android.transition.AutoTransition().apply {
+                        duration = 240L
+                        interpolator = android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)
+                    }
+                )
+                chev.animate().rotation(if (open) 180f else 0f).setDuration(240L).start()
+            } else {
+                chev.rotation = if (open) 180f else 0f
+            }
+            body.visibility = if (open) View.VISIBLE else View.GONE
+            describe(open)
+        }
     }
 
     /** The last FermataBridge.dataVersion the screens were reloaded for (starts at the current one). */
