@@ -38,6 +38,8 @@ class FullscreenLyricsLayout @JvmOverloads constructor(
 
     var onDoubleTap: (() -> Unit)? = null
     var onSingleTap: ((MotionEvent) -> Unit)? = null
+    /** 6.6.0: hold a line to pick it for a lyrics card. */
+    var onLongPress: ((MotionEvent) -> Unit)? = null
     var tapBlocked: (() -> Boolean)? = null
     var excludeView: View? = null
     /** 5.6.0: more controls that taps on must not count as a line tap or half a double tap (the translate button). */
@@ -55,6 +57,9 @@ class FullscreenLyricsLayout @JvmOverloads constructor(
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
             if (!blockedTap) onSingleTap?.invoke(e)
             return true
+        }
+        override fun onLongPress(e: MotionEvent) {
+            if (!blockedTap) onLongPress?.invoke(e)
         }
     })
 
@@ -244,6 +249,8 @@ class FullscreenLyricsAdapter(
         private set
     /** Index of the active line, -1 before the first one. */
     var active: Int = -1
+    /** 6.6.0: the lines picked for a lyrics card, or null when not picking. */
+    var selection: IntRange? = null
     /** Text colour (white or dark, from the cover). */
     var ink: Int = FullscreenLyricsLook.WHITE_INK
     /** v4.9.8 part 4: the Lyrics style setting, Flow (word by word) or Line. Untimed lyrics ignore it. */
@@ -394,11 +401,14 @@ class FullscreenLyricsAdapter(
 
     fun style(v: LyricLineView, position: Int, animate: Boolean) {
         val d = FullscreenLyricsLook.distance(position, active)
-        val a = FullscreenLyricsLook.lineAlpha(d, synced)
-        val s = FullscreenLyricsLook.lineScale(d, synced)
+        val sel = selection
+        val picked = sel != null && position in sel
+        // 6.6.0: picking lines for a card: the picked ones full and still, the rest faded back
+        val a = if (sel != null) (if (picked) 1f else SELECT_DIM_ALPHA) else FullscreenLyricsLook.lineAlpha(d, synced)
+        val s = if (sel != null) (if (picked) 1f else SELECT_DIM_SCALE) else FullscreenLyricsLook.lineScale(d, synced)
         v.setTextColor(ink)
-        v.flowOn = flow && synced
-        v.setActiveLine(synced && d == 0)
+        v.flowOn = flow && synced && sel == null
+        v.setActiveLine(synced && d == 0 && sel == null)
         // 5.6.0: the row scales (so a translation shrinks with its line); line and translation
         // share the line's brightness
         val row = v.parent as? LyricRow
@@ -425,6 +435,8 @@ class FullscreenLyricsAdapter(
         const val TEXT_SP = 27f
         const val LINE_PAD_DP = 11f
         const val STYLE_MS = 420L
+        const val SELECT_DIM_ALPHA = 0.28f
+        const val SELECT_DIM_SCALE = 0.95f
         /** 5.6.0: one row's bar-to-text fade. */
         const val TRANSLATION_FADE_MS = 380L
     }

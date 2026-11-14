@@ -13,6 +13,12 @@ Every Minim release, newest first. Download any of them from the [Releases](http
 - **A web page for people without Minim** at the same link: the songs with their covers, "Shared by", a short pitch and a Download button, plus "Listen on YouTube Music" for a song. It reads the link in the browser; playlist titles and artists come from YouTube's oEmbed and covers from YouTube's image server; no analytics, no cookies, no third-party scripts.
 - Nothing new is recorded in Fermata: saving and playing count as normal likes, playlists and plays.
 
+**Lyrics cards**
+
+- **Share a line.** Full-screen lyrics has a share button at the top right, next to translate. Tap it to start picking from the line playing now (the first line on screen for lyrics without timing), or hold any line to start from that one. Tap the line just above or below to add it, tap an end line to drop it. Up to 5 lines and about 180 characters; a counter shows "3/5" and a short note says when a card is full. **Share** confirms; Back or a tap away from the lines cancels.
+- **The card.** 9:16 like the song card, in the cover's colours: the lines big in Poppins bold, sized down only as far as they need to fit, then a small cover, the title and artist, "Shared by" and the Minim mark. When there's an English translation (on screen or saved earlier), pick **Original**, **Translation** or **Both** and see the card change before you share. Same "Share with card" / "Link only" choice; the text reads "Gaurab shared a line from Suroor on Minim" and the link.
+- **Starts at the line.** For timed lyrics the link carries the first line's time, so the pop-up shows "Starts at 0:51" and **Play** starts there. The link also carries how many lines were shared and a checksum of them (never the words), so the web page can find and show them as a quote from LRCLIB in the browser. Song links stay version 1: older links open as before, and older Minims ignore the extras. YouTube Music's web player drops a start time, so the "Listen on YouTube Music" button still opens the song from the top.
+
 ## 6.5.0 (2026-11-13)
 
 Recommendations from Minim Fermata, worked out on your phone, and backups that only add what's new. This covers everything since 6.0.0, including the 6.1.0, 6.1.1 and 6.2.0 test builds.

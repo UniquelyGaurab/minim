@@ -29,7 +29,7 @@ class V560TranslateWiringTest {
         for (must in listOf(
             "LyricLanguage.plan(", "showButton", "host.tapHaptic(translateBtn)", "host.savedTranslation(data)",
             "host.translateLyrics(data)", "adapter.setLoading(", "adapter.setReady(", "showTranslateNote()",
-            "overlay.moreExcluded = listOf(translateBtn, translateNote, captionPill, ai.panel, ai.redo)", "resetTranslation()",
+            "overlay.moreExcluded = listOf(translateBtn, translateNote, captionPill, ai.panel, ai.redo, shareBtn, selectBar, selectHint)", "resetTranslation()",
         )) assertTrue(must, fs.contains(must))
         val main = src("java/com/minim/music/ui/MainActivity.kt")
         assertTrue(main.contains("app.lyricsTranslator.translate("))

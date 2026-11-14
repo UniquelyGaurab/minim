@@ -758,6 +758,7 @@
     <!-- 6.6.0: Minim share links, the "Shared with you" pop-up and share cards -->
     <string name="shared_with_you">Shared with you</string>
     <string name="shared_by">Shared by %1$s</string>
+    <string name="shared_starts_at">Starts at %1$s</string>
     <string name="shared_save">Save</string>
     <string name="shared_play">Play</string>
     <string name="shared_saved_song">Saved to Liked</string>
@@ -795,4 +796,14 @@
     <string name="share_cap_title">Share the first 100?</string>
     <string name="share_cap_body">A link holds up to 100 songs. This playlist has %1$d, so the first 100 go in.</string>
     <string name="share_cap_ok">Share 100</string>
+    <!-- 6.6.0: lyrics card -->
+    <string name="fs_share_lyrics">Share lyrics</string>
+    <string name="lyrics_select_hint">Tap the lines above or below to add them</string>
+    <string name="lyrics_select_max_lines">5 lines is the most a card holds</string>
+    <string name="lyrics_select_max_chars">That\'s all that fits on one card</string>
+    <string name="lyrics_select_share">Share</string>
+    <string name="lyrics_select_count">%1$d/%2$d</string>
+    <string name="lyrics_card_original">Original</string>
+    <string name="lyrics_card_translation">Translation</string>
+    <string name="lyrics_card_both">Both</string>
 </resources>

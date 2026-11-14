@@ -84,7 +84,15 @@ class FullscreenLyrics(
         fun edgeTick(v: View)
         /** 5.8.1: Gemini lyrics (the offer, the request and the saved copies). */
         val aiLyrics: FullscreenAiLyrics.Host
+        /** 6.6.0: the Share pill in select mode: make a lyrics card from these lines. */
+        fun shareLyrics(share: LyricShare)
     }
+
+    /**
+     * 6.6.0: lines picked for a lyrics card: [data]'s lines [first]..[last], and their English
+     * translations when they're on screen right now (else null; the host can still find saved ones).
+     */
+    data class LyricShare(val data: LyricsData, val first: Int, val last: Int, val translations: List<String?>?)
 
     enum class State { CLOSED, OPENING, OPEN, CLOSING }
 
@@ -113,6 +121,45 @@ class FullscreenLyrics(
     )
     /** 5.6.0: AI translation button (top right) and its failure note (top middle). */
     private val translateBtn: ImageView = overlay.findViewById(R.id.fs_translate)
+    /** 6.6.0: share lyrics as a card. */
+    private val shareBtn: ImageView = overlay.findViewById(R.id.fs_share)
+    private val aiBadge: View? = overlay.findViewById(R.id.fs_ai_badge)
+    private val selectFont = runCatching { ResourcesCompat.getFont(overlay.context, R.font.poppins_semibold) }.getOrNull()
+    /** 6.6.0: select mode's bottom row: "2/5" and the Share pill. */
+    private val selectBar = android.widget.LinearLayout(overlay.context).apply {
+        orientation = android.widget.LinearLayout.HORIZONTAL
+        gravity = android.view.Gravity.CENTER_VERTICAL
+        visibility = View.GONE
+        isClickable = true
+    }
+    private val selectCount = TextView(overlay.context).apply {
+        textSize = 14f
+        typeface = selectFont
+        includeFontPadding = false
+    }
+    private val selectShare = TextView(overlay.context).apply {
+        textSize = 15f
+        typeface = selectFont
+        includeFontPadding = false
+        setText(R.string.lyrics_select_share)
+        isClickable = true
+        isFocusable = true
+    }
+    private val selectShareBg = android.graphics.drawable.GradientDrawable().apply { cornerRadius = 999f }
+    /** 6.6.0: the gentle line above the bar ("Tap the lines above or below to add them", limits). */
+    private val selectHint = TextView(overlay.context).apply {
+        textSize = 13f
+        typeface = selectFont
+        includeFontPadding = false
+        gravity = android.view.Gravity.CENTER
+        visibility = View.GONE
+        alpha = 0f
+    }
+    private val selectHintBg = android.graphics.drawable.GradientDrawable().apply { cornerRadius = 999f }
+    private var selection: com.minim.music.data.share.LyricSelection? = null
+    private val hideHint = Runnable { fadeHint(false) }
+    /** 6.6.0: picking lines for a lyrics card. Back cancels it first. */
+    val isSelecting: Boolean get() = selection != null
     private val translateNote: TextView = overlay.findViewById(R.id.fs_translate_note)
     /** 5.7.0 u46: switches between a stories upload's caption tracks (only with more than one). */
     private val captionPill: TextView = overlay.findViewById(R.id.fs_caption_pill)
@@ -209,7 +256,7 @@ class FullscreenLyrics(
     private val scrollEase = PathInterpolator(0.25f, 0.1f, 0.25f, 1f)
     private val resumeFollow = Runnable {
         userScrolling = false
-        scrollToActive(smooth = true)
+        if (selection == null) scrollToActive(smooth = true)
     }
 
     init {
@@ -240,11 +287,14 @@ class FullscreenLyrics(
         bar.onEdge = { host.edgeTick(bar) }
         seekPill.background = seekPillBg
         overlay.excludeView = bar
-        overlay.moreExcluded = listOf(translateBtn, translateNote, captionPill, ai.panel, ai.redo)
+        overlay.moreExcluded = listOf(translateBtn, translateNote, captionPill, ai.panel, ai.redo, shareBtn, selectBar, selectHint)
+        setUpSelect()
         ai.onListHidden = { hidden ->
             list.visibility = if (hidden) View.INVISIBLE else View.VISIBLE
             translateBtn.visibility = if (!hidden && langPlan?.showButton == true) View.VISIBLE else View.GONE
             if (hidden) hideTranslateNote()
+            if (hidden) cancelSelect()
+            refreshShareButton()
         }
         captionPill.setOnClickListener {
             if (state != State.OPEN || captionPill.visibility != View.VISIBLE) return@setOnClickListener
@@ -257,7 +307,8 @@ class FullscreenLyrics(
         overlay.onDoubleTap = { doubleTap() }
         // 5.1.0: tap a line to jump there
         overlay.tapBlocked = { list.scrollState != RecyclerView.SCROLL_STATE_IDLE }
-        overlay.onSingleTap = { e -> tapAt(e.rawX, e.rawY) }
+        overlay.onSingleTap = { e -> if (selection != null) selectTapAt(e.rawX, e.rawY) else tapAt(e.rawX, e.rawY) }
+        overlay.onLongPress = { e -> longPressAt(e.rawX, e.rawY) }
         adapter.lineActionLabel = res.getString(R.string.fs_lyrics_play_from_line)
         adapter.onLineAction = { seekToLine(it) }
         overlay.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or, ob ->
@@ -312,6 +363,7 @@ class FullscreenLyrics(
 
     fun setLyrics(data: LyricsData?) {
         if (data === lyrics) return
+        cancelSelect(animate = false)
         lyrics = data
         active = -1
         clock.reset()
@@ -329,6 +381,7 @@ class FullscreenLyrics(
         onLyricsForTranslation(if (mode == NowPlayingLyricSlot.Mode.LINES && !isCaptions()) data else null)
         ai.setShowingAi(mode == NowPlayingLyricSlot.Mode.LINES && data.isAiLyrics())
         refreshMessage()
+        refreshShareButton()
         if (state == State.CLOSED) return
         jumpToStart()
         if (state == State.OPEN && mode == NowPlayingLyricSlot.Mode.LINES) fadeInNewLines()
@@ -349,7 +402,7 @@ class FullscreenLyrics(
         adapter.active = index
         if (!adapter.synced || state == State.CLOSED) return
         restyleVisible(animate && host.animationsOn())
-        if (!userScrolling) scrollToActive(smooth = animate)
+        if (!userScrolling && selection == null) scrollToActive(smooth = animate)
         if (flowRunning()) {
             // The row fades up to full opacity: keep the frames coming until it has
             settleUntilNs = System.nanoTime() + SETTLE_NS
@@ -602,6 +655,7 @@ class FullscreenLyrics(
     }
 
     private fun finishClose() {
+        cancelSelect(animate = false)
         state = State.CLOSED
         resetTranslation()
         updateFrameLoop()
@@ -645,7 +699,10 @@ class FullscreenLyrics(
         translateBtn.alpha = a
         translateNote.alpha = a
         captionPill.alpha = a
+        shareBtn.alpha = a
+        selectBar.alpha = a
         ai.setAlpha(a, lift)
+        if (selection != null) aiBadge?.alpha = 0f
     }
 
     /** Where Now Playing's bar is, relative to where this bar rests at the bottom. */
@@ -848,6 +905,236 @@ class FullscreenLyrics(
     // ------------------------------------------------------------------------------------------
 
     /** 5.1.0: a single tap at screen point [rawX], [rawY]: the synced line under it, if any. */
+    // ------------------------------------------------------------------------------------------
+    // 6.6.0: lyrics card. The share icon (next to translate) or holding a line picks lines.
+    // ------------------------------------------------------------------------------------------
+
+    private fun setUpSelect() {
+        selectShare.background = selectShareBg
+        val padH = dp(20f).toInt()
+        val padV = dp(10f).toInt()
+        selectShare.setPadding(padH, padV, padH, padV)
+        selectCount.setPadding(0, 0, dp(14f).toInt(), 0)
+        selectBar.addView(selectCount)
+        selectBar.addView(selectShare)
+        overlay.addView(selectBar, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
+        ))
+        selectHint.background = selectHintBg
+        val hp = dp(14f).toInt()
+        selectHint.setPadding(hp, dp(7f).toInt(), hp, dp(7f).toInt())
+        overlay.addView(selectHint, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
+        ))
+        shareBtn.setOnClickListener { onShareTapped() }
+        selectShare.setOnClickListener { confirmSelect() }
+        placeShareControls(insetTop + dp(TRANSLATE_TOP_DP).toInt())
+        styleSelectControls()
+    }
+
+    /** Share sits just left of translate, or where translate is when that's hidden; the bar above the progress bar. */
+    private fun placeShareControls(top: Int) {
+        val transShown = translateBtn.visibility == View.VISIBLE
+        val end = dp(14f).toInt() + if (transShown) dp(44f + 2f).toInt() else 0
+        (shareBtn.layoutParams as? FrameLayout.LayoutParams)?.let {
+            if (it.topMargin != top || it.marginEnd != end) {
+                it.topMargin = top
+                it.marginEnd = end
+                shareBtn.layoutParams = it
+            }
+        }
+        val barBottom = insetBottom + dp(BAR_BOTTOM_DP + BAR_HEIGHT_DP + SELECT_BAR_GAP_DP).toInt()
+        (selectBar.layoutParams as? FrameLayout.LayoutParams)?.let {
+            if (it.bottomMargin != barBottom) {
+                it.bottomMargin = barBottom
+                selectBar.layoutParams = it
+            }
+        }
+        val hintBottom = barBottom + dp(SELECT_HINT_GAP_DP).toInt()
+        (selectHint.layoutParams as? FrameLayout.LayoutParams)?.let {
+            if (it.bottomMargin != hintBottom) {
+                it.bottomMargin = hintBottom
+                selectHint.layoutParams = it
+            }
+        }
+    }
+
+    /** Shown while real lyric lines are on screen (not captions, not Gemini's panel). */
+    private fun refreshShareButton() {
+        val show = lyrics != null && adapter.itemCount > 0 && !isCaptions() && list.visibility == View.VISIBLE
+        val v = if (show) View.VISIBLE else View.GONE
+        if (shareBtn.visibility != v) {
+            shareBtn.visibility = v
+            shareBtn.alpha = FullscreenLyricsLook.linesAlpha(mix)
+        }
+        if (!show) cancelSelect()
+        placeShareControls(insetTop + dp(TRANSLATE_TOP_DP).toInt())
+    }
+
+    private fun styleSelectControls() {
+        shareBtn.imageTintList = ColorStateList.valueOf(ink)
+        selectCount.setTextColor((ink and 0x00FFFFFF) or (0xB3 shl 24))
+        selectShareBg.setColor(ink)
+        // the pill's text in the backdrop's colour, so it reads on the ink fill
+        val onInk = if (androidx.core.graphics.ColorUtils.calculateLuminance(ink) > 0.5) 0xFF121212.toInt() else 0xFFFFFFFF.toInt()
+        selectShare.setTextColor(onInk)
+        selectHint.setTextColor(ink)
+        selectHintBg.setColor((ink and 0x00FFFFFF) or (TRANSLATE_NOTE_FILL shl 24))
+    }
+
+    private fun onShareTapped() {
+        if (state != State.OPEN || shareBtn.visibility != View.VISIBLE) return
+        host.tapHaptic(shareBtn)
+        if (selection != null) {
+            cancelSelect()
+            return
+        }
+        // The line playing now; else (untimed, or before the first line) the first line on screen
+        val start = if (adapter.synced && active >= 0) active
+        else layoutManager.findFirstCompletelyVisibleItemPosition().takeIf { it >= 0 } ?: 0
+        enterSelect(start)
+    }
+
+    private fun longPressAt(rawX: Float, rawY: Float) {
+        if (state != State.OPEN || shareBtn.visibility != View.VISIBLE) return
+        val pos = lineAt(rawX, rawY) ?: return
+        val sel = selection
+        if (sel != null && pos in sel.range) return
+        overlay.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        enterSelect(pos)
+    }
+
+    private fun lineAt(rawX: Float, rawY: Float): Int? {
+        if (!list.isShown) return null
+        val loc = IntArray(2)
+        list.getLocationOnScreen(loc)
+        val child = list.findChildViewUnder(rawX - loc[0], rawY - loc[1]) ?: return null
+        return list.getChildAdapterPosition(child).takeIf { it != RecyclerView.NO_POSITION }
+    }
+
+    private fun enterSelect(index: Int) {
+        val sel = com.minim.music.data.share.LyricSelection(adapter.lines.map { it.text })
+        val start = sel.nearestSelectable(index)
+        if (start < 0 || !sel.start(start)) return
+        val fresh = selection == null
+        selection = sel
+        list.removeCallbacks(resumeFollow)
+        if (fresh) {
+            selectBar.visibility = View.VISIBLE
+            aiBadge?.alpha = 0f
+            if (host.animationsOn()) {
+                selectBar.translationY = dp(12f)
+                selectBar.scaleX = 0.96f
+                selectBar.scaleY = 0.96f
+                selectBar.animate().translationY(0f).scaleX(1f).scaleY(1f).setDuration(SELECT_ANIM_MS).setInterpolator(enterEase).start()
+            }
+            showHint(R.string.lyrics_select_hint)
+        }
+        applySelection()
+    }
+
+    private fun selectTapAt(rawX: Float, rawY: Float) {
+        val sel = selection ?: return
+        if (state != State.OPEN) return
+        val pos = lineAt(rawX, rawY)
+        if (pos == null) {
+            // a tap outside the lines cancels
+            cancelSelect()
+            return
+        }
+        when (sel.tap(pos)) {
+            com.minim.music.data.share.LyricSelection.Result.ADDED,
+            com.minim.music.data.share.LyricSelection.Result.REMOVED,
+            com.minim.music.data.share.LyricSelection.Result.STARTED -> {
+                host.tapHaptic(overlay)
+                applySelection()
+            }
+            com.minim.music.data.share.LyricSelection.Result.LIMIT_LINES -> {
+                host.edgeTick(overlay)
+                showHint(R.string.lyrics_select_max_lines)
+            }
+            com.minim.music.data.share.LyricSelection.Result.LIMIT_CHARS -> {
+                host.edgeTick(overlay)
+                showHint(R.string.lyrics_select_max_chars)
+            }
+            com.minim.music.data.share.LyricSelection.Result.NOTHING -> Unit
+        }
+    }
+
+    private fun applySelection() {
+        val sel = selection
+        adapter.selection = sel?.range
+        selectCount.text = res.getString(
+            R.string.lyrics_select_count, sel?.count ?: 0, com.minim.music.data.share.LyricSelection.MAX_LINES
+        )
+        restyleVisible(host.animationsOn())
+    }
+
+    /** Back, a tap outside the lines, the share icon again, or the lyrics going away. */
+    fun cancelSelect(animate: Boolean = true) {
+        if (selection == null) return
+        selection = null
+        adapter.selection = null
+        list.removeCallbacks(hideHint)
+        selectBar.animate().cancel()
+        if (animate && host.animationsOn() && state == State.OPEN) {
+            selectBar.animate().translationY(dp(12f)).alpha(0f).setDuration(SELECT_ANIM_MS / 2)
+                .withEndAction {
+                    if (selection == null) selectBar.visibility = View.GONE
+                    selectBar.translationY = 0f
+                    selectBar.alpha = FullscreenLyricsLook.linesAlpha(mix)
+                }.start()
+            fadeHint(false)
+        } else {
+            selectBar.visibility = View.GONE
+            selectHint.animate().cancel()
+            selectHint.visibility = View.GONE
+            selectHint.alpha = 0f
+        }
+        if (state != State.CLOSED) {
+            applyContentAlpha()
+            restyleVisible(animate && host.animationsOn())
+            if (adapter.synced && !userScrolling) scrollToActive(smooth = animate && host.animationsOn())
+        }
+    }
+
+    private fun confirmSelect() {
+        val sel = selection ?: return
+        val data = lyrics ?: return
+        if (state != State.OPEN || !sel.isActive) return
+        host.tapHaptic(selectShare)
+        val translations = if (adapter.transMode == FullscreenLyricsAdapter.TransMode.READY) {
+            (sel.first..sel.last).map { adapter.translationAt(it) }
+        } else null
+        val share = LyricShare(data, sel.first, sel.last, translations)
+        cancelSelect()
+        host.shareLyrics(share)
+    }
+
+    private fun showHint(text: Int) {
+        selectHint.setText(text)
+        list.removeCallbacks(hideHint)
+        fadeHint(true)
+        list.postDelayed(hideHint, SELECT_HINT_MS)
+    }
+
+    private fun fadeHint(show: Boolean) {
+        selectHint.animate().cancel()
+        if (show) {
+            selectHint.visibility = View.VISIBLE
+            if (host.animationsOn()) selectHint.animate().alpha(1f).setDuration(SELECT_ANIM_MS).start() else selectHint.alpha = 1f
+        } else if (selectHint.visibility == View.VISIBLE) {
+            if (host.animationsOn()) {
+                selectHint.animate().alpha(0f).setDuration(SELECT_ANIM_MS).withEndAction { selectHint.visibility = View.GONE }.start()
+            } else {
+                selectHint.alpha = 0f
+                selectHint.visibility = View.GONE
+            }
+        }
+    }
+
     private fun tapAt(rawX: Float, rawY: Float) {
         if (state != State.OPEN || !adapter.synced || !list.isShown) return
         val loc = IntArray(2)
@@ -1057,6 +1344,7 @@ class FullscreenLyrics(
         langPlan = data?.let { d -> LyricLanguage.plan(d.lines.map { it.text }) }
         val show = langPlan?.showButton == true
         translateBtn.visibility = if (show) View.VISIBLE else View.GONE
+        refreshShareButton()
         styleTranslateControls()
         if (show && translateOn && state != State.CLOSED) startTranslation(animate = state == State.OPEN)
     }
@@ -1290,6 +1578,7 @@ class FullscreenLyrics(
 
     private fun placeTranslateControls() {
         val top = insetTop + dp(TRANSLATE_TOP_DP).toInt()
+        placeShareControls(top)
         (translateBtn.layoutParams as? FrameLayout.LayoutParams)?.let {
             if (it.topMargin != top) {
                 it.topMargin = top
@@ -1321,6 +1610,7 @@ class FullscreenLyrics(
         if (translateBtn.background !== bg) translateBtn.background = bg
         val desc = res.getString(if (translateOn) R.string.fs_translate_hide else R.string.fs_translate_show)
         if (translateBtn.contentDescription != desc) translateBtn.contentDescription = desc
+        styleSelectControls()
         translateNote.setTextColor(ink)
         translateNoteBg.setColor((ink and 0x00FFFFFF) or (TRANSLATE_NOTE_FILL shl 24))
         if (translateNote.background !== translateNoteBg) translateNote.background = translateNoteBg
@@ -1354,6 +1644,11 @@ class FullscreenLyrics(
         const val LINE_MAX_DP = 560f
         const val TOP_GAP_DP = 20f
         const val BAR_BOTTOM_DP = 28f
+        /** 6.6.0: select mode's bar sits this far above the progress bar, the hint above it. */
+        const val SELECT_BAR_GAP_DP = 6f
+        const val SELECT_HINT_GAP_DP = 52f
+        const val SELECT_ANIM_MS = 220L
+        const val SELECT_HINT_MS = 2600L
         const val BAR_HEIGHT_DP = 20f
         const val BAR_GAP_DP = 18f
         const val LINE_HALF_DP = 30f

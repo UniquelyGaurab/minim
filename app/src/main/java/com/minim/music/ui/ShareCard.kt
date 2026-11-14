@@ -86,36 +86,14 @@ object ShareCard {
         val medium = font(context, R.font.poppins_medium, Typeface.DEFAULT)
         val regular = font(context, R.font.poppins_regular, Typeface.DEFAULT)
 
-        // Background: the cover's colours, brighter at the top, down to the dark tone
-        val glow = glowColor(pal)
-        val bg = pal.bg or 0xFF000000.toInt()
-        c.drawRect(0f, 0f, W.toFloat(), H.toFloat(), Paint().apply {
-            shader = LinearGradient(
-                0f, 0f, 0f, H.toFloat(),
-                intArrayOf(glow, ColorUtils.blendARGB(glow, bg, 0.55f), bg),
-                floatArrayOf(0f, 0.55f, 1f),
-                Shader.TileMode.CLAMP
-            )
-        })
-        // a soft light behind the card, so it doesn't sit on a flat wall
-        c.drawRect(0f, 0f, W.toFloat(), H.toFloat(), Paint().apply {
-            shader = RadialGradient(
-                W / 2f, H * 0.42f, W * 0.75f,
-                intArrayOf(ColorUtils.setAlphaComponent(pal.fg, 46), ColorUtils.setAlphaComponent(pal.fg, 0)),
-                floatArrayOf(0f, 1f),
-                Shader.TileMode.CLAMP
-            )
-        })
+        val bg = drawBackdrop(c, pal)
 
         // The card: the light tone, with a soft shadow
         val cardColor = pal.fg or 0xFF000000.toInt()
         val ink = RecapInk.text(cardColor, bg)
         val muted = RecapInk.readable(cardColor, pal.muted, ink)
         val card = RectF(CARD_LEFT, CARD_TOP, CARD_LEFT + CARD_W, CARD_TOP + CARD_H)
-        c.drawRoundRect(card, 56f, 56f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = cardColor
-            setShadowLayer(80f, 0f, 36f, ColorUtils.setAlphaComponent(0xFF000000.toInt(), 110))
-        })
+        drawCardShape(c, card, cardColor)
 
         // The cover, or a 2x2 collage for a playlist
         val art = RectF(card.left + PAD, card.top + PAD, card.right - PAD, card.top + PAD + COVER)
@@ -139,7 +117,59 @@ object ShareCard {
         // A hairline, then "Shared by <name>" on the left and the minim mark on the right
         y += 46f
         c.drawRect(art.left, y, art.right, y + 2f, Paint().apply { color = ColorUtils.setAlphaComponent(ink, 34) })
-        val footer = y + 76f
+        drawFooter(context, c, art.left, art.right, y + 76f, sharer, medium, semi, ink, muted)
+        return bmp
+    }
+
+    /** 6.6.0 lyrics card: the cover's palette and the cover itself (null when it won't load), off the main thread. */
+    suspend fun loadArt(artwork: ArtworkPipeline, coverUrl: String?): Pair<Bitmap?, Pal> =
+        withContext(Dispatchers.Default) {
+            val url = coverUrl?.takeIf { it.isNotBlank() }
+            val seed = url?.let { runCatching { artwork.extractAccentForUrl(it) }.getOrNull() } ?: 0
+            val cover = url?.let { u -> runCatching { artwork.loadBitmap(MusicArt.big(u), 360) }.getOrNull() }
+            cover to palette(seed)
+        }
+
+    /** The full-bleed background both cards share. Returns the opaque dark tone. */
+    internal fun drawBackdrop(c: Canvas, pal: Pal): Int {
+        // Background: the cover's colours, brighter at the top, down to the dark tone
+        val glow = glowColor(pal)
+        val bg = pal.bg or 0xFF000000.toInt()
+        c.drawRect(0f, 0f, W.toFloat(), H.toFloat(), Paint().apply {
+            shader = LinearGradient(
+                0f, 0f, 0f, H.toFloat(),
+                intArrayOf(glow, ColorUtils.blendARGB(glow, bg, 0.55f), bg),
+                floatArrayOf(0f, 0.55f, 1f),
+                Shader.TileMode.CLAMP
+            )
+        })
+        // a soft light behind the card, so it doesn't sit on a flat wall
+        c.drawRect(0f, 0f, W.toFloat(), H.toFloat(), Paint().apply {
+            shader = RadialGradient(
+                W / 2f, H * 0.42f, W * 0.75f,
+                intArrayOf(ColorUtils.setAlphaComponent(pal.fg, 46), ColorUtils.setAlphaComponent(pal.fg, 0)),
+                floatArrayOf(0f, 1f),
+                Shader.TileMode.CLAMP
+            )
+        })
+
+        return bg
+    }
+
+    /** The light card with its soft shadow. */
+    internal fun drawCardShape(c: Canvas, card: RectF, cardColor: Int) {
+        c.drawRoundRect(card, 56f, 56f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = cardColor
+            setShadowLayer(80f, 0f, 36f, ColorUtils.setAlphaComponent(0xFF000000.toInt(), 110))
+        })
+    }
+
+    /** "Shared by <name>" (left out when blank) on the left and the minim mark on the right, on [footer]'s baseline. */
+    internal fun drawFooter(
+        context: Context, c: Canvas, left: Float, right: Float, footer: Float, sharer: String?,
+        medium: Typeface, semi: Typeface, ink: Int, muted: Int
+    ) {
+        val art = RectF(left, 0f, right, 0f)
         val logo = runCatching { BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher_round) }.getOrNull()
         val mark = paint(38f, medium, ink)
         val markW = mark.measureText("minim")
@@ -152,7 +182,6 @@ object ShareCard {
         if (name != null) {
             start(c, "Shared by $name", art.left, footer, 32f, semi, muted, (logoRect.left - 28f - art.left).toInt())
         }
-        return bmp
     }
 
     /** Two, three or four covers in a 2x2 grid (fewer than four repeat), with rounded outer corners. */
@@ -174,32 +203,32 @@ object ShareCard {
         c.restoreToCount(save)
     }
 
-    private fun font(context: Context, id: Int, fallback: Typeface): Typeface =
+    internal fun font(context: Context, id: Int, fallback: Typeface): Typeface =
         try {
             ResourcesCompat.getFont(context, id) ?: fallback
         } catch (_: Exception) {
             fallback
         }
 
-    private fun paint(size: Float, face: Typeface, color: Int) = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+    internal fun paint(size: Float, face: Typeface, color: Int) = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = size
         typeface = face
         this.color = color
     }
 
-    private fun centered(c: Canvas, s: String, cx: Float, baseline: Float, size: Float, face: Typeface, color: Int, maxW: Int) {
+    internal fun centered(c: Canvas, s: String, cx: Float, baseline: Float, size: Float, face: Typeface, color: Int, maxW: Int) {
         val p = paint(size, face, color).apply { textAlign = Paint.Align.CENTER }
         c.drawText(TextUtils.ellipsize(s, p, maxW.toFloat(), TextUtils.TruncateAt.END).toString(), cx, baseline, p)
     }
 
-    private fun start(c: Canvas, s: String, x: Float, baseline: Float, size: Float, face: Typeface, color: Int, maxW: Int) {
+    internal fun start(c: Canvas, s: String, x: Float, baseline: Float, size: Float, face: Typeface, color: Int, maxW: Int) {
         if (maxW <= 0 || s.isBlank()) return
         val p = paint(size, face, color)
         c.drawText(TextUtils.ellipsize(s, p, maxW.toFloat(), TextUtils.TruncateAt.END).toString(), x, baseline, p)
     }
 
     /** Center-cropped into [rect] with rounded corners. */
-    private fun roundImage(c: Canvas, src: Bitmap, rect: RectF, radius: Float) {
+    internal fun roundImage(c: Canvas, src: Bitmap, rect: RectF, radius: Float) {
         val shader = BitmapShader(src, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
         val scale = maxOf(rect.width() / src.width, rect.height() / src.height)
         val dx = rect.left + (rect.width() - src.width * scale) / 2f

@@ -1162,6 +1162,8 @@ class MainActivity : AppCompatActivity() {
                     isWelcomeOpen && welcomePage == 3 -> Unit // on its way to Home by itself
                     isSettingsOpen -> closeSettings(animate = true)
                     isQueueOpen -> closeQueue(animate = true)
+                    // 6.6.0: Back while picking lines for a lyrics card just stops picking
+                    isLyricsOpen && fsLyrics.isSelecting -> fsLyrics.cancelSelect()
                     isLyricsOpen -> closeLyrics()
                     isNowPlayingOpen -> collapseNowPlaying(animate = true)
                     isImportReviewOpen -> closeImportReview()
@@ -4504,6 +4506,7 @@ class MainActivity : AppCompatActivity() {
                 SeekMotion.label(SeekMotion.targetMs(fraction, app.playbackController.uiState.value.durationMs))
             override fun edgeTick(v: View) = haptic(v, HapticFeedbackConstants.CLOCK_TICK)
             override fun seekToLyric(lineStartMs: Long) = seekToLyricLine(lineStartMs)
+            override fun shareLyrics(share: FullscreenLyrics.LyricShare) = showLyricsShare(share)
             override fun onChromeChanged() = applyFsLyricsChrome()
             override suspend fun savedTranslation(data: LyricsData): List<String?>? =
                 app.lyricsTranslator.cached(data.trackId, data.lines.map { it.text.trim() })
@@ -10570,7 +10573,8 @@ class MainActivity : AppCompatActivity() {
                 songs = listOf(decoded.song),
                 skipped = 0,
                 playlist = false,
-                listName = null
+                listName = null,
+                startMs = decoded.startMs
             )
             is com.minim.music.data.share.ShareLinks.Decoded.SharedPlaylist -> showSharedContent(
                 title = decoded.name,
@@ -10618,7 +10622,8 @@ class MainActivity : AppCompatActivity() {
         skipped: Int,
         playlist: Boolean,
         listName: String?,
-        lookup: Boolean = false
+        lookup: Boolean = false,
+        startMs: Long? = null
     ) {
         if (songs.isEmpty()) {
             showSharedProblem(getString(R.string.shared_broken_title), getString(R.string.shared_broken_body), update = false)
@@ -10647,6 +10652,14 @@ class MainActivity : AppCompatActivity() {
             v.findViewById<TextView>(R.id.shared_by).apply {
                 if (sharer.isNullOrBlank()) visibility = View.GONE
                 else { text = getString(R.string.shared_by, sharer); visibility = View.VISIBLE }
+            }
+            // 6.6.0: a lyrics card's link starts at the shared line
+            v.findViewById<TextView>(R.id.shared_starts).apply {
+                if (startMs == null || playlist) visibility = View.GONE
+                else {
+                    text = getString(R.string.shared_starts_at, com.minim.music.data.share.ShareLinks.formatStart(startMs))
+                    visibility = View.VISIBLE
+                }
             }
             val rows = ArrayList<View>()
             if (playlist) {
@@ -10700,7 +10713,7 @@ class MainActivity : AppCompatActivity() {
                     return@setOnClickListener
                 }
                 closeSheet()
-                playShared(songs, playlist)
+                playShared(songs, playlist, startMs ?: 0L)
             }
             saveBtn.setOnClickListener {
                 if (sheetClosing) return@setOnClickListener
@@ -10830,7 +10843,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Play: a song plays now with the usual radio after; a playlist is queued in order. */
-    private fun playShared(songs: List<com.minim.music.data.share.ShareLinks.Song>, playlist: Boolean) {
+    private fun playShared(songs: List<com.minim.music.data.share.ShareLinks.Song>, playlist: Boolean, startAtMs: Long = 0L) {
         lifecycleScope.launch {
             try {
                 val tracks = com.minim.music.data.share.SharedSave.resolve(app.database, songs)
@@ -10838,7 +10851,7 @@ class MainActivity : AppCompatActivity() {
                 if (playlist) {
                     app.playbackController.playTrack(tracks.first(), tracks, com.minim.music.data.fermata.FermataSource.PLAYLIST)
                 } else {
-                    app.playbackController.playRadio(tracks.first(), emptyList(), com.minim.music.data.fermata.FermataSource.SEARCH)
+                    app.playbackController.playRadio(tracks.first(), emptyList(), com.minim.music.data.fermata.FermataSource.SEARCH, startAtMs)
                 }
             } catch (c: kotlinx.coroutines.CancellationException) {
                 throw c
@@ -10907,6 +10920,167 @@ class MainActivity : AppCompatActivity() {
             }
             sheetAction(box, R.drawable.ic_open_link, getString(R.string.share_link_only)) {
                 closeSheet { shareText(text, track.title, getString(R.string.share_chooser)) }
+            }
+        }
+    }
+
+    /** 6.6.0: the lyrics card being drawn for the open share sheet. */
+    private var lyricsCardJob: Job? = null
+
+    /**
+     * 6.6.0: the Share pill in full-screen lyrics' select mode. Opens the share sheet with a
+     * preview of the lyrics card, Original / Translation / Both when a translation is there, then
+     * the usual "Share with card" / "Link only". The link starts at the first picked line (synced
+     * lyrics only) and carries a checksum of the lines, never the words themselves.
+     */
+    private fun showLyricsShare(share: FullscreenLyrics.LyricShare) {
+        val data = share.data
+        val track = app.playbackController.uiState.value.currentTrack?.takeIf { it.id == data.trackId }
+        if (track == null || share.first !in data.lines.indices || share.last !in data.lines.indices || share.last < share.first) {
+            showNote(getString(R.string.share_failed))
+            return
+        }
+        val picked = data.lines.subList(share.first, share.last + 1)
+        val texts = picked.map { it.text.trim() }
+        val sharer = sharerName()
+        val isTape = com.minim.music.data.stories.StoryTracks.isStory(track)
+        val startMs = if (data.isSynced) com.minim.music.data.share.ShareLinks.cleanStart(
+            FlowTiming.seekTargetForLine(picked.first().startMs, data.offsetMs, 0)
+        ) else null
+        val link = if (!isTape && com.minim.music.data.share.ShareLinks.isVideoId(track.id)) {
+            com.minim.music.data.share.ShareLinks.lyricLink(
+                com.minim.music.data.share.SharedSave.toSong(track), sharer, startMs, texts
+            )
+        } else SongMenuLogic.shareUrl(track.id, track.sourceUrl)
+        val text = com.minim.music.data.share.ShareLinks.lyricShareText(sharer, track.title, texts.size, link)
+        val coverUrl = track.thumbnailUrl.ifBlank { com.minim.music.data.share.SharedSave.coverUrl(track.id) }
+        val chooser = getString(R.string.share_chooser)
+
+        var lines = texts.map { LyricsCard.Line(it) }
+        var mode = LyricsCard.Mode.ORIGINAL
+        var art: Pair<android.graphics.Bitmap?, Pal>? = null
+        val cards = HashMap<LyricsCard.Mode, android.graphics.Bitmap>()
+        var preview: ImageView? = null
+        var modes: SegmentRow? = null
+
+        fun card(m: LyricsCard.Mode): android.graphics.Bitmap {
+            val a = art ?: (null to ShareCard.palette(0))
+            val l = lines
+            synchronized(cards) { cards[m] }?.let { return it }
+            val bmp = LyricsCard.render(this, a.second, l, m, track.title, track.artist, sharer, a.first)
+            synchronized(cards) { if (lines === l) cards[m] = bmp }
+            return bmp
+        }
+        fun showPreview() {
+            val iv = preview ?: return
+            if (art == null) return
+            val m = mode
+            lifecycleScope.launch {
+                val bmp = withContext(Dispatchers.Default) { runCatching { card(m) }.getOrNull() } ?: return@launch
+                if (preview !== iv || mode != m) return@launch
+                iv.setImageBitmap(bmp)
+                if (iv.alpha < 1f) {
+                    if (animationsOn()) iv.animate().alpha(1f).setDuration(180L).start() else iv.alpha = 1f
+                }
+            }
+        }
+        fun renderModes() {
+            val row = modes ?: return
+            row.visibility = if (LyricsCard.hasTranslation(lines)) View.VISIBLE else View.GONE
+            row.findViewById<View>(R.id.lyrics_card_original).isSelected = mode == LyricsCard.Mode.ORIGINAL
+            row.findViewById<View>(R.id.lyrics_card_translation).isSelected = mode == LyricsCard.Mode.TRANSLATION
+            row.findViewById<View>(R.id.lyrics_card_both).isSelected = mode == LyricsCard.Mode.BOTH
+            row.setColors(pal.fg, pal.bg)
+        }
+
+        lyricsCardJob?.cancel()
+        openSheet { box ->
+            val v = layoutInflater.inflate(R.layout.sheet_lyrics_card, box, false)
+            v.findViewById<View>(R.id.lyrics_card_box).clipToOutline = true
+            preview = v.findViewById(R.id.lyrics_card_preview)
+            modes = v.findViewById(R.id.lyrics_card_modes)
+            listOf(
+                R.id.lyrics_card_original to LyricsCard.Mode.ORIGINAL,
+                R.id.lyrics_card_translation to LyricsCard.Mode.TRANSLATION,
+                R.id.lyrics_card_both to LyricsCard.Mode.BOTH
+            ).forEach { (id, m) ->
+                v.findViewById<View>(id).setOnClickListener { b ->
+                    if (sheetClosing || mode == m) return@setOnClickListener
+                    mode = m
+                    renderModes()
+                    haptic(b, HapticFeedbackConstants.CLOCK_TICK)
+                    showPreview()
+                }
+            }
+            box.addView(v)
+            renderModes()
+            sheetAction(box, R.drawable.ic_photo, getString(R.string.share_card), trailing = null) {
+                val m = mode
+                closeSheet { shareLyricsCard(m, { card(it) }, art != null, text, track.title, chooser) }
+            }
+            sheetAction(box, R.drawable.ic_open_link, getString(R.string.share_link_only)) {
+                closeSheet { shareText(text, track.title, chooser) }
+            }
+            // stop drawing when the sheet goes
+            v.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(view: View) = Unit
+                override fun onViewDetachedFromWindow(view: View) {
+                    preview = null
+                    modes = null
+                }
+            })
+        }
+        lyricsCardJob = lifecycleScope.launch {
+            // translations: the ones on screen, else ones saved earlier (Gemini isn't asked here)
+            val trans = share.translations ?: try {
+                app.lyricsTranslator.cached(data.trackId, data.lines.map { it.text.trim() })
+                    ?.let { all -> (share.first..share.last).map { all.getOrNull(it) } }
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (_: Exception) {
+                null
+            }
+            if (trans != null) {
+                lines = texts.mapIndexed { i, t -> LyricsCard.Line(t, trans.getOrNull(i)) }
+                synchronized(cards) { cards.clear() }
+                renderModes()
+            }
+            art = kotlinx.coroutines.withTimeoutOrNull(SHARE_CARD_TIMEOUT_MS) {
+                runCatching { ShareCard.loadArt(app.artworkPipeline, coverUrl) }.getOrNull()
+            } ?: (null to ShareCard.palette(0))
+            showPreview()
+        }
+    }
+
+    /** 6.6.0: share the lyrics card image with [text]; plain text if the card can't be made. */
+    private fun shareLyricsCard(
+        mode: LyricsCard.Mode,
+        card: (LyricsCard.Mode) -> android.graphics.Bitmap,
+        artReady: Boolean,
+        text: String,
+        subject: String,
+        chooser: String
+    ) {
+        if (shareCardJob?.isActive == true) return
+        if (!artReady) showNote(getString(R.string.share_making_card))
+        shareCardJob = lifecycleScope.launch {
+            if (!artReady) lyricsCardJob?.let { kotlinx.coroutines.withTimeoutOrNull(SHARE_CARD_TIMEOUT_MS) { it.join() } }
+            val uri = try {
+                val bmp = withContext(Dispatchers.Default) { card(mode) }
+                ShareCardFiles.write(this@MainActivity, bmp)
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (_: Throwable) {
+                null
+            }
+            if (uri == null) {
+                shareText(text, subject, chooser)
+                return@launch
+            }
+            try {
+                startActivity(ShareCardFiles.intent(uri, text, subject, chooser))
+            } catch (_: Exception) {
+                shareText(text, subject, chooser)
             }
         }
     }

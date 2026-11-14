@@ -16,11 +16,15 @@ import java.util.zip.Inflater
  * Everything rides after the `#`, so it never reaches a server: GitHub Pages only ever sees /m/s or /m/p.
  * `1` is the payload version. `<data>` is base64url (no padding) of deflate-raw of UTF-8 JSON:
  *
- *   song      {"i":videoId,"t":title,"a":artist,"n":sharer}
+ *   song      {"i":videoId,"t":title,"a":artist,"n":sharer,"s":startMs,"c":lines,"h":linesCrc}
  *   playlist  {"l":name,"n":sharer,"s":[[videoId,title,artist],...]}   (v1, still read)
  *
  * Playlists are written as v2: the name, the sharer and the video ids as raw bits, no titles. A 5-song
  * link is about a third as long as v1. The receiver looks the songs up ([Decoded.SharedPlaylist.lookup]).
+ * 6.6.0 lyrics card: a song link shared from lyrics can carry "s", the song time in ms to start at
+ * (synced lyrics only), and "c" + "h", how many lines were shared and a CRC-32 of them ([quoteHash]),
+ * so the web page can find those lines on LRCLIB itself. The lyric text never goes in the link. All
+ * three are optional and older readers ignore them, so the song version stays 1.
  * "n" is left out when the Profile name is blank. A playlist link carries at most [MAX_SONGS].
  * The web page (uniquelygaurab.github.io/m/s, /m/p) decodes the same bytes in the browser.
  *
@@ -46,6 +50,10 @@ object ShareLinks {
     const val MAX_ARTIST = 200
     const val MAX_NAME = 60
     const val MAX_LIST_NAME = 80
+    /** 6.6.0: the latest start time a link can carry (6 hours); anything later is ignored. */
+    const val MAX_START_MS = 6L * 60 * 60 * 1000
+    /** 6.6.0: lines a lyrics card shares at most ([LyricSelection.MAX_LINES]). */
+    const val MAX_QUOTE_LINES = 5
 
     /** A link longer than this is refused before decoding (100 songs came to ~4-5K in v1, ~1.1K in v2). */
     const val MAX_PAYLOAD_CHARS = 32 * 1024
@@ -53,12 +61,14 @@ object ShareLinks {
     const val MAX_JSON_BYTES = 128 * 1024
 
     private val VIDEO_ID = com.minim.music.util.SafeRegex.of("^[A-Za-z0-9_-]{11}$")
+    private val SPACES = com.minim.music.util.SafeRegex.of("\\s+")
     private val PAYLOAD_TAIL = com.minim.music.util.SafeRegex.of("[^A-Za-z0-9_-]+$")
 
     data class Song(val id: String, val title: String, val artist: String)
 
     sealed class Decoded {
-        data class SharedSong(val song: Song, val sharer: String?) : Decoded()
+        /** [startMs]: 6.6.0, shared from lyrics: Play starts here (null = from the top). */
+        data class SharedSong(val song: Song, val sharer: String?, val startMs: Long? = null) : Decoded()
         /**
          * [lookup] is true for a v2 link: [songs] carry only their ids (blank titles and artists) and
          * Minim looks them up before Play and Save.
@@ -82,6 +92,13 @@ object ShareLinks {
 
     fun songLink(song: Song, sharer: String?): String = "$BASE$SONG_PATH#" + encodeSong(song, sharer)
 
+    /**
+     * 6.6.0: a song link shared from lyrics: [startMs] (synced lyrics only, else null) and the
+     * shared [lines], as a count and a checksum only.
+     */
+    fun lyricLink(song: Song, sharer: String?, startMs: Long?, lines: List<String>): String =
+        "$BASE$SONG_PATH#" + encodeSong(song, sharer, startMs, lines)
+
     /** Only the first [MAX_SONGS] go in; songs without a YouTube video id are left out. */
     fun playlistLink(name: String, sharer: String?, songs: List<Song>): String =
         "$BASE$PLAYLIST_PATH#" + encodePlaylist(name, sharer, songs)
@@ -92,13 +109,41 @@ object ShareLinks {
     /** The songs a playlist link can carry: real video ids only, the first [MAX_SONGS]. */
     fun shareable(songs: List<Song>): List<Song> = songs.filter { isVideoId(it.id) }.take(MAX_SONGS)
 
-    fun encodeSong(song: Song, sharer: String?): String {
+    fun encodeSong(song: Song, sharer: String?, startMs: Long? = null, lines: List<String>? = null): String {
         val m = LinkedHashMap<String, Any?>()
         m["i"] = song.id
         m["t"] = clip(song.title, MAX_TITLE)
         m["a"] = clip(song.artist, MAX_ARTIST)
         cleanName(sharer)?.let { m["n"] = it }
+        cleanStart(startMs)?.let { m["s"] = it }
+        val quote = lines?.map { normLine(it) }?.filter { it.isNotEmpty() }?.take(MAX_QUOTE_LINES).orEmpty()
+        if (quote.isNotEmpty()) {
+            m["c"] = quote.size
+            m["h"] = quoteHash(quote)
+        }
         return pack(JsonOut.write(m))
+    }
+
+    /** A start time as it goes in a link: whole ms, 0 < ms <= [MAX_START_MS], else null (from the top). */
+    fun cleanStart(ms: Long?): Long? = ms?.takeIf { it in 1..MAX_START_MS }
+
+    /** A lyric line as the checksum sees it: spaces squeezed to one, trimmed (the web page does the same). */
+    fun normLine(s: String): String = s.trim().replace(SPACES, " ")
+
+    /** CRC-32 of the [normLine]d lines joined with "\n", UTF-8. The web page matches LRCLIB lines with it. */
+    fun quoteHash(lines: List<String>): Long {
+        val crc = java.util.zip.CRC32()
+        crc.update(lines.joinToString("\n") { normLine(it) }.toByteArray(Charsets.UTF_8))
+        return crc.value
+    }
+
+    /** "1:23", or "1:02:03" past an hour. */
+    fun formatStart(ms: Long): String {
+        val total = (ms / 1000).coerceAtLeast(0)
+        val h = total / 3600
+        val m = (total % 3600) / 60
+        val sec = total % 60
+        return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
     }
 
     /** v2: `2.` + the name, the sharer and the video ids ([PlaylistIds]). Titles stay on the sharer's phone. */
@@ -194,7 +239,8 @@ object ShareLinks {
             Kind.SONG -> {
                 val id = obj["i"] as? String
                 if (!isVideoId(id)) return Decoded.Broken("no song")
-                Decoded.SharedSong(song(id!!, obj["t"], obj["a"]), sharer)
+                val start = obj["s"] as? Long
+                Decoded.SharedSong(song(id!!, obj["t"], obj["a"]), sharer, cleanStart(start))
             }
             Kind.PLAYLIST -> {
                 val list = obj["s"] as? List<*> ?: return Decoded.Broken("no songs")
@@ -309,4 +355,15 @@ object ShareLinks {
     }
 
     fun shareText(sharer: String?, title: String, link: String): String = shareLine(sharer, title) + "\n" + link
+
+    /** 6.6.0: "Gaurab shared a line from Suroor on Minim" ("lines" for more than one); "A line from Suroor on Minim" with no name. */
+    fun lyricShareLine(sharer: String?, title: String, lineCount: Int): String {
+        val what = if (lineCount > 1) "lines" else "a line"
+        val n = cleanName(sharer)
+        return if (n != null) "$n shared $what from $title on Minim"
+        else (if (lineCount > 1) "Lines" else "A line") + " from $title on Minim"
+    }
+
+    fun lyricShareText(sharer: String?, title: String, lineCount: Int, link: String): String =
+        lyricShareLine(sharer, title, lineCount) + "\n" + link
 }

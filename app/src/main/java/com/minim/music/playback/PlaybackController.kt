@@ -542,15 +542,15 @@ class PlaybackController(
     /**
      * v4.3 radio: plays [track] at once, then fills the queue with its YouTube mix (similar songs).
      * If no mix can be fetched, [fallback] (the list the song was tapped in) is queued instead,
-     * like before 4.3.
+     * like before 4.3. 6.6.0: [startAtMs] starts the song there (a lyrics card's link), else 0.
      */
-    fun playRadio(track: Track, fallback: List<Track> = emptyList(), source: String? = null) {
+    fun playRadio(track: Track, fallback: List<Track> = emptyList(), source: String? = null, startAtMs: Long = 0L) {
         setRadio(true)
         radioSession++
         radioSeen.clear()
         radioSeen.add(track.id)
         lastTopUpSeed = track.id
-        if (!startQueue(track, listOf(track), source)) return
+        if (!startQueue(track, listOf(track), source, startAtMs)) return
         val rest = fallback.filter { it.id != track.id }
         fetchRadio(track.id, radioSession, rest, source)
     }
@@ -569,7 +569,7 @@ class PlaybackController(
         startQueue(first, list, source)
     }
 
-    private fun startQueue(track: Track, queueList: List<Track>, source: String? = null): Boolean {
+    private fun startQueue(track: Track, queueList: List<Track>, source: String? = null, startAtMs: Long = 0L): Boolean {
         val c = mediaController ?: return false
         val effectiveQueue = if (queueList.isEmpty()) listOf(track) else queueList
         val index = effectiveQueue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
@@ -577,7 +577,7 @@ class PlaybackController(
         fermataNoteLeave(c)
         // 5.7.0 u46: an upload you'd started carries on where you stopped
         val startMs = if (com.minim.music.data.stories.StoryTracks.isStory(effectiveQueue[index]))
-            com.minim.music.data.stories.StoryProgress.resumeMs(storyProgress.get(effectiveQueue[index].id)) else 0L
+            com.minim.music.data.stories.StoryProgress.resumeMs(storyProgress.get(effectiveQueue[index].id)) else startAtMs.coerceAtLeast(0L)
         saveStoryProgress(ended = false)
         storyTrackedId = null
 

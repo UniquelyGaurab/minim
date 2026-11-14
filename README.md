@@ -110,6 +110,7 @@ After that, Minim keeps itself up to date. When it opens, or comes back after a 
 - **A 9:16 share card**, story style: the cover (or a 2×2 collage for a playlist) on a card in the cover's colours, with "Shared by" and the Minim mark. Share it with the link through the normal share sheet, or send the link only.
 - **Share from** the song sheet, Now Playing's menu, a playlist's share button, or a playlist's long-press menu. Your own playlists and saved YouTube Music or Spotify ones share the same way, as a snapshot of the songs.
 - **"Shared with you":** tap a Minim link and Minim opens a pop-up with the song or playlist and who shared it. **Play** plays it (a song starts a radio after), **Save** likes the song or saves the playlist to your library.
+- **Lyrics cards:** in full-screen lyrics, tap the share button (or hold a line) and pick up to 5 lines in a row. They go on a 9:16 card in the cover's colours, as sung, translated or both. For timed lyrics the link starts the song at the first line.
 - **No Minim?** The same link opens a small web page with the songs, "Shared by", a Download button and, for a song, Listen on YouTube Music. It reads the link in the browser, with no analytics and no cookies.
 - If links open in the browser instead of Minim, turn on **Open supported links** for Minim in Android's app settings.
 
@@ -171,7 +172,7 @@ Minim has no account, no server of its own and no analytics. Your library, histo
 - **Lyrics translation:** when you tap translate, the song's lyrics, title and artist go to Google Gemini, and nothing else. The translation is saved only on your phone.
 - **Gemini lyrics:** only when you tap **Get lyrics with Gemini**, the song's audio, title and artist go to Google Gemini. The lyrics are saved only on your phone.
 - **Gemini shelf on Search:** at most once a day, and only with your key, a short summary of what you play (top songs and artists, recent plays and likes, as titles and artist names) goes to Google Gemini to pick that day's shelf. The shelf is saved only on your phone.
-- **Share links:** only when you share. A link carries the songs' YouTube ids, titles and artists, the playlist's name and your Profile name if you set one, all after the `#`. The web page at uniquelygaurab.github.io reads it in the browser and loads covers from YouTube's image servers; GitHub, which hosts the page, never sees what's after the `#`.
+- **Share links:** only when you share. A link carries the songs' YouTube ids, titles and artists, the playlist's name and your Profile name if you set one, all after the `#`. A lyrics card's link adds the start time and a checksum of the lines, not the words; the web page looks the lines up on LRCLIB in the browser. The web page at uniquelygaurab.github.io reads it in the browser and loads covers from YouTube's image servers; GitHub, which hosts the page, never sees what's after the `#`.
 - **Crash reports:** never sent on their own. You can copy or share one from the crash screen if you want to.
 
 ## Build from source
