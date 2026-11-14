@@ -46,7 +46,7 @@ Minim plays YouTube Music without the clutter. Songs are found and streamed with
 - **Backups and syncing through a folder you pick.** Minim backs up when you leave the app and once a day, only adding what's new, and picks up your other phones' changes when you open it.
 - **Your own Gemini key.** Lyrics translation, Gemini lyrics, the chat and the daily Search shelf use a free key from Google AI Studio that you add yourself.
 
-Coming from 5.x or 6.0? 6.5 installs as an update and keeps your library, likes, playlists, stats and settings. The first line in Settings, "No accounts. No cloud. Nobody watching you skip the same song at 3am.", opens to explain why Google sign-in went and Minim went fully local. Tap it again to fold it.
+Coming from 5.x or 6.x? 6.6 installs as an update and keeps your library, likes, playlists, stats and settings. The first line in Settings, "No accounts. No cloud. Nobody watching you skip the same song at 3am.", opens to explain why Google sign-in went and Minim went fully local. Tap it again to fold it.
 
 ## Minim Fermata
 
@@ -63,7 +63,7 @@ What it does:
 
 ## Install
 
-1. Download `Minim-v6.5.0.apk` (or whatever the newest is) from [Releases](https://github.com/UniquelyGaurab/minim/releases/latest).
+1. Download `Minim-v6.6.0.apk` (or whatever the newest is) from [Releases](https://github.com/UniquelyGaurab/minim/releases/latest).
 2. Open it on your phone and allow installs from your browser or file manager if Android asks.
 
 After that, Minim keeps itself up to date. When it opens, or comes back after a few hours, it checks this repo's latest release and offers to download and install it. You can also tap Check for updates in Settings → About. Each release installs over the one before and keeps your library and settings. What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
@@ -106,12 +106,12 @@ After that, Minim keeps itself up to date. When it opens, or comes back after a 
 
 ### Sharing
 
-- **Minim links** for a song or a playlist, like `https://uniquelygaurab.github.io/m/s#…`. The song, its title and artist (and for a playlist, its name and up to 100 songs) ride after the `#`, so no server ever sees them. If you've set a Profile name, the link says it's from you.
+- **Minim links** for a song or a playlist, like `https://uniquelygaurab.github.io/m/s#…`. Everything is packed into the link after the `#`, so it never passes through a server. A playlist link holds only the songs' IDs (up to 100 songs), and Minim or the web page looks the names up. If you've set a Profile name, the link says it's from you.
 - **A 9:16 share card**, story style: the cover (or a 2×2 collage for a playlist) on a card in the cover's colours, with "Shared by" and the Minim mark. Share it with the link through the normal share sheet, or send the link only.
 - **Share from** the song sheet, Now Playing's menu, a playlist's share button, or a playlist's long-press menu. Your own playlists and saved YouTube Music or Spotify ones share the same way, as a snapshot of the songs.
 - **"Shared with you":** tap a Minim link and Minim opens a pop-up with the song or playlist and who shared it. **Play** plays it (a song starts a radio after), **Save** likes the song or saves the playlist to your library.
 - **Lyrics cards:** in full-screen lyrics, tap the share button (or hold a line) and pick up to 5 lines in a row. They go on a 9:16 card in the cover's colours, as sung, translated or both. For timed lyrics the link starts the song at the first line.
-- **No Minim?** The same link opens a small web page with the songs, "Shared by", a Download button and, for a song, Listen on YouTube Music. It reads the link in the browser, with no analytics and no cookies.
+- **No Minim?** The same link opens a small web page with the songs, "Shared by", a Download button and, for a song, Listen on YouTube Music. A lyrics link also shows the shared lines as a quote. "Listen on YouTube Music" always starts the song from the beginning, because YouTube Music drops the start time; only Minim jumps to the line. The page reads the link in your browser, with no analytics and no cookies.
 - If links open in the browser instead of Minim, turn on **Open supported links** for Minim in Android's app settings.
 
 ### Stats and recap

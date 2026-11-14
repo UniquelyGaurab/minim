@@ -2,22 +2,37 @@
 
 Every Minim release, newest first. Download any of them from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page.
 
-## 6.6.0 (update 68)
+## 6.6.0 (2026-11-14)
 
-**Share songs and playlists as Minim links**
+Share songs, playlists and lyrics with your friends, as a Minim link and a card.
 
-- **Minim links.** Songs share as `https://uniquelygaurab.github.io/m/s#…` and playlists as `…/m/p#…`. The song's id, title and artist, the playlist's name and songs, and your Profile name (if you set one) are packed after the `#`, so no server ever sees them. A playlist link carries only the songs' YouTube ids (8 bytes each), so 5 songs come to 126 characters, 50 to 610 and 100 to 1,143; Minim and the web page look the titles up. A link holds up to 100 songs; a longer playlist asks "Share the first 100?".
-- **Share cards.** A 1080×1920 story card in the cover's colours: the big cover (a 2×2 collage for a playlist), the title, the artist or song count, "Shared by" and the Minim mark. It goes through the normal share sheet with "Gaurab shared Suroor on Minim" and the link ("Listen to Suroor on Minim" without a Profile name). **Link only** sends just the text.
-- **Where to share:** the song sheet, the Share item in Now Playing's menu (now a Minim link instead of a YouTube Music one), a new share button on the playlist screen, and Share in a playlist's long-press menu. This fixes sharing playlists, which didn't work before.
-- **"Shared with you".** Tapping a Minim link opens Minim (as an Android App Link) with a pop-up in Minim's style: the cover or collage, the name, the artist or song count, the first few songs, "Shared by" and **Play** / **Save**. Save adds a song to Liked, or saves a playlist to your library ("Name (2)" if you already have one by that name). Play plays a song with the usual radio after, or queues the playlist. A cut-short link gets a friendly message, a link from a newer Minim says "Update Minim to open this", and unavailable songs are left out. For a playlist the pop-up looks the songs up first (placeholders while it loads); Play and Save wait for it, and offline or a slow connection shows "Couldn't reach YouTube" with **Try again**. Works when Minim is closed and when it's already open.
-- **A web page for people without Minim** at the same link: the songs with their covers, "Shared by", a short pitch and a Download button, plus "Listen on YouTube Music" for a song. It reads the link in the browser; playlist titles and artists come from YouTube's oEmbed and covers from YouTube's image server; no analytics, no cookies, no third-party scripts.
-- Nothing new is recorded in Fermata: saving and playing count as normal likes, playlists and plays.
+**Share links**
+- **Minim links:** a song shares as `https://uniquelygaurab.github.io/m/s#…` and a playlist as `…/m/p#…`. Everything is packed into the link itself, after the `#`, so it never passes through a server. A song link is about 140 characters. A playlist link only holds the songs' IDs, so 5 songs come to about 130 characters and 100 songs to about 1,150. A link holds up to 100 songs, and a longer playlist asks "Share the first 100?"
+- **Where to share:** the song menu, Share in Now Playing's menu (now a Minim link instead of a YouTube Music one), the new share button on the playlist screen, and Share when you hold a playlist. Sharing playlists didn't work before, and now it does
+- **Your name:** if you've set a Profile name, the message reads "Gaurab shared Suroor on Minim" with the link. Without one, it reads "Listen to Suroor on Minim"
+
+**Share cards**
+- **Story-sized cards (9:16)** in the cover's colours: the big cover (four covers in a grid for a playlist), the title, the artist or number of songs, "Shared by" and the minim logo
+- **Pick "Share with card" or "Link only"** each time you share
+
+**"Shared with you"**
+- **Tap a Minim link** and Minim opens with a pop-up showing the song or playlist, who shared it, and **Play** and **Save**. It works whether Minim was closed or already open
+- **Play** plays the song with the usual radio after it, or queues the playlist. **Save** adds the song to Liked, or saves the playlist to your library. If you already have a playlist with that name, the copy is called "Name (2)"
+- **Playlists look their songs up first.** You see the covers straight away and the names fill in. Play and Save wait until that's done. Songs that aren't available are left out. Offline or on a slow connection, you get "Couldn't reach YouTube" and a **Try again** button
+- **A broken link** shows "This link didn't come through", and a link from a newer Minim says "Update Minim to open this"
+- **If links open in the browser instead of Minim,** turn on "Open supported links" in Minim's app info, under "Open by default"
 
 **Lyrics cards**
+- **Share a few lines:** in full-screen lyrics, tap the new share button next to translate, or hold any line. Tap the line just above or below to add it, or tap a line at either end to drop it. You can pick up to 5 lines in a row, and a counter shows how many you have
+- **The card** puts the lines big on a 9:16 card in the cover's colours, with a small cover, the title and artist, "Shared by" and the minim logo. If the song has a translation, pick **Original**, **Translation** or **Both** and watch the card change before you share
+- **Starts at the line:** when the lyrics have timing, the pop-up says "Starts at 0:51" and **Play** starts the song right there. The lyrics themselves aren't in the link
 
-- **Share a line.** Full-screen lyrics has a share button at the top right, next to translate. Tap it to start picking from the line playing now (the first line on screen for lyrics without timing), or hold any line to start from that one. Tap the line just above or below to add it, tap an end line to drop it. Up to 5 lines and about 180 characters; a counter shows "3/5" and a short note says when a card is full. **Share** confirms; Back or a tap away from the lines cancels.
-- **The card.** 9:16 like the song card, in the cover's colours: the lines big in Poppins bold, sized down only as far as they need to fit, then a small cover, the title and artist, "Shared by" and the Minim mark. When there's an English translation (on screen or saved earlier), pick **Original**, **Translation** or **Both** and see the card change before you share. Same "Share with card" / "Link only" choice; the text reads "Gaurab shared a line from Suroor on Minim" and the link.
-- **Starts at the line.** For timed lyrics the link carries the first line's time, so the pop-up shows "Starts at 0:51" and **Play** starts there. The link also carries how many lines were shared and a checksum of them (never the words), so the web page can find and show them as a quote from LRCLIB in the browser. Song links stay version 1: older links open as before, and older Minims ignore the extras. YouTube Music's web player drops a start time, so the "Listen on YouTube Music" button still opens the song from the top.
+**A web page for friends without Minim**
+- **The same link opens a small web page** with the songs and covers, "Shared by", a Download button and, for a song, "Listen on YouTube Music". A shared lyrics link also shows the lines as a quote
+- **"Listen on YouTube Music" starts from the beginning.** YouTube Music drops the start time, so only Minim jumps to the shared line
+- **No tracking:** no analytics, no cookies and no ads. The link is read in your browser
+
+**Installs as an update** over 6.5.0 and keeps your library, likes, playlists, stats and settings. Older links keep working.
 
 ## 6.5.0 (2026-11-13)
 

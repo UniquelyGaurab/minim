@@ -139,4 +139,18 @@ class AppVersionTest {
         assertTrue(v("v6.5.1") > installed)
         assertTrue("6.5 is newer than 6.2, not read as 6.05", v("6.5.0") > v("6.2.0"))
     }
+
+    /** 6.6.0: share links and cards, offered to 6.5.0 and everything before it, not to itself. */
+    @Test
+    fun v660IsOfferedTo650AndOlder() {
+        val installed = AppVersion.installed("6.6.0-debug")
+        assertEquals(v("6.6.0"), installed)
+        assertFalse(installed!!.isPreRelease)
+        for (older in listOf("6.5.0-debug", "6.2.0-debug", "6.1.1-debug", "6.1.0-debug", "6.0.0-debug", "5.9.1-debug")) {
+            assertTrue(older, v("v6.6.0") > AppVersion.installed(older)!!)
+        }
+        assertFalse(v("v6.6.0") > installed)
+        assertFalse(v("v6.5.0") > installed)
+        assertTrue(v("v6.6.1") > installed)
+    }
 }
