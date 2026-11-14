@@ -142,10 +142,10 @@ class SettingsRevampTest {
     }
 
     @Test
-    fun versionIs650Build67() {
+    fun versionIs660Build68() {
         val gradle = file("build.gradle.kts")
-        assertTrue(gradle.contains("versionCode = 67"))
-        assertTrue(gradle.contains("versionName = \"6.5.0\""))
+        assertTrue(gradle.contains("versionCode = 68"))
+        assertTrue(gradle.contains("versionName = \"6.6.0\""))
     }
 
     @Test
@@ -215,8 +215,8 @@ class SettingsRevampTest {
     @Test
     fun aboutShowsTheVersion_andTheModelRowOpensThePicker() {
         val a = openSettings()
-        assertEquals("Minim 6.5.0", a.findViewById<TextView>(R.id.set_about).text.toString())
-        assertTrue(a.findViewById<TextView>(R.id.set_about_build).text.startsWith("Build 67"))
+        assertEquals("Minim 6.6.0", a.findViewById<TextView>(R.id.set_about).text.toString())
+        assertTrue(a.findViewById<TextView>(R.id.set_about_build).text.startsWith("Build 68"))
         assertFalse(a.findViewById<TextView>(R.id.set_gemini_model_pick).text.contains("▾"))
         assertTrue(a.findViewById<View>(R.id.set_gemini_model_row).contentDescription.startsWith("Gemini model: "))
         a.findViewById<View>(R.id.set_gemini_model_row).performClick()

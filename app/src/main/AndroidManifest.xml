@@ -65,7 +65,6 @@
             android:name=".ui.ShareImportActivity"
             android:excludeFromRecents="true"
             android:exported="true"
-            android:label="@string/app_name"
             android:noHistory="true"
             android:taskAffinity=""
             android:theme="@android:style/Theme.Translucent.NoTitleBar">
@@ -73,6 +72,27 @@
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <!-- 6.6.0: Minim share links (https://uniquelygaurab.github.io/m/s#... and /m/p#...), as an
+             Android App Link: verified against /.well-known/assetlinks.json on that site, so a tap
+             in WhatsApp opens Minim straight away. A screenless hop into Minim's own window, like
+             ShareImportActivity; the payload rides in the link's #fragment. -->
+        <activity
+            android:name=".ui.ShareLinkActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="uniquelygaurab.github.io" />
+                <data android:pathPrefix="/m/" />
             </intent-filter>
         </activity>
 

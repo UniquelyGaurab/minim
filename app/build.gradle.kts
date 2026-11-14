@@ -24,8 +24,8 @@ android {
         applicationId = "com.minim.music"
         minSdk = 28
         targetSdk = 34
-        versionCode = 67
-        versionName = "6.5.0"
+        versionCode = 68
+        versionName = "6.6.0"
         // v5.0: Minim is English only; drops the translations the support libraries bring
         resourceConfigurations += listOf("en")
 

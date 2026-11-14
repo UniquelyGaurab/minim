@@ -754,4 +754,38 @@
         <item quantity="other">Couldn\'t merge %1$d backups from other phones: %2$s</item>
     </plurals>
     <string name="backup_folder_lost">Minim lost access to the folder. Choose it again</string>
+
+    <!-- 6.6.0: Minim share links, the "Shared with you" pop-up and share cards -->
+    <string name="shared_with_you">Shared with you</string>
+    <string name="shared_by">Shared by %1$s</string>
+    <string name="shared_save">Save</string>
+    <string name="shared_play">Play</string>
+    <string name="shared_saved_song">Saved to Liked</string>
+    <string name="shared_already_liked">Already in Liked</string>
+    <string name="shared_saved_playlist">Saved as %1$s</string>
+    <string name="shared_save_failed">Couldn\'t save it, try again</string>
+    <string name="shared_broken_title">This link didn\'t come through</string>
+    <string name="shared_broken_body">It looks cut short or garbled. Ask for it again, or copy the whole link.</string>
+    <string name="shared_too_new_title">Update Minim to open this</string>
+    <string name="shared_too_new_body">It was shared from a newer Minim. Update in Settings, then tap the link again.</string>
+    <plurals name="shared_more">
+        <item quantity="one">+ %1$d more</item>
+        <item quantity="other">+ %1$d more</item>
+    </plurals>
+    <plurals name="shared_skipped">
+        <item quantity="one">%1$d unavailable song left out</item>
+        <item quantity="other">%1$d unavailable songs left out</item>
+    </plurals>
+    <string name="shared_ok">Okay</string>
+    <string name="shared_update">Check for update</string>
+    <string name="share_card">Share with card</string>
+    <string name="share_link_only">Link only</string>
+    <string name="share_making_card">Making the card…</string>
+    <string name="share_failed">Couldn\'t share it</string>
+    <string name="share_playlist_chooser">Share playlist</string>
+    <string name="share_playlist_desc">Share playlist</string>
+    <string name="share_playlist_empty">Nothing to share yet</string>
+    <string name="share_cap_title">Share the first 100?</string>
+    <string name="share_cap_body">A link holds up to 100 songs. This playlist has %1$d, so the first 100 go in.</string>
+    <string name="share_cap_ok">Share 100</string>
 </resources>

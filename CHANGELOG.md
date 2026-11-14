@@ -2,6 +2,17 @@
 
 Every Minim release, newest first. Download any of them from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page.
 
+## 6.6.0 (update 68)
+
+**Share songs and playlists as Minim links**
+
+- **Minim links.** Songs share as `https://uniquelygaurab.github.io/m/s#…` and playlists as `…/m/p#…`. The song's id, title and artist, the playlist's name and songs, and your Profile name (if you set one) are packed after the `#`, so no server ever sees them. A link holds up to 100 songs; a longer playlist asks "Share the first 100?".
+- **Share cards.** A 1080×1920 story card in the cover's colours: the big cover (a 2×2 collage for a playlist), the title, the artist or song count, "Shared by" and the Minim mark. It goes through the normal share sheet with "Gaurab shared Suroor on Minim" and the link ("Listen to Suroor on Minim" without a Profile name). **Link only** sends just the text.
+- **Where to share:** the song sheet, the Share item in Now Playing's menu (now a Minim link instead of a YouTube Music one), a new share button on the playlist screen, and Share in a playlist's long-press menu. This fixes sharing playlists, which didn't work before.
+- **"Shared with you".** Tapping a Minim link opens Minim (as an Android App Link) with a pop-up in Minim's style: the cover or collage, the name, the artist or song count, the first few songs, "Shared by" and **Play** / **Save**. Save adds a song to Liked, or saves a playlist to your library ("Name (2)" if you already have one by that name). Play plays a song with the usual radio after, or queues the playlist. A cut-short link gets a friendly message, a link from a newer Minim says "Update Minim to open this", and unavailable songs are left out. Works when Minim is closed and when it's already open.
+- **A web page for people without Minim** at the same link: the songs with their covers, "Shared by", a short pitch and a Download button, plus "Listen on YouTube Music" for a song. It reads the link in the browser; no analytics, no cookies, no third-party scripts.
+- Nothing new is recorded in Fermata: saving and playing count as normal likes, playlists and plays.
+
 ## 6.5.0 (2026-11-13)
 
 Recommendations from Minim Fermata, worked out on your phone, and backups that only add what's new. This covers everything since 6.0.0, including the 6.1.0, 6.1.1 and 6.2.0 test builds.

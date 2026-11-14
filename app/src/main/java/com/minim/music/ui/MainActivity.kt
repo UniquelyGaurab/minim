@@ -226,6 +226,8 @@ class MainActivity : AppCompatActivity() {
     // 5.3.2: rename box, "+ Add songs" pill and the "from [logo]" row
     private lateinit var listTitleEdit: EditText
     private lateinit var listAddSongs: TextView
+    /** 6.6.0: share the open playlist as a Minim link and card. */
+    private lateinit var listShare: ImageView
     private lateinit var listSubtitleRow: View
     private lateinit var listSourceFrom: TextView
     private lateinit var listSourceLogo: ImageView
@@ -414,6 +416,8 @@ class MainActivity : AppCompatActivity() {
         observe()
         // 5.3.0: Share -> Minim opened the app (a cold start); onNewIntent covers a running one
         if (savedInstanceState == null) handleImportIntent(intent)
+        // 6.6.0: a Minim link opened the app (cold start); onNewIntent covers a running one
+        if (savedInstanceState == null) handleSharedLinkIntent(intent)
         // 5.7.0 u50: "Minim crashed last time" is its own screen now (CrashReportActivity), shown at
         // the top of onCreate before anything here can crash again
 
@@ -1327,6 +1331,8 @@ class MainActivity : AppCompatActivity() {
             requestNotificationPermissionIfNeeded()
             // 5.3.0: a link shared while the welcome screens were up
             pendingImportText?.let { text -> pendingImportText = null; showImportSheet(text) }
+            // 6.6.0: a Minim link tapped while the welcome screens were up
+            pendingSharedLink?.let { link -> pendingSharedLink = null; openSharedLink(link) }
             // 5.10.0: a fresh install can bring its library back from a backup folder
             maybeOfferRestore()
         }
@@ -3784,6 +3790,13 @@ class MainActivity : AppCompatActivity() {
         listSourceFrom = findViewById(R.id.list_source_from)
         listSourceLogo = findViewById(R.id.list_source_logo)
         listAddSongs.contentDescription = getString(R.string.add_songs_desc)
+        listShare = findViewById(R.id.list_share)
+        listShare.setOnClickListener { v ->
+            if (!isOwnPlaylistOpen) return@setOnClickListener
+            haptic(v)
+            if (isRenaming) cancelRename()
+            shareOpenPlaylist()
+        }
         listAddSongs.setOnClickListener { v ->
             if (!isOwnPlaylistOpen) return@setOnClickListener
             haptic(v)
@@ -3805,6 +3818,7 @@ class MainActivity : AppCompatActivity() {
     private fun updateListHeader() {
         val own = isOwnPlaylistOpen
         listAddSongs.visibility = if (own) View.VISIBLE else View.GONE
+        listShare.visibility = if (own) View.VISIBLE else View.GONE
         listTitle.isClickable = own
         listTitle.isFocusable = own
         listTitle.contentDescription = if (own) getString(R.string.rename_desc, openListName) else null
@@ -8729,20 +8743,6 @@ class MainActivity : AppCompatActivity() {
         openArtistByName(line)
     }
 
-    private fun shareTrack(track: Track) {
-        val url = SongMenuLogic.shareUrl(track.id, track.sourceUrl)
-        val text = SongMenuLogic.shareText(track.title, track.artist, url)
-        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(android.content.Intent.EXTRA_SUBJECT, track.title)
-            putExtra(android.content.Intent.EXTRA_TEXT, text)
-        }
-        try {
-            startActivity(android.content.Intent.createChooser(send, getString(R.string.share_chooser)))
-        } catch (_: Exception) {
-        }
-    }
-
     // ------------------------------------------------------------------------------------------
     // Playlists
     // ------------------------------------------------------------------------------------------
@@ -8909,6 +8909,10 @@ class MainActivity : AppCompatActivity() {
             openSheet { box ->
                 sheetHeading(box, playlist.name, songCount(tracks.size))
                 offlineGroupActions(box, tracks, "pl:${playlist.id}", playlist.name)
+                // 6.6.0: share it as a Minim link and card
+                sheetAction(box, R.drawable.ic_share, getString(R.string.sheet_share)) {
+                    sharePlaylist(playlist.name, tracks)
+                }
                 // Delete keeps its own "Are you sure?" step
                 sheetAction(box, R.drawable.ic_delete, getString(R.string.delete_playlist)) {
                     confirmDeletePlaylist(playlist)
@@ -9474,6 +9478,7 @@ class MainActivity : AppCompatActivity() {
         setIntent(intent)
         if (showingCrashReport) return
         handleImportIntent(intent)
+        handleSharedLinkIntent(intent)
     }
 
     // ==========================================================================================
@@ -10517,9 +10522,389 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ==========================================================================================
+    // 6.6.0 (update 68): Minim share links, the "Shared with you" pop-up and share cards
+    // ==========================================================================================
+
+    /** A Minim link that came in while the welcome screens were up; shown once they're done. */
+    private var pendingSharedLink: String? = null
+    private var shareCardJob: Job? = null
+
+    /** A Minim link tapped elsewhere (ShareLinkActivity): the "Shared with you" pop-up. */
+    private fun handleSharedLinkIntent(intent: Intent?) {
+        if (intent?.action != ShareLinkActivity.ACTION_OPEN_SHARED) return
+        val link = intent.getStringExtra(ShareLinkActivity.EXTRA_SHARED_LINK)
+        // handled once: a rotation or a return from the background doesn't open it again
+        intent.action = null
+        intent.removeExtra(ShareLinkActivity.EXTRA_SHARED_LINK)
+        if (link.isNullOrBlank()) return
+        root.post { openSharedLink(link) }
+    }
+
+    private fun openSharedLink(link: String) {
+        try {
+            if (isWelcomeOpen) {
+                pendingSharedLink = link
+                return
+            }
+            if (isGeminiOpen) geminiChat.close()
+            val decoded = com.minim.music.data.share.ShareLinks.decodeLink(link)
+            showSharedSheet(decoded)
+        } catch (_: Exception) {
+            showNote(getString(R.string.shared_broken_title))
+        }
+    }
+
+    private fun showSharedSheet(decoded: com.minim.music.data.share.ShareLinks.Decoded) {
+        when (decoded) {
+            is com.minim.music.data.share.ShareLinks.Decoded.Broken -> showSharedProblem(
+                getString(R.string.shared_broken_title), getString(R.string.shared_broken_body), update = false
+            )
+            is com.minim.music.data.share.ShareLinks.Decoded.TooNew -> showSharedProblem(
+                getString(R.string.shared_too_new_title), getString(R.string.shared_too_new_body), update = true
+            )
+            is com.minim.music.data.share.ShareLinks.Decoded.SharedSong -> showSharedContent(
+                title = decoded.song.title,
+                subtitle = decoded.song.artist,
+                sharer = decoded.sharer,
+                songs = listOf(decoded.song),
+                skipped = 0,
+                playlist = false,
+                listName = null
+            )
+            is com.minim.music.data.share.ShareLinks.Decoded.SharedPlaylist -> showSharedContent(
+                title = decoded.name,
+                subtitle = songCount(decoded.songs.size),
+                sharer = decoded.sharer,
+                songs = decoded.songs,
+                skipped = decoded.skipped,
+                playlist = true,
+                listName = decoded.name
+            )
+        }
+    }
+
+    /** A broken link or one from a newer Minim: a friendly line and one pill, never a crash. */
+    private fun showSharedProblem(title: String, body: String, update: Boolean) {
+        openSheet { box ->
+            sheetHeading(box, title, body, wrapSub = true)
+            val v = layoutInflater.inflate(R.layout.sheet_confirm, box, false)
+            v.findViewById<TextView>(R.id.sheet_confirm_cancel).apply {
+                setText(R.string.shared_ok)
+                setOnClickListener { closeSheet() }
+            }
+            v.findViewById<TextView>(R.id.sheet_confirm_ok).apply {
+                if (update) {
+                    setText(R.string.shared_update)
+                    setOnClickListener {
+                        if (sheetClosing) return@setOnClickListener
+                        haptic(it)
+                        closeSheet { checkForUpdatesNow() }
+                    }
+                } else {
+                    visibility = View.GONE
+                }
+            }
+            box.addView(v)
+        }
+    }
+
+    private fun showSharedContent(
+        title: String,
+        subtitle: String,
+        sharer: String?,
+        songs: List<com.minim.music.data.share.ShareLinks.Song>,
+        skipped: Int,
+        playlist: Boolean,
+        listName: String?
+    ) {
+        if (songs.isEmpty()) {
+            showSharedProblem(getString(R.string.shared_broken_title), getString(R.string.shared_broken_body), update = false)
+            return
+        }
+        openSheet { box ->
+            val v = layoutInflater.inflate(R.layout.sheet_shared, box, false)
+            v.findViewById<View>(R.id.shared_cover_box).clipToOutline = true
+            val cover = v.findViewById<ImageView>(R.id.shared_cover)
+            val collage = v.findViewById<android.widget.GridLayout>(R.id.shared_collage)
+            val covers = songs.map { com.minim.music.data.share.SharedSave.coverUrl(it.id) }
+            if (playlist && songs.size >= 2) {
+                cover.visibility = View.GONE
+                collage.visibility = View.VISIBLE
+                val ids = intArrayOf(R.id.shared_collage_0, R.id.shared_collage_1, R.id.shared_collage_2, R.id.shared_collage_3)
+                val picks = if (covers.size == 3) listOf(covers[0], covers[1], covers[2], covers[0])
+                else List(4) { covers[it % covers.size] }
+                for (i in 0 until 4) {
+                    app.artworkPipeline.loadInto(v.findViewById(ids[i]), picks[i], dp(84f).toInt())
+                }
+            } else {
+                app.artworkPipeline.loadInto(cover, covers.first(), dp(168f).toInt())
+            }
+            v.findViewById<TextView>(R.id.shared_title).text = title
+            v.findViewById<TextView>(R.id.shared_subtitle).text = subtitle
+            v.findViewById<TextView>(R.id.shared_by).apply {
+                if (sharer.isNullOrBlank()) visibility = View.GONE
+                else { text = getString(R.string.shared_by, sharer); visibility = View.VISIBLE }
+            }
+            if (playlist) {
+                val list = v.findViewById<android.widget.LinearLayout>(R.id.shared_songs)
+                list.visibility = View.VISIBLE
+                songs.take(SHARED_PREVIEW_SONGS).forEach { s ->
+                    val row = layoutInflater.inflate(R.layout.item_sheet_song, list, false)
+                    val art = row.findViewById<ImageView>(R.id.song_art).apply { clipToOutline = true }
+                    row.findViewById<TextView>(R.id.song_title).text = s.title
+                    row.findViewById<TextView>(R.id.song_artist).text = s.artist
+                    row.findViewById<TextView>(R.id.song_plays).visibility = View.GONE
+                    row.contentDescription = "${s.title}, ${s.artist}"
+                    row.isClickable = false
+                    row.isFocusable = false
+                    row.foreground = null
+                    row.clipToOutline = true
+                    app.artworkPipeline.loadInto(art, com.minim.music.data.share.SharedSave.coverUrl(s.id), dp(44f).toInt())
+                    list.addView(row)
+                }
+                val more = songs.size - SHARED_PREVIEW_SONGS
+                val lines = listOfNotNull(
+                    if (more > 0) resources.getQuantityString(R.plurals.shared_more, more, more) else null,
+                    if (skipped > 0) resources.getQuantityString(R.plurals.shared_skipped, skipped, skipped) else null
+                )
+                v.findViewById<TextView>(R.id.shared_more).apply {
+                    if (lines.isEmpty()) visibility = View.GONE
+                    else { text = lines.joinToString(" · "); visibility = View.VISIBLE }
+                }
+            }
+            v.findViewById<TextView>(R.id.shared_play).setOnClickListener {
+                if (sheetClosing) return@setOnClickListener
+                haptic(it)
+                closeSheet()
+                playShared(songs, playlist)
+            }
+            v.findViewById<TextView>(R.id.shared_save).setOnClickListener {
+                if (sheetClosing) return@setOnClickListener
+                haptic(it)
+                closeSheet()
+                saveShared(songs, playlist, listName)
+            }
+            box.addView(v)
+        }
+    }
+
+    /** Play: a song plays now with the usual radio after; a playlist is queued in order. */
+    private fun playShared(songs: List<com.minim.music.data.share.ShareLinks.Song>, playlist: Boolean) {
+        lifecycleScope.launch {
+            try {
+                val tracks = com.minim.music.data.share.SharedSave.resolve(app.database, songs)
+                if (tracks.isEmpty()) return@launch
+                if (playlist) {
+                    app.playbackController.playTrack(tracks.first(), tracks, com.minim.music.data.fermata.FermataSource.PLAYLIST)
+                } else {
+                    app.playbackController.playRadio(tracks.first(), emptyList(), com.minim.music.data.fermata.FermataSource.SEARCH)
+                }
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (_: Exception) {
+                showNote(getString(R.string.share_failed))
+            }
+        }
+    }
+
+    /** Save: a song goes into Liked Songs; a playlist becomes a new playlist ("Name (2)" on a clash). */
+    private fun saveShared(songs: List<com.minim.music.data.share.ShareLinks.Song>, playlist: Boolean, listName: String?) {
+        lifecycleScope.launch {
+            try {
+                if (!playlist) {
+                    val added = com.minim.music.data.share.SharedSave.saveSong(app.database, songs.first())
+                    refreshData()
+                    if (isListOpen) refreshOpenList()
+                    showNote(getString(if (added) R.string.shared_saved_song else R.string.shared_already_liked))
+                } else {
+                    val saved = com.minim.music.data.share.SharedSave.savePlaylist(app.database, listName ?: "Shared playlist", songs)
+                    if (saved == null) {
+                        showNote(getString(R.string.shared_save_failed))
+                        return@launch
+                    }
+                    refreshData()
+                    showNote(getString(R.string.shared_saved_playlist, saved.second))
+                }
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (_: Exception) {
+                showNote(getString(R.string.shared_save_failed))
+            }
+        }
+    }
+
+    /** The name links and cards carry: the Profile name, or null when it's blank. */
+    private fun sharerName(): String? = com.minim.music.data.share.ShareLinks.cleanName(app.preferences.userName)
+
+    /**
+     * Share on a song (the song sheet and Now Playing's menu): a Minim link and card. A tape, or a
+     * song without a YouTube video id, still shares its plain link as before.
+     */
+    private fun shareTrack(track: Track) {
+        val isTape = com.minim.music.data.stories.StoryTracks.isStory(track)
+        if (isTape || !com.minim.music.data.share.ShareLinks.isVideoId(track.id)) {
+            sharePlainLink(track)
+            return
+        }
+        val sharer = sharerName()
+        val link = com.minim.music.data.share.ShareLinks.songLink(com.minim.music.data.share.SharedSave.toSong(track), sharer)
+        val text = com.minim.music.data.share.ShareLinks.shareText(sharer, track.title, link)
+        openSheet { box ->
+            sheetSongHeader(box, track)
+            sheetAction(box, R.drawable.ic_photo, getString(R.string.share_card), trailing = null) {
+                closeSheet {
+                    shareWithCard(
+                        title = track.title,
+                        subtitle = track.artist,
+                        coverUrls = listOf(track.thumbnailUrl.ifBlank { com.minim.music.data.share.SharedSave.coverUrl(track.id) }),
+                        playlist = false,
+                        text = text,
+                        subject = track.title,
+                        chooser = getString(R.string.share_chooser)
+                    )
+                }
+            }
+            sheetAction(box, R.drawable.ic_open_link, getString(R.string.share_link_only)) {
+                closeSheet { shareText(text, track.title, getString(R.string.share_chooser)) }
+            }
+        }
+    }
+
+    /** The pre-6.6 share: a YouTube (Music) link as text. Tapes and songs without a video id. */
+    private fun sharePlainLink(track: Track) {
+        val url = SongMenuLogic.shareUrl(track.id, track.sourceUrl)
+        shareText(SongMenuLogic.shareText(track.title, track.artist, url), track.title, getString(R.string.share_chooser))
+    }
+
+    private fun shareText(text: String, subject: String, chooser: String) {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, subject)
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        try {
+            startActivity(Intent.createChooser(send, chooser))
+        } catch (_: Exception) {
+            showNote(getString(R.string.share_failed))
+        }
+    }
+
+    /** The playlist screen's share button: your own playlists and saved YouTube Music / Spotify ones. */
+    private fun shareOpenPlaylist() {
+        val id = openListId ?: return
+        if (!isOwnPlaylistOpen) return
+        val name = openListName
+        lifecycleScope.launch {
+            val all = try { app.database.getPlaylistTracks(id) } catch (c: kotlinx.coroutines.CancellationException) { throw c } catch (_: Exception) { emptyList() }
+            sharePlaylist(name, all)
+        }
+    }
+
+    /**
+     * Shares a playlist as a snapshot of its songs. Tapes and songs without a YouTube video id stay
+     * out; more than 100 asks "Share the first 100?" first.
+     */
+    private fun sharePlaylist(name: String, all: List<Track>) {
+        val usable = all.filter {
+            !com.minim.music.data.stories.StoryTracks.isStory(it) && com.minim.music.data.share.ShareLinks.isVideoId(it.id)
+        }.distinctBy { it.id }
+        if (usable.isEmpty()) {
+            showNote(getString(R.string.share_playlist_empty))
+            return
+        }
+        if (com.minim.music.data.share.ShareLinks.needsCap(usable.size)) {
+            val ask = {
+                openSheet { box ->
+                    sheetHeading(box, getString(R.string.share_cap_title), getString(R.string.share_cap_body, usable.size), wrapSub = true)
+                    val v = layoutInflater.inflate(R.layout.sheet_confirm, box, false)
+                    v.findViewById<TextView>(R.id.sheet_confirm_cancel).setOnClickListener { closeSheet() }
+                    v.findViewById<TextView>(R.id.sheet_confirm_ok).apply {
+                        setText(R.string.share_cap_ok)
+                        setOnClickListener {
+                            if (sheetClosing) return@setOnClickListener
+                            haptic(it)
+                            showPlaylistShareOptions(name, usable.take(com.minim.music.data.share.ShareLinks.MAX_SONGS))
+                        }
+                    }
+                    box.addView(v)
+                }
+            }
+            ask()
+        } else {
+            showPlaylistShareOptions(name, usable)
+        }
+    }
+
+    private fun showPlaylistShareOptions(name: String, tracks: List<Track>) {
+        val sharer = sharerName()
+        val link = com.minim.music.data.share.ShareLinks.playlistLink(name, sharer, tracks.map { com.minim.music.data.share.SharedSave.toSong(it) })
+        val text = com.minim.music.data.share.ShareLinks.shareText(sharer, name, link)
+        val count = songCount(tracks.size)
+        openSheet { box ->
+            sheetHeading(box, name, count)
+            sheetAction(box, R.drawable.ic_photo, getString(R.string.share_card)) {
+                closeSheet {
+                    shareWithCard(
+                        title = name,
+                        subtitle = count,
+                        coverUrls = tracks.map { it.thumbnailUrl.ifBlank { com.minim.music.data.share.SharedSave.coverUrl(it.id) } }
+                            .distinct().take(4),
+                        playlist = true,
+                        text = text,
+                        subject = name,
+                        chooser = getString(R.string.share_playlist_chooser)
+                    )
+                }
+            }
+            sheetAction(box, R.drawable.ic_open_link, getString(R.string.share_link_only)) {
+                closeSheet { shareText(text, name, getString(R.string.share_playlist_chooser)) }
+            }
+        }
+    }
+
+    /** Draws the card, then the share sheet with the picture, the line and the link. Text only if the card fails. */
+    private fun shareWithCard(
+        title: String,
+        subtitle: String,
+        coverUrls: List<String>,
+        playlist: Boolean,
+        text: String,
+        subject: String,
+        chooser: String
+    ) {
+        if (shareCardJob?.isActive == true) return
+        showNote(getString(R.string.share_making_card))
+        shareCardJob = lifecycleScope.launch {
+            val uri = try {
+                val bmp = kotlinx.coroutines.withTimeoutOrNull(SHARE_CARD_TIMEOUT_MS) {
+                    ShareCard.build(this@MainActivity, app.artworkPipeline, title, subtitle, sharerName(), coverUrls, playlist).first
+                } ?: ShareCard.render(this@MainActivity, ShareCard.palette(0), title, subtitle, sharerName(), emptyList(), playlist)
+                ShareCardFiles.write(this@MainActivity, bmp)
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (_: Throwable) {
+                null
+            }
+            if (uri == null) {
+                shareText(text, subject, chooser)
+                return@launch
+            }
+            try {
+                startActivity(ShareCardFiles.intent(uri, text, subject, chooser))
+            } catch (_: Exception) {
+                shareText(text, subject, chooser)
+            }
+        }
+    }
+
     companion object {
         /** 6.1.1: how long a note with an action (Undo) stays up. */
         private const val NOTE_ACTION_MS = 4000L
+        /** 6.6.0: songs listed in the "Shared with you" pop-up for a playlist. */
+        private const val SHARED_PREVIEW_SONGS = 4
+        /** 6.6.0: the share card waits this long for covers, then goes without them. */
+        private const val SHARE_CARD_TIMEOUT_MS = 8_000L
         /** 5.10.1: the file Take photo was writing into, kept across Android closing Minim. */
         private const val STATE_CAMERA_FILE = "profile_camera_file"
         /** 5.5.2: taps on the version in Settings that toggle the festival preview. */

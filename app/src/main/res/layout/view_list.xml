@@ -54,12 +54,27 @@
                 android:visibility="gone" />
         </FrameLayout>
 
+        <!-- 6.6.0: share the playlist (a Minim link and card) -->
+        <ImageView
+            android:id="@+id/list_share"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_marginStart="12dp"
+            android:background="@drawable/shape_pill"
+            android:clickable="true"
+            android:contentDescription="@string/share_playlist_desc"
+            android:focusable="true"
+            android:padding="7dp"
+            android:src="@drawable/ic_share"
+            android:tag="fill:soft tint:fg"
+            android:visibility="gone" />
+
         <TextView
             android:id="@+id/list_add_songs"
             style="@style/MinimText.Semi"
             android:layout_width="wrap_content"
             android:layout_height="30dp"
-            android:layout_marginStart="12dp"
+            android:layout_marginStart="8dp"
             android:background="@drawable/shape_pill"
             android:gravity="center"
             android:paddingStart="14dp"

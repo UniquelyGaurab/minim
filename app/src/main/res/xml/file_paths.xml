@@ -6,4 +6,6 @@
     <cache-path name="updates" path="updates/" />
     <!-- 5.10.1: the camera app writes a profile photo here (deleted once it's cropped) -->
     <cache-path name="profile" path="profile/" />
+    <!-- 6.6.0: the share card for a song or a playlist -->
+    <cache-path name="share" path="share/" />
 </paths>
