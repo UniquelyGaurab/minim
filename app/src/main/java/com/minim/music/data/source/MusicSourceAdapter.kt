@@ -209,6 +209,40 @@ class MusicSourceAdapter(okHttpClient: OkHttpClient) {
         )
     }
 
+    // ---- 6.6.0: looking up a shared song by its id ------------------------------------------------
+
+    /**
+     * One song's title and artist from its video id, for a v2 playlist link (ids only). Only the watch
+     * page (no stream links), so it's light. Unavailable for a video YouTube says is gone, private or
+     * blocked; Failed for no answer (offline, an error). Cancelling stops the request.
+     */
+    suspend fun lookupSharedSong(videoId: String): com.minim.music.data.share.SharedLookup.One =
+        try {
+            kotlinx.coroutines.runInterruptible(Dispatchers.IO) {
+                val ex = ServiceList.YouTube.getStreamExtractor("https://www.youtube.com/watch?v=$videoId")
+                ex.fetchPage()
+                val title = ex.name?.trim().orEmpty()
+                if (title.isEmpty()) {
+                    com.minim.music.data.share.SharedLookup.One.Failed
+                } else {
+                    val artist = ex.uploaderName?.trim()?.removeSuffix(" - Topic")?.trim().orEmpty()
+                    com.minim.music.data.share.SharedLookup.One.Found(
+                        com.minim.music.data.share.ShareLinks.Song(
+                            videoId,
+                            com.minim.music.data.share.ShareLinks.clip(title, com.minim.music.data.share.ShareLinks.MAX_TITLE),
+                            com.minim.music.data.share.ShareLinks.clip(artist.ifBlank { "Unknown Artist" }, com.minim.music.data.share.ShareLinks.MAX_ARTIST)
+                        )
+                    )
+                }
+            }
+        } catch (c: kotlinx.coroutines.CancellationException) {
+            throw c
+        } catch (_: org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException) {
+            com.minim.music.data.share.SharedLookup.One.Unavailable
+        } catch (_: Throwable) {
+            com.minim.music.data.share.SharedLookup.One.Failed
+        }
+
     // ---- v4.3: radio / mix ----------------------------------------------------------------------
 
     private data class CachedMix(val tracks: List<Track>, val atMs: Long)

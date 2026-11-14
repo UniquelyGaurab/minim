@@ -777,6 +777,13 @@
         <item quantity="other">%1$d unavailable songs left out</item>
     </plurals>
     <string name="shared_ok">Okay</string>
+    <string name="shared_loading_song">Loading…</string>
+    <string name="shared_song_unavailable">Not available</string>
+    <string name="shared_song_not_loaded">Couldn\'t load this one</string>
+    <string name="shared_looking_up">Looking up the songs… %1$d of %2$d</string>
+    <string name="shared_lookup_failed">Couldn\'t reach YouTube. Check your connection and try again.</string>
+    <string name="shared_none_available">None of these songs are available anymore.</string>
+    <string name="shared_try_again">Try again</string>
     <string name="shared_update">Check for update</string>
     <string name="share_card">Share with card</string>
     <string name="share_link_only">Link only</string>

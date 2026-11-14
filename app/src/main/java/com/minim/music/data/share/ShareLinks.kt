@@ -11,14 +11,16 @@ import java.util.zip.Inflater
  * 6.6.0 (update 68): Minim share links.
  *
  *   song      https://uniquelygaurab.github.io/m/s#1.<data>
- *   playlist  https://uniquelygaurab.github.io/m/p#1.<data>
+ *   playlist  https://uniquelygaurab.github.io/m/p#2.<data>   (ids only, see [PlaylistIds])
  *
  * Everything rides after the `#`, so it never reaches a server: GitHub Pages only ever sees /m/s or /m/p.
  * `1` is the payload version. `<data>` is base64url (no padding) of deflate-raw of UTF-8 JSON:
  *
  *   song      {"i":videoId,"t":title,"a":artist,"n":sharer}
- *   playlist  {"l":name,"n":sharer,"s":[[videoId,title,artist],...]}
+ *   playlist  {"l":name,"n":sharer,"s":[[videoId,title,artist],...]}   (v1, still read)
  *
+ * Playlists are written as v2: the name, the sharer and the video ids as raw bits, no titles. A 5-song
+ * link is about a third as long as v1. The receiver looks the songs up ([Decoded.SharedPlaylist.lookup]).
  * "n" is left out when the Profile name is blank. A playlist link carries at most [MAX_SONGS].
  * The web page (uniquelygaurab.github.io/m/s, /m/p) decodes the same bytes in the browser.
  *
@@ -33,8 +35,9 @@ object ShareLinks {
     const val PLAYLIST_PATH = "/m/p"
     const val BASE = "https://$HOST"
 
-    /** The payload version this Minim writes and reads. Links from a newer Minim say "Update Minim". */
-    const val VERSION = 1
+    /** The payload versions this Minim writes and reads. Links from a newer Minim say "Update Minim". */
+    const val SONG_VERSION = 1
+    const val PLAYLIST_VERSION = 2
 
     /** Songs per playlist link. Longer playlists are asked "Share the first 100?". */
     const val MAX_SONGS = 100
@@ -44,7 +47,7 @@ object ShareLinks {
     const val MAX_NAME = 60
     const val MAX_LIST_NAME = 80
 
-    /** A link longer than this is refused before decoding (100 songs come to ~4-5K). */
+    /** A link longer than this is refused before decoding (100 songs came to ~4-5K in v1, ~1.1K in v2). */
     const val MAX_PAYLOAD_CHARS = 32 * 1024
     /** Inflated JSON bigger than this is refused (a tiny link can't blow up into megabytes). */
     const val MAX_JSON_BYTES = 128 * 1024
@@ -56,7 +59,17 @@ object ShareLinks {
 
     sealed class Decoded {
         data class SharedSong(val song: Song, val sharer: String?) : Decoded()
-        data class SharedPlaylist(val name: String, val sharer: String?, val songs: List<Song>, val skipped: Int) : Decoded()
+        /**
+         * [lookup] is true for a v2 link: [songs] carry only their ids (blank titles and artists) and
+         * Minim looks them up before Play and Save.
+         */
+        data class SharedPlaylist(
+            val name: String,
+            val sharer: String?,
+            val songs: List<Song>,
+            val skipped: Int,
+            val lookup: Boolean = false
+        ) : Decoded()
         /** Made by a newer Minim (payload version [version]). */
         data class TooNew(val version: Int) : Decoded()
         /** Cut short, garbled, or not a Minim link at all. */
@@ -88,7 +101,16 @@ object ShareLinks {
         return pack(JsonOut.write(m))
     }
 
+    /** v2: `2.` + the name, the sharer and the video ids ([PlaylistIds]). Titles stay on the sharer's phone. */
     fun encodePlaylist(name: String, sharer: String?, songs: List<Song>): String {
+        val ids = shareable(songs).map { it.id }.distinct()
+        require(ids.isNotEmpty()) { "no songs with a video id" }
+        val listName = clip(name.trim(), MAX_LIST_NAME).ifBlank { "Playlist" }
+        return "$PLAYLIST_VERSION." + PlaylistIds.encode(listName, cleanName(sharer), ids)
+    }
+
+    /** The 6.6.0 test builds' playlist payload (v1, with titles). Only the tests write it now; Minim still reads it. */
+    internal fun encodePlaylistV1(name: String, sharer: String?, songs: List<Song>): String {
         val m = LinkedHashMap<String, Any?>()
         m["l"] = clip(name.trim(), MAX_LIST_NAME).ifBlank { "Playlist" }
         cleanName(sharer)?.let { m["n"] = it }
@@ -161,8 +183,10 @@ object ShareLinks {
         val dot = payload.indexOf('.')
         if (dot <= 0 || dot > 4) return Decoded.Broken("no version")
         val version = payload.substring(0, dot).toIntOrNull() ?: return Decoded.Broken("bad version")
-        if (version > VERSION) return Decoded.TooNew(version)
+        val newest = if (parsed.kind == Kind.SONG) SONG_VERSION else PLAYLIST_VERSION
+        if (version > newest) return Decoded.TooNew(version)
         if (version < 1) return Decoded.Broken("bad version")
+        if (version == 2) return decodeV2(payload.substring(dot + 1))
         val json = unpack(payload.substring(dot + 1)) ?: return Decoded.Broken("garbled")
         val obj = MiniJson.parse(json, MAX_JSON_BYTES) as? Map<*, *> ?: return Decoded.Broken("not an object")
         val sharer = cleanName(obj["n"] as? String)
@@ -193,6 +217,20 @@ object ShareLinks {
         }
     }
 
+    private fun decodeV2(data: String): Decoded {
+        val p = PlaylistIds.decode(data) ?: return Decoded.Broken("garbled")
+        val songs = ArrayList<Song>()
+        val seen = HashSet<String>()
+        var skipped = 0
+        for (id in p.ids) {
+            if (!isVideoId(id) || songs.size >= MAX_SONGS || !seen.add(id)) { skipped++; continue }
+            songs.add(Song(id, "", ""))
+        }
+        if (songs.isEmpty()) return Decoded.Broken("no songs")
+        val name = clip(p.name.trim(), MAX_LIST_NAME).ifBlank { "Shared playlist" }
+        return Decoded.SharedPlaylist(name, cleanName(p.sharer), songs, skipped, lookup = true)
+    }
+
     private fun song(id: String, title: Any?, artist: Any?) = Song(
         id,
         clip((title as? String).orEmpty().trim(), MAX_TITLE).ifBlank { "Untitled" },
@@ -213,7 +251,7 @@ object ShareLinks {
                 val n = deflater.deflate(buf)
                 out.write(buf, 0, n)
             }
-            return "$VERSION." + Base64.getUrlEncoder().withoutPadding().encodeToString(out.toByteArray())
+            return "$SONG_VERSION." + Base64.getUrlEncoder().withoutPadding().encodeToString(out.toByteArray())
         } finally {
             deflater.end()
         }

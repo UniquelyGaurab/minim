@@ -76,8 +76,13 @@ class ShareLinksTest {
         }
         val p = ShareLinks.decodeLink(ShareLinks.playlistLink("मेरी 🎶 பாடல்கள்", "Gaurab", songs)) as Decoded.SharedPlaylist
         assertEquals("मेरी 🎶 பாடல்கள்", p.name)
-        assertEquals(songs, p.songs)
+        assertEquals(songs.map { it.id }, p.songs.map { it.id })
+        assertTrue(p.lookup)
         assertEquals(0, p.skipped)
+        // an old v1 link (titles inside) still reads with its titles
+        val v1 = ShareLinks.decodeLink(v1Link("मेरी 🎶 பாடல்கள்", "Gaurab", songs)) as Decoded.SharedPlaylist
+        assertEquals(songs, v1.songs)
+        assertFalse(v1.lookup)
     }
 
     @Test fun playlistRoundTripKeepsOrder() {
@@ -85,29 +90,86 @@ class ShareLinksTest {
         val d = ShareLinks.decodeLink(ShareLinks.playlistLink("Late night", "Gaurab", songs)) as Decoded.SharedPlaylist
         assertEquals("Late night", d.name)
         assertEquals("Gaurab", d.sharer)
-        assertEquals(songs, d.songs)
+        assertEquals(songs.map { it.id }, d.songs.map { it.id })
+        assertTrue(d.songs.all { it.title.isEmpty() && it.artist.isEmpty() })
+        assertTrue(d.lookup)
     }
 
     @Test fun payloadIsUrlSafeAndAfterTheHash() {
         val link = ShareLinks.playlistLink("Mix", "Gaurab", realisticSongs(100))
         val hash = link.indexOf('#')
         assertEquals("https://uniquelygaurab.github.io/m/p", link.substring(0, hash))
-        assertTrue(link.substring(hash + 1).matches(Regex("^1\\.[A-Za-z0-9_-]+$")))
+        assertTrue(link.substring(hash + 1).matches(Regex("^2\\.[A-Za-z0-9_-]+$")))
     }
 
     // ---- length and the cap -----------------------------------------------------------------------
 
     @Test fun linkLengths() {
         val l1 = ShareLinks.songLink(suroor, "Gaurab").length
-        val l50 = ShareLinks.playlistLink("Late night drives", "Gaurab", realisticSongs(50)).length
-        val l100 = ShareLinks.playlistLink("Late night drives", "Gaurab", realisticSongs(100)).length
+        val l5 = ShareLinks.playlistLink("Gaurab's picks", "Gaurab", picks).length
+        val l5v1 = v1Link("Gaurab's picks", "Gaurab", picks).length
+        val l50 = ShareLinks.playlistLink("Late night drives", "Gaurab", ytSongs(50)).length
+        val l100 = ShareLinks.playlistLink("Late night drives", "Gaurab", ytSongs(100)).length
+        val l50v1 = v1Link("Late night drives", "Gaurab", realisticSongs(50)).length
+        val l100v1 = v1Link("Late night drives", "Gaurab", realisticSongs(100)).length
         File("build/share-preview").mkdirs()
-        File("build/share-preview/link-lengths.txt").writeText("song=$l1\nplaylist50=$l50\nplaylist100=$l100\n")
-        println("SHARE LINK LENGTHS song=$l1 playlist50=$l50 playlist100=$l100")
-        assertTrue("song link $l1", l1 < 200)
-        assertTrue("50 songs $l50", l50 < 4000)
-        assertTrue("100 songs $l100", l100 < 8000)
-        assertTrue(l100 > l50)
+        File("build/share-preview/link-lengths.txt").writeText(
+            "song=$l1\nplaylist5=$l5\nplaylist50=$l50\nplaylist100=$l100\nv1_playlist5=$l5v1\nv1_playlist50=$l50v1\nv1_playlist100=$l100v1\n"
+        )
+        println("SHARE LINK LENGTHS song=$l1 playlist5=$l5 playlist50=$l50 playlist100=$l100 (v1 $l5v1/$l50v1/$l100v1)")
+        // 37 chars of https://uniquelygaurab.github.io/m/p# + "2." + base64 of (flags, count, name, sharer, 8 bytes per id, check)
+        fun expected(name: String, sharer: String, n: Int): Int {
+            val bytes = 1 + (if (n < 128) 1 else 2) + 1 + name.toByteArray().size + 1 + sharer.toByteArray().size + 8 * n + 1
+            return 37 + 2 + (bytes * 4 + 2) / 3
+        }
+        assertEquals(expected("Gaurab's picks", "Gaurab", 5), l5)
+        assertEquals(expected("Late night drives", "Gaurab", 50), l50)
+        assertEquals(expected("Late night drives", "Gaurab", 100), l100)
+        assertTrue("5 songs $l5 vs song $l1", l5 < l1)
+        assertTrue("5 songs $l5 vs v1 $l5v1", l5 * 2 < l5v1)
+        assertTrue("100 songs $l100", l100 < 1200)
+    }
+
+    @Test fun nonYouTubeShapedIdsStillRoundTrip() {
+        // ids whose 11th char uses all 6 bits (YouTube never makes them): the link goes to 66 bits per id
+        val odd = listOf(Song("AAAAAAAAAAB", "", ""), Song("___________", "", ""), suroor)
+        val link = ShareLinks.playlistLink("Odd", null, odd)
+        val d = ShareLinks.decodeLink(link) as Decoded.SharedPlaylist
+        assertEquals(odd.map { it.id }, d.songs.map { it.id })
+        assertTrue(link.length > ShareLinks.playlistLink("Odd", null, listOf(suroor, Song("AAAAAAAAAAA", "", ""), Song("__________w", "", ""))).length)
+        val many = realisticSongs(100)
+        assertEquals(many.map { it.id }, (ShareLinks.decodeLink(ShareLinks.playlistLink("x", "y", many)) as Decoded.SharedPlaylist).songs.map { it.id })
+    }
+
+    @Test fun v2EdgeCases() {
+        // a name that's blank, long or full of emoji; a sharer that's blank
+        val d = ShareLinks.decodeLink(ShareLinks.playlistLink("   ", "  ", picks)) as Decoded.SharedPlaylist
+        assertEquals("Playlist", d.name)
+        assertNull(d.sharer)
+        val long = ShareLinks.decodeLink(ShareLinks.playlistLink("🎶".repeat(100), "x".repeat(200), picks)) as Decoded.SharedPlaylist
+        assertTrue(long.name.length <= ShareLinks.MAX_LIST_NAME)
+        assertEquals(ShareLinks.MAX_NAME, long.sharer!!.length)
+        // duplicates in the playlist go in once
+        val dup = ShareLinks.decodeLink(ShareLinks.playlistLink("d", null, picks + picks)) as Decoded.SharedPlaylist
+        assertEquals(picks.map { it.id }, dup.songs.map { it.id })
+        // hand-made v2 bytes with more than 100 ids: the first 100 come in, the rest count as skipped
+        val big = ytSongs(130).map { it.id }
+        val raw = "https://uniquelygaurab.github.io/m/p#2." + PlaylistIds.encode("Big", null, big)
+        val b = ShareLinks.decodeLink(raw) as Decoded.SharedPlaylist
+        assertEquals(big.take(100), b.songs.map { it.id })
+        assertEquals(30, b.skipped)
+        // no songs at all can't be encoded, and the payload format refuses a count of 0
+        assertTrue(runCatching { ShareLinks.playlistLink("x", null, emptyList()) }.isFailure)
+        assertTrue(ShareLinks.decodeLink("https://uniquelygaurab.github.io/m/p#2." + withCheck(byteArrayOf(0, 0, 0))) is Decoded.Broken)
+        // unknown flag bits, a padded varint, bad UTF-8, non-zero padding bits: all broken
+        for (bytes in listOf(
+            byteArrayOf(4, 1, 0) + ByteArray(8),
+            byteArrayOf(0, 0x81.toByte(), 0, 0) + ByteArray(8),
+            byteArrayOf(0, 1, 2, 0xC3.toByte(), 0x28) + ByteArray(8),
+            byteArrayOf(2, 1, 0) + ByteArray(8) + byteArrayOf(1)
+        )) assertTrue(ShareLinks.decodeLink("https://uniquelygaurab.github.io/m/p#2." + withCheck(bytes)) is Decoded.Broken)
+        // the same bytes with a good check decode (so the cases above fail for their own reason)
+        assertTrue(ShareLinks.decodeLink("https://uniquelygaurab.github.io/m/p#2." + withCheck(byteArrayOf(2, 1, 0) + ByteArray(8) + byteArrayOf(0))) is Decoded.SharedPlaylist)
     }
 
     @Test fun capAtOneHundred() {
@@ -116,7 +178,7 @@ class ShareLinksTest {
         val songs = realisticSongs(150)
         val d = ShareLinks.decodeLink(ShareLinks.playlistLink("Big", null, songs)) as Decoded.SharedPlaylist
         assertEquals(100, d.songs.size)
-        assertEquals(songs.take(100), d.songs)
+        assertEquals(songs.take(100).map { it.id }, d.songs.map { it.id })
     }
 
     @Test fun decoderRefusesMoreThanOneHundred() {
@@ -130,7 +192,7 @@ class ShareLinksTest {
     @Test fun songsWithoutVideoIdsStayOut() {
         val songs = listOf(Song("local:123", "Tape", "Me"), suroor, Song("", "x", "y"), Song("tooShort", "z", "z"))
         val d = ShareLinks.decodeLink(ShareLinks.playlistLink("Mix", null, songs)) as Decoded.SharedPlaylist
-        assertEquals(listOf(suroor), d.songs)
+        assertEquals(listOf(suroor.id), d.songs.map { it.id })
     }
 
     @Test fun longTextIsClippedNotBroken() {
@@ -165,12 +227,20 @@ class ShareLinksTest {
     // ---- broken, cut short, newer ----------------------------------------------------------------
 
     @Test fun truncatedLinksAreBrokenNeverCrash() {
-        val link = ShareLinks.playlistLink("Mix", "Gaurab", realisticSongs(40))
+        // v2, both id widths: every cut is broken (the length, padding and check byte catch it)
+        for (list in listOf(ytSongs(40), realisticSongs(40), picks)) {
+            val link = ShareLinks.playlistLink("Mix", "Gaurab", list)
+            for (cut in link.indexOf('#') until link.length) {
+                val d = ShareLinks.decodeLink(link.substring(0, cut))
+                assertTrue("cut $cut: $d", d is Decoded.Broken)
+            }
+        }
+        // v1 (old links): a cut never gives back a different, wrong playlist
+        val link = v1Link("Mix", "Gaurab", realisticSongs(40))
         val start = link.indexOf('#') + 3
         var broken = 0
         for (cut in start until link.length) {
             val d = ShareLinks.decodeLink(link.substring(0, cut))
-            // a cut never gives back a different, wrong playlist
             if (d is Decoded.SharedPlaylist) assertEquals(realisticSongs(40), d.songs) else { assertTrue(d is Decoded.Broken); broken++ }
         }
         assertTrue(broken > 0)
@@ -201,6 +271,19 @@ class ShareLinksTest {
             val d = ShareLinks.decodeLink(flipped)
             assertTrue(d is Decoded.Broken || d is Decoded.SharedSong)
         }
+        // v2: a changed char is caught (the check byte misses about 1 in 256), never a crash
+        val v2 = ShareLinks.playlistLink("Gaurab's picks", "Gaurab", picks)
+        var caught = 0
+        var total = 0
+        for (i in v2.indexOf('#') + 3 until v2.length) for (c in chars) {
+            if (v2[i] == c) continue
+            val d = ShareLinks.decodeLink(v2.substring(0, i) + c + v2.substring(i + 1))
+            total++
+            if (d is Decoded.Broken) caught++ else assertTrue(d is Decoded.SharedPlaylist)
+        }
+        assertTrue("$caught of $total", caught >= total * 97 / 100)
+        for (b in listOf("2.", "2.A", "2.AAAA", "2.!!!!", "2." + "A".repeat(40_000), "2.____________"))
+            assertTrue(b.take(30), ShareLinks.decodeLink("https://uniquelygaurab.github.io/m/p#$b") is Decoded.Broken)
         // a playlist with no usable song is broken too
         assertTrue(ShareLinks.decodeLink("https://uniquelygaurab.github.io/m/p#" + raw("{\"l\":\"x\",\"s\":[[\"bad\",\"a\",\"b\"]]}")) is Decoded.Broken)
         assertTrue(ShareLinks.decodeLink("https://uniquelygaurab.github.io/m/p#" + raw("{\"l\":\"x\",\"s\":[]}")) is Decoded.Broken)
@@ -217,6 +300,7 @@ class ShareLinksTest {
         val payload = ShareLinks.encodeSong(suroor, "Gaurab").substringAfter('.')
         assertEquals(Decoded.TooNew(2), ShareLinks.decodeLink("https://uniquelygaurab.github.io/m/s#2.$payload"))
         assertEquals(Decoded.TooNew(17), ShareLinks.decodeLink("https://uniquelygaurab.github.io/m/p#17.whatever-it-is"))
+        assertEquals(Decoded.TooNew(3), ShareLinks.decodeLink("https://uniquelygaurab.github.io/m/p#3.whatever-it-is"))
     }
 
     @Test fun unavailableSongsAreSkippedAndDuplicatesDropped() {
@@ -284,15 +368,42 @@ class ShareLinksTest {
             "song_noname\t" + ShareLinks.songLink(unicode[0], ""),
             "song_unicode\t" + ShareLinks.songLink(Song("6mr4cYJ7yew", "केसरिया 🔥", "அரிஜித் சிங்"), "गौरव"),
             "playlist\t" + ShareLinks.playlistLink("Gaurab's picks", "Gaurab", unicode),
-            "playlist_100\t" + ShareLinks.playlistLink("Late night drives", "Gaurab", realisticSongs(100)),
+            "playlist_noname\t" + ShareLinks.playlistLink("मेरी 🎶 பாடல்கள்", " ", unicode.take(2)),
+            "playlist_v1\t" + v1Link("Gaurab's picks", "Gaurab", unicode),
+            "playlist_100\t" + ShareLinks.playlistLink("Late night drives", "Gaurab", ytSongs(100)),
             "too_new\thttps://uniquelygaurab.github.io/m/s#2." + ShareLinks.encodeSong(unicode[0], "G").substringAfter('.'),
             "broken\t" + ShareLinks.songLink(unicode[0], "Gaurab").dropLast(9)
         )
         File(dir, "links.tsv").writeText(lines.joinToString("\n") + "\n")
-        assertEquals(7, File(dir, "links.tsv").readLines().size)
+        assertEquals(9, File(dir, "links.tsv").readLines().size)
     }
 
     // ---- helpers -----------------------------------------------------------------------------------
+
+    private val picks = listOf(
+        Song("RA4jeB5zk9A", "Suroor", "Neha Kakkar & Bilal Saeed"),
+        Song("GWNrPJyRTcA", "Chuttamalle", "Anirudh Ravichander, Shilpa Rao"),
+        Song("em9fQdHmKh4", "Hukum - Thalaivar Alappara", "Anirudh Ravichander"),
+        Song("6mr4cYJ7yew", "Kesariya", "Pritam, Arijit Singh"),
+        Song("szvt1vD0Uug", "Naa Ready", "Anirudh Ravichander, Thalapathy Vijay")
+    )
+
+    /** Songs with YouTube-shaped ids (the 11th char from AEIMQUYcgkosw048), like every real one. */
+    private fun ytSongs(n: Int): List<Song> {
+        val abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        val r = java.util.Random(n * 977L + 3)
+        return realisticSongs(n).map { s ->
+            Song((0 until 10).map { abc[r.nextInt(64)] }.joinToString("") + abc[r.nextInt(16) * 4], s.title, s.artist)
+        }
+    }
+
+    private fun v1Link(name: String, sharer: String?, songs: List<Song>) =
+        "https://uniquelygaurab.github.io/m/p#" + ShareLinks.encodePlaylistV1(name, sharer, songs)
+
+    private fun withCheck(body: ByteArray): String {
+        val crc = java.util.zip.CRC32().apply { update(body) }.value.toInt() and 0xFF
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(body + crc.toByte())
+    }
 
     private fun raw(json: String): String {
         val d = Deflater(9, true)

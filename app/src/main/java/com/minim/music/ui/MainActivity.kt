@@ -10579,7 +10579,8 @@ class MainActivity : AppCompatActivity() {
                 songs = decoded.songs,
                 skipped = decoded.skipped,
                 playlist = true,
-                listName = decoded.name
+                listName = decoded.name,
+                lookup = decoded.lookup
             )
         }
     }
@@ -10616,7 +10617,8 @@ class MainActivity : AppCompatActivity() {
         songs: List<com.minim.music.data.share.ShareLinks.Song>,
         skipped: Int,
         playlist: Boolean,
-        listName: String?
+        listName: String?,
+        lookup: Boolean = false
     ) {
         if (songs.isEmpty()) {
             showSharedProblem(getString(R.string.shared_broken_title), getString(R.string.shared_broken_body), update = false)
@@ -10646,22 +10648,31 @@ class MainActivity : AppCompatActivity() {
                 if (sharer.isNullOrBlank()) visibility = View.GONE
                 else { text = getString(R.string.shared_by, sharer); visibility = View.VISIBLE }
             }
+            val rows = ArrayList<View>()
             if (playlist) {
                 val list = v.findViewById<android.widget.LinearLayout>(R.id.shared_songs)
                 list.visibility = View.VISIBLE
                 songs.take(SHARED_PREVIEW_SONGS).forEach { s ->
                     val row = layoutInflater.inflate(R.layout.item_sheet_song, list, false)
                     val art = row.findViewById<ImageView>(R.id.song_art).apply { clipToOutline = true }
-                    row.findViewById<TextView>(R.id.song_title).text = s.title
-                    row.findViewById<TextView>(R.id.song_artist).text = s.artist
+                    if (lookup) {
+                        // v2 link: ids only, the names come in as each lookup answers
+                        row.findViewById<TextView>(R.id.song_title).apply { setText(R.string.shared_loading_song); alpha = 0.45f }
+                        row.findViewById<TextView>(R.id.song_artist).text = ""
+                        row.contentDescription = getString(R.string.shared_loading_song)
+                    } else {
+                        row.findViewById<TextView>(R.id.song_title).text = s.title
+                        row.findViewById<TextView>(R.id.song_artist).text = s.artist
+                        row.contentDescription = "${s.title}, ${s.artist}"
+                    }
                     row.findViewById<TextView>(R.id.song_plays).visibility = View.GONE
-                    row.contentDescription = "${s.title}, ${s.artist}"
                     row.isClickable = false
                     row.isFocusable = false
                     row.foreground = null
                     row.clipToOutline = true
                     app.artworkPipeline.loadInto(art, com.minim.music.data.share.SharedSave.coverUrl(s.id), dp(44f).toInt())
                     list.addView(row)
+                    rows.add(row)
                 }
                 val more = songs.size - SHARED_PREVIEW_SONGS
                 val lines = listOfNotNull(
@@ -10673,19 +10684,148 @@ class MainActivity : AppCompatActivity() {
                     else { text = lines.joinToString(" · "); visibility = View.VISIBLE }
                 }
             }
-            v.findViewById<TextView>(R.id.shared_play).setOnClickListener {
+            val playBtn = v.findViewById<TextView>(R.id.shared_play)
+            val saveBtn = v.findViewById<TextView>(R.id.shared_save)
+            val lookupState = if (lookup) SharedLookupState(songs.map { it.id }) else null
+            playBtn.setOnClickListener {
                 if (sheetClosing) return@setOnClickListener
                 haptic(it)
+                val st = lookupState
+                if (st != null) {
+                    val sum = com.minim.music.data.share.SharedLookup.summary(st.results)
+                    if (sum.done && sum.failed > 0) { runSharedLookup(v, st, rows, playBtn, saveBtn, more = songs.size - SHARED_PREVIEW_SONGS, skipped = skipped); return@setOnClickListener }
+                    if (!sum.ready) return@setOnClickListener
+                    closeSheet()
+                    playShared(sum.found, playlist)
+                    return@setOnClickListener
+                }
                 closeSheet()
                 playShared(songs, playlist)
             }
-            v.findViewById<TextView>(R.id.shared_save).setOnClickListener {
+            saveBtn.setOnClickListener {
                 if (sheetClosing) return@setOnClickListener
+                val st = lookupState
+                val pick = if (st != null) {
+                    val sum = com.minim.music.data.share.SharedLookup.summary(st.results)
+                    if (!sum.ready) return@setOnClickListener
+                    sum.found
+                } else songs
                 haptic(it)
                 closeSheet()
-                saveShared(songs, playlist, listName)
+                saveShared(pick, playlist, listName)
             }
             box.addView(v)
+            if (lookupState != null) {
+                // the lookup stops when the pop-up goes (closed, or replaced by another sheet)
+                v.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                    override fun onViewAttachedToWindow(view: View) {}
+                    override fun onViewDetachedFromWindow(view: View) { lookupState.job?.cancel() }
+                })
+                runSharedLookup(v, lookupState, rows, playBtn, saveBtn, more = songs.size - SHARED_PREVIEW_SONGS, skipped = skipped)
+            }
+        }
+    }
+
+    /** 6.6.0: a v2 playlist link's lookup: one answer per song id, kept across Try again. */
+    private class SharedLookupState(val ids: List<String>) {
+        val results = arrayOfNulls<com.minim.music.data.share.SharedLookup.One>(ids.size)
+        var job: Job? = null
+    }
+
+    /**
+     * 6.6.0: looks up a v2 playlist link's songs (titles and artists), a few at a time off the main
+     * thread. Songs already in the library answer at once. Play and Save wait for it; songs YouTube
+     * says are gone are left out; no answer (offline, slow) shows a friendly line and Try again.
+     */
+    private fun runSharedLookup(
+        v: View,
+        st: SharedLookupState,
+        rows: List<View>,
+        playBtn: TextView,
+        saveBtn: TextView,
+        more: Int,
+        skipped: Int
+    ) {
+        if (st.job?.isActive == true) return
+        val status = v.findViewById<TextView>(R.id.shared_more)
+        fun setEnabled(b: TextView, on: Boolean) { b.isEnabled = on; b.alpha = if (on) 1f else 0.4f }
+        fun showRow(i: Int) {
+            val row = rows.getOrNull(i) ?: return
+            val title = row.findViewById<TextView>(R.id.song_title)
+            val artist = row.findViewById<TextView>(R.id.song_artist)
+            when (val r = st.results[i]) {
+                is com.minim.music.data.share.SharedLookup.One.Found -> {
+                    title.text = r.song.title; title.alpha = 1f; artist.text = r.song.artist
+                    row.contentDescription = "${r.song.title}, ${r.song.artist}"
+                }
+                com.minim.music.data.share.SharedLookup.One.Unavailable -> {
+                    title.setText(R.string.shared_song_unavailable); title.alpha = 0.45f; artist.text = ""
+                    row.contentDescription = getString(R.string.shared_song_unavailable)
+                }
+                com.minim.music.data.share.SharedLookup.One.Failed -> {
+                    title.setText(R.string.shared_song_not_loaded); title.alpha = 0.45f; artist.text = ""
+                    row.contentDescription = getString(R.string.shared_song_not_loaded)
+                }
+                null -> {
+                    title.setText(R.string.shared_loading_song); title.alpha = 0.45f; artist.text = ""
+                }
+            }
+        }
+        fun showStatus() {
+            if (!v.isAttachedToWindow && st.job?.isCancelled == true) return
+            val sum = com.minim.music.data.share.SharedLookup.summary(st.results)
+            val lines = ArrayList<String>()
+            when {
+                !sum.done -> lines.add(getString(R.string.shared_looking_up, st.ids.size - sum.pending, st.ids.size))
+                sum.failed > 0 -> lines.add(getString(R.string.shared_lookup_failed))
+                sum.found.isEmpty() -> lines.add(getString(R.string.shared_none_available))
+                else -> {
+                    if (more > 0) lines.add(resources.getQuantityString(R.plurals.shared_more, more, more))
+                    val gone = skipped + sum.unavailable
+                    if (gone > 0) lines.add(resources.getQuantityString(R.plurals.shared_skipped, gone, gone))
+                }
+            }
+            status.text = lines.joinToString(" · ")
+            status.visibility = if (lines.isEmpty()) View.GONE else View.VISIBLE
+            val retry = sum.done && sum.failed > 0
+            playBtn.setText(if (retry) R.string.shared_try_again else R.string.shared_play)
+            setEnabled(playBtn, sum.ready || retry)
+            setEnabled(saveBtn, sum.ready)
+        }
+        // a retry starts the unanswered ones again
+        for (i in st.results.indices) if (st.results[i] is com.minim.music.data.share.SharedLookup.One.Failed) { st.results[i] = null; showRow(i) }
+        showStatus()
+        st.job = lifecycleScope.launch {
+            try {
+                // songs already in the library need no lookup
+                val known = try {
+                    app.database.getTracksByIds(st.ids.filterIndexed { i, _ -> st.results[i] == null }).associateBy { it.id }
+                } catch (c: kotlinx.coroutines.CancellationException) {
+                    throw c
+                } catch (_: Exception) {
+                    emptyMap()
+                }
+                for (i in st.ids.indices) {
+                    val t = known[st.ids[i]] ?: continue
+                    if (st.results[i] != null || t.title.isBlank()) continue
+                    st.results[i] = com.minim.music.data.share.SharedLookup.One.Found(com.minim.music.data.share.SharedSave.toSong(t))
+                    showRow(i)
+                }
+                showStatus()
+                com.minim.music.data.share.SharedLookup.fill(
+                    ids = st.ids,
+                    results = st.results,
+                    lookup = { id -> app.sourceAdapter.lookupSharedSong(id) },
+                    onEach = { i, _ -> showRow(i); showStatus() }
+                )
+                showStatus()
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (_: Exception) {
+                // anything unexpected: whatever didn't answer counts as not loaded, never a crash
+                for (i in st.results.indices) if (st.results[i] == null) { st.results[i] = com.minim.music.data.share.SharedLookup.One.Failed; showRow(i) }
+                showStatus()
+            }
         }
     }
 
