@@ -201,26 +201,29 @@ class LyricsCardRenderTest {
     // ---- 6.7.0 revision: smaller card, smaller ending, scrolling 30/45/60 cards ----
 
     @Test fun cardIsSmallerWithMoreBackdrop() {
-        assertEquals(1080f * 0.78f, LyricsCard.CARD_W, 0.01f)
+        assertEquals(1080f * 0.68f, LyricsCard.CARD_W, 0.01f)
         val side = (1080f - LyricsCard.CARD_W) / 2f
-        assertTrue(side >= 118f)
+        assertTrue(side >= 170f)
         // everything inside scales with the card, text stays readable
         assertEquals(LyricsCard.CARD_W / 880f, LyricsCard.SCALE, 0.0001f)
         assertEquals(LyricsCardSpacing.MAX_SIZE * LyricsCard.SCALE, LyricsCard.MAX_SIZE, 0.01f)
-        assertTrue(LyricsCard.MIN_SIZE >= 30f)
+        assertTrue(LyricsCard.MIN_SIZE >= LyricsCard.MIN_TEXT_PX && LyricsCard.MIN_TEXT_PX >= 28f)
+        assertTrue(LyricsCard.MAX_SIZE * LyricsCard.SCROLL_SIZE > LyricsCard.MIN_SIZE)
         assertTrue(LyricsCard.FOOTER_SCALE < LyricsCard.SCALE)
-        // the tallest card leaves backdrop above and below: at most about two thirds of the height
+        // the tallest card leaves backdrop above and below: at most half the height
         val tallest = LyricsCard.cardHeight(LyricsCard.MAX_TEXT_H)
-        assertTrue(tallest <= 1920f * 0.67f)
+        assertTrue(tallest <= 1920f * 0.50f + 0.5f)
         val r = LyricsCard.cardRect(tallest)
-        assertTrue(r.top >= 300f && 1920f - r.bottom >= 300f)
+        assertTrue(r.top >= 440f && 1920f - r.bottom >= 440f)
         assertEquals(540f, r.centerX(), 0.5f)
         // a five-line card really draws inside those bounds
         val five = List(5) { LyricsCard.Line("Kesariya tera ishq hai piya, rang jaaun jo main haath lagaaun $it") }
         val s = LyricsCard.Scene(ctx, ShareCard.palette(Color.rgb(200, 40, 90)), five, LyricsCardOptions.Lyrics.ORIGINAL,
             "Kesariya", "Arijit Singh", "Gaurab", null, LyricsCardOptions.Background.COLOURS, false)
         assertTrue(s.card.height() <= tallest + 0.5f)
-        assertTrue(s.card.width() < 1080f * 0.79f)
+        assertTrue(s.card.width() < 1080f * 0.69f)
+        assertTrue(s.card.height() in 1920f * 0.40f..1920f * 0.50f + 0.5f)
+        assertTrue(s.textSize >= LyricsCard.MIN_SIZE)
         s.recycle()
     }
 
@@ -257,5 +260,41 @@ class LyricsCardRenderTest {
         s.drawFrame(c, plan, timing, plan.totalMs - 100)
         save(bmp, "lyrics-scroll-ending")
         s.recycle()
+    }
+    // ---- 6.7.0 revision 2: the card really is smaller ----
+
+    /** A real five-line pick (within the 180-character limit) is about half the canvas height. */
+    @Test fun fiveLinePickIsAboutHalfTheHeight() {
+        val five = listOf(
+            "Kesariya tera ishq hai piya", "Rang jaaun jo main haath lagaaun",
+            "Din beete saara teri fikr mein", "Rain saari teri khair manaaun",
+            "Pyaar ki bhatti mein pak gaya"
+        ).map { LyricsCard.Line(it) }
+        assertTrue(five.sumOf { it.text.length } <= 180)
+        for (video in listOf(false, true)) {
+            val s = LyricsCard.Scene(ctx, ShareCard.palette(Color.rgb(200, 40, 90)), five, LyricsCardOptions.Lyrics.ORIGINAL,
+                "Kesariya", "Arijit Singh", "Gaurab", null, LyricsCardOptions.Background.COLOURS, video)
+            val hShare = s.card.height() / 1920f
+            assertTrue("height share $hShare", hShare in 0.40f..0.505f)
+            assertEquals(0.68f, s.card.width() / 1080f, 0.002f)
+            assertTrue(s.card.top >= 440f && 1920f - s.card.bottom >= 440f)
+            assertTrue(s.textSize >= LyricsCard.MIN_SIZE)
+            s.recycle()
+        }
+        val bmp = LyricsCard.render(ctx, ShareCard.palette(Color.rgb(200, 40, 90)), five, LyricsCardOptions.Lyrics.ORIGINAL,
+            "Kesariya", "Arijit Singh", "Gaurab", null)
+        save(bmp, "lyrics-card-five-real")
+    }
+
+    /** The share sheet shows the whole 9:16 canvas, backdrop and all, never a crop of the card. */
+    @Test fun previewShowsTheWholeCanvas() {
+        val f = listOf(File("src/main/res/layout/sheet_lyrics_card.xml"), File("app/src/main/res/layout/sheet_lyrics_card.xml")).first { it.exists() }
+        val xml = f.readText()
+        val box = Regex("""lyrics_card_box"\s+android:layout_width="(\d+)dp"\s+android:layout_height="(\d+)dp"""").find(xml)!!
+        val (w, h) = box.destructured
+        assertEquals(9f / 16f, w.toFloat() / h.toFloat(), 0.001f)
+        val preview = xml.substringAfter("@+id/lyrics_card_preview").substringBefore("/>")
+        assertTrue(preview.contains("android:scaleType=\"fitCenter\""))
+        assertFalse(xml.contains("centerCrop"))
     }
 }

@@ -41,15 +41,21 @@ object LyricsCard {
 
     const val W = ShareCard.W
     const val H = ShareCard.H
-    /** 6.7.0 revision: the card is 78% of the width (it was 880 px, 81%), with more backdrop around it. */
-    const val CARD_SHARE = 0.78f
+    /**
+     * 6.7.0 revision 2: the card is 68% of the width (about 734 px; it was 880 px, then 0.78), so
+     * clearly more backdrop shows on every side.
+     */
+    const val CARD_SHARE = 0.68f
     const val CARD_W = W * CARD_SHARE
     /** Everything inside the card scales with it. */
     const val SCALE = CARD_W / 880f
     const val PAD = 64f * SCALE
     private const val TEXT_W = (CARD_W - 2 * PAD).toInt()
-    /** The least backdrop above and below the card (was 200 px, so a five-line card filled the screen). */
-    const val MARGIN_Y = 330f
+    /**
+     * The least backdrop above and below the card (200 px, then 330). At 480 the tallest card is
+     * half the canvas height, so a five-line card leaves a quarter of backdrop above and below.
+     */
+    const val MARGIN_Y = 480f
     private const val COVER = 116f * SCALE
     /** Footer: "Shared by" and the minim mark, scaled down a bit more than the rest. */
     const val FOOTER_SCALE = SCALE * 0.86f
@@ -57,7 +63,9 @@ object LyricsCard {
     private const val BOTTOM_H = (56f + 2f + 44f) * SCALE + COVER + 84f * SCALE + PAD
     const val MAX_TEXT_H = H - 2 * MARGIN_Y - PAD - BOTTOM_H
     const val MAX_SIZE = LyricsCardSpacing.MAX_SIZE * SCALE
-    const val MIN_SIZE = LyricsCardSpacing.MIN_SIZE * SCALE
+    /** Auto-size can go smaller on the smaller card, but never under [MIN_TEXT_PX] (stays readable). */
+    const val MIN_TEXT_PX = 28f
+    val MIN_SIZE: Float = maxOf(LyricsCardSpacing.MIN_SIZE * SCALE, MIN_TEXT_PX)
     /** The ending: "minim" about half its 6.7.0 size (150 px), "Shared by" smaller and lighter. */
     /** 30/45/60 cards: text at most this share of the biggest size. */
     const val SCROLL_SIZE = 0.8f

@@ -21,7 +21,7 @@ Lyrics cards can now move, with the song playing under them.
 - **Minim remembers your last choices**
 
 **Tidier cards**
-- **A smaller card with more room around it:** the card is about 78% of the width, with more background above, below and at the sides, and everything on it scales down to match, "Shared by" and the minim logo included
+- **A smaller card with plenty of room around it:** the card is about 68% of the width, and even a five-line card stays under half the height, with clear background above, below and at the sides. Everything on it scales down to match, "Shared by" and the minim logo included, and the text never gets too small to read. Static cards, animated cards and saved cards all match
 - **Smaller text** (about 13% smaller) and **clear space between lines**, while the rows of one long line stay together. In Both, each translation sits right under its own line
 - **Easier picking:** the lyric rows spread out a little while you pick lines, so a moving line is easier to tap
 
