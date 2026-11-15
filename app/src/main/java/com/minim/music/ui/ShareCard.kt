@@ -157,30 +157,30 @@ object ShareCard {
     }
 
     /** The light card with its soft shadow. */
-    internal fun drawCardShape(c: Canvas, card: RectF, cardColor: Int) {
-        c.drawRoundRect(card, 56f, 56f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    internal fun drawCardShape(c: Canvas, card: RectF, cardColor: Int, scale: Float = 1f) {
+        c.drawRoundRect(card, 56f * scale, 56f * scale, Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = cardColor
-            setShadowLayer(80f, 0f, 36f, ColorUtils.setAlphaComponent(0xFF000000.toInt(), 110))
+            setShadowLayer(80f * scale, 0f, 36f * scale, ColorUtils.setAlphaComponent(0xFF000000.toInt(), 110))
         })
     }
 
     /** "Shared by <name>" (left out when blank) on the left and the minim mark on the right, on [footer]'s baseline. */
     internal fun drawFooter(
         context: Context, c: Canvas, left: Float, right: Float, footer: Float, sharer: String?,
-        medium: Typeface, semi: Typeface, ink: Int, muted: Int
+        medium: Typeface, semi: Typeface, ink: Int, muted: Int, scale: Float = 1f
     ) {
         val art = RectF(left, 0f, right, 0f)
         val logo = runCatching { BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher_round) }.getOrNull()
-        val mark = paint(38f, medium, ink)
+        val mark = paint(38f * scale, medium, ink)
         val markW = mark.measureText("minim")
-        val logoSize = 60f
+        val logoSize = 60f * scale
         val markLeft = art.right - markW
         c.drawText("minim", markLeft, footer, mark)
-        val logoRect = RectF(markLeft - 16f - logoSize, footer - 44f, markLeft - 16f, footer - 44f + logoSize)
+        val logoRect = RectF(markLeft - 16f * scale - logoSize, footer - 44f * scale, markLeft - 16f * scale, footer - 44f * scale + logoSize)
         if (logo != null) roundImage(c, logo, logoRect, logoSize / 2f)
         val name = com.minim.music.data.share.ShareLinks.cleanName(sharer)
         if (name != null) {
-            start(c, "Shared by $name", art.left, footer, 32f, semi, muted, (logoRect.left - 28f - art.left).toInt())
+            start(c, "Shared by $name", art.left, footer, 32f * scale, semi, muted, (logoRect.left - 28f * scale - art.left).toInt())
         }
     }
 

@@ -808,6 +808,11 @@
     <string name="lyrics_card_animated">Animated</string>
     <string name="lyrics_card_animated_needs_sync">Animated needs synced lyrics.</string>
     <string name="lyrics_card_sound">Sound</string>
+    <string name="lyrics_card_length">Length</string>
+    <string name="lyrics_card_len_fit">Fit</string>
+    <string name="lyrics_card_len_30">30s</string>
+    <string name="lyrics_card_len_45">45s</string>
+    <string name="lyrics_card_len_60">60s</string>
     <string name="lyrics_card_on">On</string>
     <string name="lyrics_card_off">Off</string>
     <string name="lyrics_card_lyrics">Lyrics</string>

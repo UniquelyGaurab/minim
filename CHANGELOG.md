@@ -9,17 +9,19 @@ Lyrics cards can now move, with the song playing under them.
 **Animated lyrics cards**
 - **A short video of the lines you picked:** the words fill in one by one, in time with the song, just like full-screen lyrics, in the cover's colours. 1080 × 1920, made on your phone
 - **With the song:** turn Sound on and the video carries the exact part of the song under those lines, at its normal volume, with a short fade in and out. If the audio can't be fetched (offline, or blocked), you see "Couldn't get the audio" and can share without sound
-- **Runs** from the first picked line to the end of the last one, up to 30 seconds, then a 1-second ending that fades to "minim" and "Shared by" your name. In a video your name only shows in that ending
+- **Length: Fit, 30s, 45s or 60s.** Fit runs from the first picked line to the end of the last one, up to 30 seconds. 30s, 45s and 60s start at your first line and keep going like a small lyrics screen: the next lines scroll up inside the card and fill in with the song. The length includes the 1-second ending, and if the song ends sooner, the video ends with it
+- **A quiet ending:** the last second fades to a small "minim" with "Shared by" your name under it, smaller and lighter. In a video your name only shows in that ending
 - **Translations:** in Translation, each line lights up as a whole. In Both, the original fills word by word and its translation lights up with it
 - **Needs synced lyrics.** For songs without timing, Animated is greyed out with a short note
 
 **A new share sheet, everything in one place**
 - **A live preview at the top.** For Animated it plays the actual video, with sound when Sound is on, while a ring shows the video being made
-- **Style** (Static or Animated), **Sound** (On or Off, for Animated), **Lyrics** (Original, Translation or Both, when there's a translation) and **Background** (Cover colours or Blurred cover)
+- **Style** (Static or Animated), **Sound** (On or Off, for Animated), **Length** (Fit, 30s, 45s or 60s, for Animated), **Lyrics** (Original, Translation or Both, when there's a translation) and **Background** (Cover colours or Blurred cover)
 - **Share card, Link only and Save to gallery.** Saving goes to Pictures/Minim or Movies/Minim and needs no new permission
 - **Minim remembers your last choices**
 
 **Tidier cards**
+- **A smaller card with more room around it:** the card is about 78% of the width, with more background above, below and at the sides, and everything on it scales down to match, "Shared by" and the minim logo included
 - **Smaller text** (about 13% smaller) and **clear space between lines**, while the rows of one long line stay together. In Both, each translation sits right under its own line
 - **Easier picking:** the lyric rows spread out a little while you pick lines, so a moving line is easier to tap
 

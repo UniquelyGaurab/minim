@@ -8,15 +8,30 @@ data class LyricsCardOptions(
     val animated: Boolean = false,
     val sound: Boolean = true,
     val lyrics: Lyrics = Lyrics.ORIGINAL,
-    val background: Background = Background.COLOURS
+    val background: Background = Background.COLOURS,
+    /** 6.7.0 revision: how long an animated card runs. */
+    val length: Length = Length.FIT
 ) {
     enum class Lyrics { ORIGINAL, TRANSLATION, BOTH }
     enum class Background { COLOURS, BLUR }
 
-    /** Stored in one preference string, e.g. `style=animated;sound=on;lyrics=both;bg=blur`. */
+    /**
+     * FIT: just the picked lines (capped at 30 s). The others run for that many seconds in all,
+     * the 1-second ending included, carrying on through the lines after the picked ones.
+     */
+    enum class Length(val seconds: Int?, val key: String) {
+        FIT(null, "fit"), S30(30, "30"), S45(45, "45"), S60(60, "60");
+
+        companion object {
+            fun of(key: String?): Length = entries.firstOrNull { it.key == key } ?: FIT
+        }
+    }
+
+    /** Stored in one preference string, e.g. `style=animated;sound=on;lyrics=both;bg=blur;len=45`. */
     fun encode(): String =
         "style=${if (animated) "animated" else "static"};sound=${if (sound) "on" else "off"};" +
-            "lyrics=${lyrics.name.lowercase()};bg=${if (background == Background.BLUR) "blur" else "colours"}"
+            "lyrics=${lyrics.name.lowercase()};bg=${if (background == Background.BLUR) "blur" else "colours"};" +
+            "len=${length.key}"
 
     companion object {
         val DEFAULT = LyricsCardOptions()
@@ -36,7 +51,8 @@ data class LyricsCardOptions(
                     "both" -> Lyrics.BOTH
                     else -> Lyrics.ORIGINAL
                 },
-                background = if (map["bg"] == "blur") Background.BLUR else Background.COLOURS
+                background = if (map["bg"] == "blur") Background.BLUR else Background.COLOURS,
+                length = Length.of(map["len"])
             )
         }
     }
@@ -49,7 +65,9 @@ object LyricsCardRules {
         val animatedEnabled: Boolean,
         val animatedNote: Boolean,
         val soundRow: Boolean,
-        val lyricsRow: Boolean
+        val lyricsRow: Boolean,
+        /** Length (Fit / 30s / 45s / 60s): Animated only. */
+        val lengthRow: Boolean = false
     )
 
     fun shown(o: LyricsCardOptions, synced: Boolean, hasTranslation: Boolean): Shown {
@@ -58,7 +76,8 @@ object LyricsCardRules {
             animatedEnabled = synced,
             animatedNote = !synced,
             soundRow = e.animated,
-            lyricsRow = hasTranslation
+            lyricsRow = hasTranslation,
+            lengthRow = e.animated
         )
     }
 
@@ -70,7 +89,8 @@ object LyricsCardRules {
         o.copy(
             animated = o.animated && synced,
             sound = o.animated && synced && o.sound,
-            lyrics = if (hasTranslation) o.lyrics else LyricsCardOptions.Lyrics.ORIGINAL
+            lyrics = if (hasTranslation) o.lyrics else LyricsCardOptions.Lyrics.ORIGINAL,
+            length = if (o.animated && synced) o.length else LyricsCardOptions.Length.FIT
         )
 }
 

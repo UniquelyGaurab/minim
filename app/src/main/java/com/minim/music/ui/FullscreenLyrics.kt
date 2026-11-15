@@ -92,7 +92,14 @@ class FullscreenLyrics(
      * 6.6.0: lines picked for a lyrics card: [data]'s lines [first]..[last], and their English
      * translations when they're on screen right now (else null; the host can still find saved ones).
      */
-    data class LyricShare(val data: LyricsData, val first: Int, val last: Int, val translations: List<String?>?)
+    data class LyricShare(
+        val data: LyricsData,
+        val first: Int,
+        val last: Int,
+        val translations: List<String?>?,
+        /** 6.7.0 revision: every line's translation, for the lines after the picked ones on a longer video. */
+        val allTranslations: List<String?>? = null
+    )
 
     enum class State { CLOSED, OPENING, OPEN, CLOSING }
 
@@ -1108,7 +1115,8 @@ class FullscreenLyrics(
         val translations = if (adapter.transMode == FullscreenLyricsAdapter.TransMode.READY) {
             (sel.first..sel.last).map { adapter.translationAt(it) }
         } else null
-        val share = LyricShare(data, sel.first, sel.last, translations)
+        val all = if (translations != null) data.lines.indices.map { adapter.translationAt(it) } else null
+        val share = LyricShare(data, sel.first, sel.last, translations, all)
         cancelSelect()
         host.shareLyrics(share)
     }

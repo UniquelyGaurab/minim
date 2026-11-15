@@ -6,6 +6,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
@@ -39,16 +41,39 @@ object LyricsCard {
 
     const val W = ShareCard.W
     const val H = ShareCard.H
-    private const val CARD_W = 880f
-    private const val PAD = 64f
+    /** 6.7.0 revision: the card is 78% of the width (it was 880 px, 81%), with more backdrop around it. */
+    const val CARD_SHARE = 0.78f
+    const val CARD_W = W * CARD_SHARE
+    /** Everything inside the card scales with it. */
+    const val SCALE = CARD_W / 880f
+    const val PAD = 64f * SCALE
     private const val TEXT_W = (CARD_W - 2 * PAD).toInt()
-    private const val MARGIN_Y = 200f
-    private const val COVER = 116f
+    /** The least backdrop above and below the card (was 200 px, so a five-line card filled the screen). */
+    const val MARGIN_Y = 330f
+    private const val COVER = 116f * SCALE
+    /** Footer: "Shared by" and the minim mark, scaled down a bit more than the rest. */
+    const val FOOTER_SCALE = SCALE * 0.86f
     /** The bottom part under the lyrics: gap, hairline, cover row, footer row, padding. */
-    private const val BOTTOM_H = 56f + 2f + 44f + COVER + 92f + PAD
-    private const val MAX_TEXT_H = H - 2 * MARGIN_Y - PAD - BOTTOM_H
-    const val MAX_SIZE = LyricsCardSpacing.MAX_SIZE
-    const val MIN_SIZE = LyricsCardSpacing.MIN_SIZE
+    private const val BOTTOM_H = (56f + 2f + 44f) * SCALE + COVER + 84f * SCALE + PAD
+    const val MAX_TEXT_H = H - 2 * MARGIN_Y - PAD - BOTTOM_H
+    const val MAX_SIZE = LyricsCardSpacing.MAX_SIZE * SCALE
+    const val MIN_SIZE = LyricsCardSpacing.MIN_SIZE * SCALE
+    /** The ending: "minim" about half its 6.7.0 size (150 px), "Shared by" smaller and lighter. */
+    /** 30/45/60 cards: text at most this share of the biggest size. */
+    const val SCROLL_SIZE = 0.8f
+    const val END_MARK_SIZE = 76f
+    const val END_NAME_SIZE = 30f
+    const val END_NAME_ALPHA = 150
+
+    /** Where the card sits for a card [cardH] tall: centred, a touch above the middle. */
+    fun cardRect(cardH: Float): RectF {
+        val left = (W - CARD_W) / 2f
+        val top = ((H - cardH) / 2f - 20f).coerceAtLeast(MARGIN_Y / 2f)
+        return RectF(left, top, left + CARD_W, top + cardH)
+    }
+
+    /** Card height for lyric text [textH] tall. */
+    fun cardHeight(textH: Float): Float = PAD + textH.coerceAtLeast(COVER) + BOTTOM_H
     /** How lit an unsung word is on the animated card. */
     const val DIM = 0.32f
 
@@ -119,7 +144,11 @@ object LyricsCard {
         sharer: String?,
         cover: Bitmap?,
         private val background: LyricsCardOptions.Background,
-        private val video: Boolean
+        private val video: Boolean,
+        /** 30/45/60: how many of [lines] are the picked ones; the rest scroll in after them. */
+        private val pickedCount: Int = lines.size,
+        /** 30/45/60: the card is a small lyrics screen that scrolls. */
+        private val scrolls: Boolean = false
     ) {
         private val bold = ShareCard.font(context, R.font.poppins_bold, Typeface.DEFAULT_BOLD)
         private val semi = ShareCard.font(context, R.font.poppins_semibold, Typeface.DEFAULT_BOLD)
@@ -146,19 +175,56 @@ object LyricsCard {
         )
 
         private val laid: List<Laid>
+        /** The lyric area's height: the text, or the scrolling window. */
         private val textH: Float
         val card: RectF
+        /** The text size the lines were laid out at. */
+        val textSize: Float
+
+        // ---- the scrolling window (30/45/60) ----
+        private val fullH: Float
+        private val pickedH: Float
+        private val lineTops: FloatArray
+        private val lineBottoms: FloatArray
+        /** Height of the scrolling window (the lyric area) on a 30/45/60 card. */
+        val windowH: Float get() = textH
+        private var scrollY = 0f
 
         init {
             val pieces = LyricsCardSpacing.pieces(lines.map { it.text }, lines.map { usableOf(it) }, mode)
-            val size = fitSize(MAX_TEXT_H) { s -> layOut(pieces, s).second }
+            val picked = if (scrolls) pieces.filter { it.line < pickedCount } else pieces
+            val pickedPieces = picked.mapIndexed { i, p -> if (i == picked.lastIndex) p.copy(gapAfter = LyricsCardSpacing.Gap.NONE) else p }
+            val fitted = fitSize(MAX_TEXT_H) { s -> layOut(pickedPieces, s).second }
+            // a scrolling card is a small lyrics screen: a bit smaller so 4-5 lines show at once
+            val size = if (scrolls) minOf(fitted, MAX_SIZE * SCROLL_SIZE) else fitted
+            textSize = size
             val (l, h) = layOut(pieces, size)
             laid = l
-            textH = h
-            val cardH = PAD + textH.coerceAtLeast(COVER) + BOTTOM_H
-            val left = (W - CARD_W) / 2f
-            val top = ((H - cardH) / 2f - 20f).coerceAtLeast(MARGIN_Y / 2f)
-            card = RectF(left, top, left + CARD_W, top + cardH)
+            fullH = h
+            val n = lines.size
+            lineTops = FloatArray(n) { Float.MAX_VALUE }
+            lineBottoms = FloatArray(n)
+            for (x in l) {
+                val i = x.piece.line
+                if (i !in 0 until n) continue
+                lineTops[i] = minOf(lineTops[i], x.top)
+                lineBottoms[i] = maxOf(lineBottoms[i], x.top + x.layout.height)
+            }
+            for (i in 0 until n) if (lineTops[i] == Float.MAX_VALUE) {
+                lineTops[i] = if (i > 0) lineBottoms[i - 1] else 0f
+                lineBottoms[i] = lineTops[i]
+            }
+            pickedH = if (pickedCount in 1..n) lineBottoms[pickedCount - 1] else h
+            textH = if (scrolls) {
+                val big = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = size; typeface = bold }
+                val fm = big.fontMetrics
+                val row = (fm.descent - fm.ascent) * LyricsCardSpacing.ROW_MULT
+                val slot = if (mode == LyricsCardOptions.Lyrics.BOTH && pieces.any { it.sub })
+                    row * (1 + LyricsCardSpacing.PAIR_GAP + LyricsCardSpacing.SUB_SCALE + LyricsCardSpacing.LINE_GAP)
+                else row * (1 + LyricsCardSpacing.LINE_GAP)
+                LyricsCardScroll.windowHeight(pickedH, slot, MAX_TEXT_H)
+            } else h
+            card = cardRect(cardHeight(textH))
         }
 
         private fun usableOf(l: Line): String? =
@@ -206,38 +272,82 @@ object LyricsCard {
         /** Backdrop, card, hairline, cover row and footer: everything but the lyric text. */
         fun drawBase(c: Canvas) {
             drawBackdrop(c)
-            ShareCard.drawCardShape(c, card, cardColor)
+            ShareCard.drawCardShape(c, card, cardColor, SCALE)
             val x = card.left + PAD
             val right = card.right - PAD
-            var y = card.top + PAD + textH.coerceAtLeast(COVER) + 56f
+            var y = card.top + PAD + textH.coerceAtLeast(COVER) + 56f * SCALE
             c.drawRect(x, y, right, y + 2f, Paint().apply { color = ColorUtils.setAlphaComponent(ink, 34) })
-            y += 2f + 44f
+            y += (2f + 44f) * SCALE
             val art = RectF(x, y, x + COVER, y + COVER)
             if (cover != null) {
-                ShareCard.roundImage(c, cover, art, 24f)
+                ShareCard.roundImage(c, cover, art, 24f * SCALE)
             } else {
-                c.drawRoundRect(art, 24f, 24f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                c.drawRoundRect(art, 24f * SCALE, 24f * SCALE, Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = ColorUtils.blendARGB(cardColor, ink, 0.08f)
                 })
-                ShareCard.centered(c, "♪", art.centerX(), art.centerY() + 22f, 64f, bold, muted, 100)
+                ShareCard.centered(c, "♪", art.centerX(), art.centerY() + 22f * SCALE, 64f * SCALE, bold, muted, 100)
             }
-            val textLeft = art.right + 32f
+            val textLeft = art.right + 32f * SCALE
             val textW = (right - textLeft).toInt()
-            ShareCard.start(c, title, textLeft, art.centerY() - 6f, 44f, bold, ink, textW)
-            ShareCard.start(c, artist, textLeft, art.centerY() + 44f, 32f, regular, muted, textW)
+            ShareCard.start(c, title, textLeft, art.centerY() - 6f * SCALE, 44f * SCALE, bold, ink, textW)
+            ShareCard.start(c, artist, textLeft, art.centerY() + 44f * SCALE, 32f * SCALE, regular, muted, textW)
             // A video keeps "Shared by" for its ending only
-            ShareCard.drawFooter(ctx, c, x, right, art.bottom + 92f, if (video) null else sharer, medium, semi, ink, muted)
+            ShareCard.drawFooter(
+                ctx, c, x, right, art.bottom + 84f * SCALE, if (video) null else sharer, medium, semi, ink, muted,
+                FOOTER_SCALE
+            )
         }
 
         fun drawText(c: Canvas) {
             val x = card.left + PAD
+            if (!scrolls) {
+                for (l in laid) {
+                    c.save()
+                    c.translate(x, card.top + PAD + l.top)
+                    l.layout.draw(c)
+                    c.restore()
+                }
+                return
+            }
+            // 30/45/60: the lines move up inside a window; the edges fade where text goes past them
+            val top = card.top + PAD
+            val winTop = top - PAD * 0.6f
+            val winBottom = top + textH + 30f * SCALE
+            val shown = LyricsCardScroll.visible(lineTops, lineBottoms, scrollY, textH, PAD)
+            val layer = c.saveLayer(card.left, winTop, card.right, winBottom, null)
             for (l in laid) {
+                if (l.piece.line !in shown) continue
                 c.save()
-                c.translate(x, card.top + PAD + l.top)
+                c.translate(x, top + l.top - scrollY)
                 l.layout.draw(c)
                 c.restore()
             }
+            val fade = 90f * SCALE
+            val topFade = (scrollY / fade).coerceIn(0f, 1f)
+            val bottomFade = ((fullH - scrollY - textH) / fade).coerceIn(0f, 1f)
+            if (topFade > 0f) c.drawRect(card.left, winTop, card.right, winTop + fade + PAD * 0.6f, Paint().apply {
+                shader = LinearGradient(0f, winTop, 0f, winTop + fade + PAD * 0.6f,
+                    ColorUtils.setAlphaComponent(Color.BLACK, (255 * topFade).toInt()), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+                xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_OUT)
+            })
+            if (bottomFade > 0f) c.drawRect(card.left, winBottom - fade, card.right, winBottom, Paint().apply {
+                shader = LinearGradient(0f, winBottom - fade, 0f, winBottom,
+                    Color.TRANSPARENT, ColorUtils.setAlphaComponent(Color.BLACK, (255 * bottomFade).toInt()), Shader.TileMode.CLAMP)
+                xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_OUT)
+            })
+            c.restoreToCount(layer)
         }
+
+        /** 30/45/60: scrolls the window for a lyric-timeline time. */
+        fun setScroll(nowMs: Long, timing: List<Timing>) {
+            if (!scrolls) return
+            scrollY = LyricsCardScroll.offset(
+                nowMs, timing.map { it.startMs }, lineTops, fullH, textH, pickedCount, pickedH
+            )
+        }
+
+        /** The scroll offset last set (for tests). */
+        val scrollOffset: Float get() = scrollY
 
         /** The backdrop on its own (also behind the ending). */
         fun drawBackdrop(c: Canvas) {
@@ -249,14 +359,14 @@ object LyricsCard {
         fun drawEnding(c: Canvas) {
             drawBackdrop(c)
             val endInk = RecapInk.text(bgTone, cardColor)
-            val mark = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 150f; typeface = semi; color = endInk }
-            val cy = H * 0.47f
+            val mark = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = END_MARK_SIZE; typeface = semi; color = endInk }
+            val cy = H * 0.48f
             val markW = mark.measureText("minim")
-            c.drawText("minim", (W - markW) / 2f, cy + 40f, mark)
+            c.drawText("minim", (W - markW) / 2f, cy + END_MARK_SIZE * 0.27f, mark)
             if (sharer != null) {
                 ShareCard.centered(
-                    c, "Shared by $sharer", W / 2f, cy + 150f, 46f, medium,
-                    ColorUtils.setAlphaComponent(endInk, 205), (W - 2 * PAD.toInt() * 2)
+                    c, "Shared by $sharer", W / 2f, cy + END_MARK_SIZE * 0.27f + 62f, END_NAME_SIZE, regular,
+                    ColorUtils.setAlphaComponent(endInk, END_NAME_ALPHA), (W * 0.7f).toInt()
                 )
             }
         }
@@ -294,6 +404,7 @@ object LyricsCard {
             val lyricMs = plan.lyricStartMs + frameMs.coerceAtMost(plan.lyricsMs)
             c.drawBitmap(base, 0f, 0f, null)
             setTime(lyricMs, timing)
+            setScroll(lyricMs, timing)
             drawText(c)
             val into = frameMs - plan.lyricsMs
             if (into >= 0) {

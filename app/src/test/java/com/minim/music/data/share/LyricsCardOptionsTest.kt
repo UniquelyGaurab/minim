@@ -110,4 +110,34 @@ class LyricsCardOptionsTest {
         assertEquals(Preview.VIDEO_SILENT, LyricsCardAudio.preview(off, true, Status.FAILED, false))
         assertEquals(Preview.RENDERING, LyricsCardAudio.preview(off, false, Status.IDLE, false))
     }
+
+    // ---- 6.7.0 revision: Length ----
+
+    @Test fun lengthRowOnlyForAnimated() {
+        val anim = LyricsCardOptions(animated = true, length = LyricsCardOptions.Length.S45)
+        assertTrue(LyricsCardRules.shown(anim, synced = true, hasTranslation = false).lengthRow)
+        assertFalse(LyricsCardRules.shown(anim.copy(animated = false), synced = true, hasTranslation = false).lengthRow)
+        // no timing: no animated card, so no Length either
+        assertFalse(LyricsCardRules.shown(anim, synced = false, hasTranslation = false).lengthRow)
+        // a static card is never made with a length
+        assertEquals(LyricsCardOptions.Length.FIT, LyricsCardRules.effective(anim.copy(animated = false), true, false).length)
+        assertEquals(LyricsCardOptions.Length.S45, LyricsCardRules.effective(anim, true, false).length)
+    }
+
+    @Test fun lengthIsRemembered() {
+        assertEquals(LyricsCardOptions.Length.FIT, LyricsCardOptions.DEFAULT.length)
+        for (len in LyricsCardOptions.Length.values()) {
+            val o = LyricsCardOptions(animated = true, sound = false, lyrics = Lyrics.BOTH, background = Background.BLUR, length = len)
+            assertEquals(o, LyricsCardOptions.decode(o.encode()))
+        }
+        assertTrue(LyricsCardOptions(animated = true, length = LyricsCardOptions.Length.S60).encode().endsWith("len=60"))
+        // choices saved by the first 6.7.0 test (no length) and junk fall back to Fit
+        assertEquals(LyricsCardOptions.Length.FIT, LyricsCardOptions.decode("style=animated;sound=on;lyrics=both;bg=blur").length)
+        assertEquals(LyricsCardOptions.Length.FIT, LyricsCardOptions.decode("style=animated;len=90").length)
+        assertTrue(LyricsCardOptions.decode("style=animated;sound=on;lyrics=both;bg=blur").animated)
+    }
+
+    @Test fun lengthSeconds() {
+        assertEquals(listOf(null, 30, 45, 60), LyricsCardOptions.Length.values().map { it.seconds })
+    }
 }

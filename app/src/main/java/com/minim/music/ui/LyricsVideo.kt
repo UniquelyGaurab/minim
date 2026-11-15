@@ -36,8 +36,8 @@ object LyricsVideo {
     private const val MIME = MediaFormat.MIMETYPE_VIDEO_AVC
     private const val AAC = MediaFormat.MIMETYPE_AUDIO_AAC
     /** Mostly still text: 1.6 Mbit/s keeps a 31-second card around 6 MB with sound. */
-    const val VIDEO_BITRATE = 1_600_000
-    const val AUDIO_BITRATE = 128_000
+    const val VIDEO_BITRATE = LyricsVideoPlan.VIDEO_BITRATE_FIT
+    const val AUDIO_BITRATE = LyricsVideoPlan.AUDIO_BITRATE
 
     /**
      * Renders the silent video for [plan] into [out].
@@ -82,7 +82,7 @@ object LyricsVideo {
             codec.release()
             throw IllegalStateException("size $w x $h not supported")
         }
-        val bitrate = (VIDEO_BITRATE.toLong() * (w * h) / (1080 * 1920)).toInt()
+        val bitrate = (plan.videoBitrate.toLong() * (w * h) / (1080 * 1920)).toInt()
         val format = MediaFormat.createVideoFormat(MIME, w, h).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
@@ -300,11 +300,12 @@ object LyricsVideo {
         withContext(Dispatchers.Default) {
             val pcm = decode(src, startMs * 1000, (startMs + clipMs) * 1000)
             coroutineContext.ensureActive()
-            val clipFrames = clipMs * pcm.rate / 1000
+            // when the song runs out before the clip, fade out where it really ends
+            val clipFrames = minOf(clipMs * pcm.rate / 1000, pcm.frames.toLong())
             val totalFrames = totalMs * pcm.rate / 1000
             val fade = LyricsVideoPlan.AUDIO_FADE_MS * pcm.rate / 1000
             val samples = ShortArray((totalFrames * pcm.channels).toInt())
-            val have = minOf(clipFrames, pcm.frames.toLong())
+            val have = minOf(clipFrames, totalFrames)
             for (f in 0 until have) {
                 val g = LyricsVideoPlan.gain(f, clipFrames, fade)
                 for (ch in 0 until pcm.channels) {
@@ -336,7 +337,7 @@ object LyricsVideo {
             var srcCh = fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             var float = false
             var outCh = minOf(2, srcCh)
-            var buf = ShortArray(((endUs - startUs) / 1000 + 500).toInt() * rate / 1000 * outCh + 4096)
+            var buf = ShortArray((((endUs - startUs) / 1000 + 500) * rate / 1000 * outCh + 4096).toInt())
             var frames = 0
             val info = MediaCodec.BufferInfo()
             var inDone = false

@@ -197,4 +197,65 @@ class LyricsCardRenderTest {
         }
         File(out, "plan.txt").writeText("frames=${plan.frames} fps=${LyricsVideoPlan.FPS} lyricsMs=${plan.lyricsMs}\n")
     }
+
+    // ---- 6.7.0 revision: smaller card, smaller ending, scrolling 30/45/60 cards ----
+
+    @Test fun cardIsSmallerWithMoreBackdrop() {
+        assertEquals(1080f * 0.78f, LyricsCard.CARD_W, 0.01f)
+        val side = (1080f - LyricsCard.CARD_W) / 2f
+        assertTrue(side >= 118f)
+        // everything inside scales with the card, text stays readable
+        assertEquals(LyricsCard.CARD_W / 880f, LyricsCard.SCALE, 0.0001f)
+        assertEquals(LyricsCardSpacing.MAX_SIZE * LyricsCard.SCALE, LyricsCard.MAX_SIZE, 0.01f)
+        assertTrue(LyricsCard.MIN_SIZE >= 30f)
+        assertTrue(LyricsCard.FOOTER_SCALE < LyricsCard.SCALE)
+        // the tallest card leaves backdrop above and below: at most about two thirds of the height
+        val tallest = LyricsCard.cardHeight(LyricsCard.MAX_TEXT_H)
+        assertTrue(tallest <= 1920f * 0.67f)
+        val r = LyricsCard.cardRect(tallest)
+        assertTrue(r.top >= 300f && 1920f - r.bottom >= 300f)
+        assertEquals(540f, r.centerX(), 0.5f)
+        // a five-line card really draws inside those bounds
+        val five = List(5) { LyricsCard.Line("Kesariya tera ishq hai piya, rang jaaun jo main haath lagaaun $it") }
+        val s = LyricsCard.Scene(ctx, ShareCard.palette(Color.rgb(200, 40, 90)), five, LyricsCardOptions.Lyrics.ORIGINAL,
+            "Kesariya", "Arijit Singh", "Gaurab", null, LyricsCardOptions.Background.COLOURS, false)
+        assertTrue(s.card.height() <= tallest + 0.5f)
+        assertTrue(s.card.width() < 1080f * 0.79f)
+        s.recycle()
+    }
+
+    @Test fun quietEnding() {
+        assertTrue(LyricsCard.END_MARK_SIZE in 70f..80f)   // about half of 150
+        assertTrue(LyricsCard.END_NAME_SIZE < 46f * 0.7f)
+        assertTrue(LyricsCard.END_NAME_ALPHA < 205)
+    }
+
+    private val longSong = (0 until 30).map { LyricsLine(20_000L + it * 3_500L, 0, "Lyric line number $it goes here") }
+
+    @Test fun longerCardScrollsPastThePickedLines() {
+        val plan = LyricsVideoPlan.plan(longSong, 2, 3, synced = true, length = LyricsCardOptions.Length.S30, songDurationMs = 200_000)!!
+        val lines = plan.lineIndices.map { LyricsCard.Line(longSong[it].text) }
+        val s = LyricsCard.Scene(ctx, ShareCard.palette(Color.rgb(200, 40, 90)), lines, LyricsCardOptions.Lyrics.ORIGINAL,
+            "Suroor", "Neha Kakkar", "Gaurab", null, LyricsCardOptions.Background.COLOURS, video = true,
+            pickedCount = plan.pickedCount, scrolls = true)
+        val timing = LyricsCard.timings(plan, plan.lineIndices.map { longSong[it] })
+        val bmp = Bitmap.createBitmap(1080, 1920, Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp)
+        s.drawFrame(c, plan, timing, 1_000)
+        assertEquals(0f, s.scrollOffset, 0f)
+        val early = bmp.copy(Bitmap.Config.ARGB_8888, false)
+        s.drawFrame(c, plan, timing, 20_000)
+        assertTrue(s.scrollOffset > 0f)
+        assertFalse(early.sameAs(bmp))
+        save(bmp, "lyrics-scroll-mid")
+        // the window holds about four or five lines, and the card stays inside the backdrop
+        assertTrue(s.windowH <= LyricsCard.MAX_TEXT_H)
+        assertTrue(s.textSize <= LyricsCard.MAX_SIZE * LyricsCard.SCROLL_SIZE + 0.01f)
+        assertTrue(s.textSize >= LyricsCard.MIN_SIZE)
+        assertTrue(s.card.top >= 300f)
+        // the ending covers the card
+        s.drawFrame(c, plan, timing, plan.totalMs - 100)
+        save(bmp, "lyrics-scroll-ending")
+        s.recycle()
+    }
 }
