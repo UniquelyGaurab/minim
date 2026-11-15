@@ -11,4 +11,6 @@
     <item name="crash_report_copy" type="id" />
     <item name="crash_report_share" type="id" />
     <item name="crash_report_continue" type="id" />
+    <item name="cover_job_tag" type="id" />
+    <item name="cover_key_tag" type="id" />
 </resources>

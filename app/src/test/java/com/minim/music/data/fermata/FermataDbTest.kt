@@ -87,7 +87,7 @@ class FermataDbTest {
 
         val db = open()
         val w = db.writableDatabase
-        assertEquals(8, w.version)
+        assertEquals(9, w.version)
         assertEquals(before, tableCounts(w).filterKeys { it in before })
         for (t in before.keys) assertEquals("table $t", beforeRows[t], dump(w, t))
         assertEquals(1, db.getLikedTracks().size)
@@ -114,7 +114,7 @@ class FermataDbTest {
 
     @Test fun aFreshInstallHasTheTableToo() {
         val w = open().writableDatabase
-        assertEquals(8, w.version)
+        assertEquals(9, w.version)
         assertEquals(1, count(w, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'fermata_events'"))
     }
 

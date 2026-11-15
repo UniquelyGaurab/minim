@@ -831,4 +831,34 @@
     <string name="lyrics_card_original">Original</string>
     <string name="lyrics_card_translation">Translation</string>
     <string name="lyrics_card_both">Both</string>
+
+    <!-- 6.8.0: playlist header, sort and covers -->
+    <string name="list_play">Play</string>
+    <string name="list_play_desc">Play all</string>
+    <string name="list_shuffle_desc">Shuffle all</string>
+    <string name="list_search_desc">Search this list</string>
+    <string name="list_search_hint">Find in this list</string>
+    <string name="list_search_close">Close search</string>
+    <string name="list_search_empty">No songs match \"%1$s\"</string>
+    <string name="list_more_desc">More options</string>
+    <string name="list_sort">Sort</string>
+    <string name="sort_custom">Custom</string>
+    <string name="sort_recent">Recently added</string>
+    <string name="sort_title">Title</string>
+    <string name="sort_artist">Artist</string>
+    <string name="edit_cover">Edit cover</string>
+    <string name="cover_auto">Auto</string>
+    <string name="cover_mosaic">Mosaic</string>
+    <string name="cover_mosaic_needs">Mosaic needs four songs with different covers</string>
+    <string name="cover_type">Type</string>
+    <string name="cover_type_hint">A word or one emoji</string>
+    <string name="cover_blur">Blur</string>
+    <string name="cover_blur_pick">Pick a song\'s cover</string>
+    <string name="cover_gallery">Gallery</string>
+    <string name="cover_no_covers">Add songs first</string>
+    <string name="cover_crop">Crop</string>
+    <string name="cover_crop_hint">Drag and pinch to fit the square</string>
+    <string name="cover_use_photo">Use photo</string>
+    <string name="cover_save">Save</string>
+    <string name="cover_photo_failed">Couldn\'t open that photo</string>
 </resources>

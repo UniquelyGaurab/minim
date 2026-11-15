@@ -65,7 +65,10 @@ private const val PAYLOAD_OFFLINE = "offline"
 class TrackAdapter(
     private val artwork: ArtworkPipeline,
     private val onClick: (Track, List<Track>) -> Unit,
-    private val onLongClick: (View, Track) -> Unit
+    private val onLongClick: (View, Track) -> Unit,
+    /** 6.8.0: a song was held and dragged to a new place: every song ID in the new order. */
+    private val onReorder: (List<String>) -> Unit = {},
+    private val haptic: (View, Int) -> Unit = { _, _ -> }
 ) : RecyclerView.Adapter<TrackAdapter.Holder>() {
 
     private var tracks: List<Track> = emptyList()
@@ -73,7 +76,31 @@ class TrackAdapter(
     private var pal: Pal = DEFAULT_PAL
     private var offline: OfflineMarks = OfflineMarks.NONE
 
+    /**
+     * 6.8.0: hold and drag to reorder (your own playlists in Custom order, not while searching).
+     * Holding a song lifts it like Up Next; let go without moving and the song menu opens as before.
+     */
+    var reorderable = false
+
+    /** A song is being held or dragged. */
+    var isDragging = false
+        private set
+    private var dragFrom = -1
+    private var dragMoved = false
+    private var pendingList: List<Track>? = null
+    private val touchHelper = ItemTouchHelper(DragCallback())
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        touchHelper.attachToRecyclerView(recyclerView)
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        touchHelper.attachToRecyclerView(null)
+    }
+
     fun submitList(tracks: List<Track>) {
+        // a refresh while a song is held waits until it's dropped
+        if (isDragging) { pendingList = tracks.toList(); return }
         this.tracks = tracks.toList()
         notifyDataSetChanged()
     }
@@ -109,7 +136,83 @@ class TrackAdapter(
         holder.bind(track, track.id == activeId, artwork, pal)
         holder.bindOffline(track.id, offline)
         holder.card.setOnClickListener { onClick(track, tracks) }
-        holder.card.setOnLongClickListener { onLongClick(it, track); true }
+        holder.card.setOnLongClickListener {
+            if (reorderable && tracks.size > 1 && holder.bindingAdapterPosition != RecyclerView.NO_POSITION) {
+                touchHelper.startDrag(holder)
+            } else {
+                onLongClick(it, track)
+            }
+            true
+        }
+    }
+
+    /** 6.8.0: the same lift, haptics and settle as Up Next. */
+    private inner class DragCallback : ItemTouchHelper.Callback() {
+        override fun isLongPressDragEnabled() = false
+        override fun isItemViewSwipeEnabled() = false
+
+        override fun getMovementFlags(rv: RecyclerView, vh: RecyclerView.ViewHolder): Int =
+            if (reorderable) makeMovementFlags(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) else 0
+
+        override fun onMove(rv: RecyclerView, vh: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {
+            val from = vh.bindingAdapterPosition
+            val to = target.bindingAdapterPosition
+            if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION || from == to) return false
+            tracks = com.minim.music.ui.PlaylistLook.move(tracks, from, to)
+            notifyItemMoved(from, to)
+            dragMoved = true
+            return true
+        }
+
+        override fun onSwiped(vh: RecyclerView.ViewHolder, direction: Int) = Unit
+
+        override fun onSelectedChanged(vh: RecyclerView.ViewHolder?, actionState: Int) {
+            super.onSelectedChanged(vh, actionState)
+            if (actionState != ItemTouchHelper.ACTION_STATE_DRAG || vh !is Holder) return
+            val p = vh.bindingAdapterPosition
+            if (p == RecyclerView.NO_POSITION) return
+            isDragging = true
+            dragFrom = p
+            dragMoved = false
+            val d = vh.itemView.resources.displayMetrics.density
+            vh.itemView.animate().cancel()
+            vh.itemView.animate().scaleX(LIFT_SCALE).scaleY(LIFT_SCALE)
+                .setDuration(LIFT_MS).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+            vh.card.animate().translationZ(LIFT_DP * d).setDuration(LIFT_MS).start()
+        }
+
+        override fun clearView(rv: RecyclerView, vh: RecyclerView.ViewHolder) {
+            super.clearView(rv, vh)
+            val holder = vh as? Holder
+            holder?.itemView?.animate()?.scaleX(1f)?.scaleY(1f)
+                ?.setDuration(SETTLE_MS)?.setInterpolator(android.view.animation.OvershootInterpolator(3f))?.start()
+            holder?.card?.animate()?.translationZ(0f)?.setDuration(SETTLE_MS)?.start()
+            if (!isDragging) return
+            isDragging = false
+            val to = vh.bindingAdapterPosition
+            val moved = dragMoved && to != RecyclerView.NO_POSITION && to != dragFrom
+            val from = dragFrom
+            dragFrom = -1
+            dragMoved = false
+            val waiting = pendingList
+            pendingList = null
+            if (moved) {
+                holder?.let { haptic(it.card, android.view.HapticFeedbackConstants.CLOCK_TICK) }
+                onReorder(tracks.map { it.id })
+            } else {
+                // held without moving: the song menu, like before
+                val t = tracks.getOrNull(if (to != RecyclerView.NO_POSITION) to else from)
+                if (holder != null && t != null) onLongClick(holder.card, t)
+                if (waiting != null) submitList(waiting)
+            }
+        }
+    }
+
+    private companion object {
+        const val LIFT_SCALE = 1.03f
+        const val LIFT_DP = 8f
+        const val LIFT_MS = 150L
+        const val SETTLE_MS = 280L
     }
 
     override fun onBindViewHolder(holder: Holder, position: Int, payloads: MutableList<Any>) {
@@ -449,6 +552,7 @@ class GridTileAdapter(
         val box: View = view.findViewById(R.id.tile_box)
         private val art: ImageView = view.findViewById<ImageView>(R.id.tile_art).apply { clipToOutline = true }
         private val outline: View = view.findViewById(R.id.tile_outline)
+        private val coverView: com.minim.music.ui.PlaylistCoverView = view.findViewById(R.id.tile_cover)
         private val icon: ImageView = view.findViewById(R.id.tile_plus)
         private val title: TextView = view.findViewById(R.id.tile_title)
         private val subtitle: TextView = view.findViewById(R.id.tile_subtitle)
@@ -464,6 +568,8 @@ class GridTileAdapter(
             art.visibility = View.VISIBLE
             art.tag = "fill:fg"
             icon.tag = "tint:fg"
+            coverView.visibility = View.GONE
+            com.minim.music.ui.PlaylistCoverLoader.unbind(coverView)
 
             when (tile) {
                 is GridTile.Song -> {
@@ -521,7 +627,19 @@ class GridTileAdapter(
                         }
                     }
                     // Filled square; shows the first song's cover when the playlist has songs.
-                    artwork.loadInto(art, tile.coverUrl, artPx)
+                    // 6.8.0: or the cover chosen in Edit cover, drawn the same way as on its page
+                    if (tile.cover.mode == com.minim.music.ui.PlaylistLook.Mode.AUTO) {
+                        artwork.loadInto(art, tile.coverUrl, artPx)
+                    } else {
+                        artwork.loadInto(art, null, artPx)
+                        coverView.visibility = View.VISIBLE
+                        val app = itemView.context.applicationContext as com.minim.music.MinimApp
+                        val urls = tile.coverUrls.ifEmpty { listOfNotNull(tile.coverUrl) }
+                        coverView.setColors(pal.fg, pal.bg)
+                        com.minim.music.ui.PlaylistCoverLoader.bind(
+                            coverView, tile.cover, urls, tile.playlist.name, artwork, app.playlistCovers
+                        )
+                    }
                 }
                 is GridTile.AlbumTile -> {
                     title.text = tile.album.title

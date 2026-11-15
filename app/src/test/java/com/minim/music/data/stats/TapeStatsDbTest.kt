@@ -109,6 +109,6 @@ class TapeStatsDbTest {
         assertFalse(s.tapes.shows)
         db.recordTapePlay(tape("new"), "")
         assertEquals(1, db.getDayTapePlays(today).size)
-        assertEquals(8, db.readableDatabase.version)
+        assertEquals(9, db.readableDatabase.version)
     }
 }

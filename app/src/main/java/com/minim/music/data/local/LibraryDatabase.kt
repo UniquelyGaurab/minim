@@ -64,6 +64,7 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
         createV6Tapes(db)
         createV7Fermata(db)
         createV8FermataLog(db)
+        createV9AddedAt(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -76,6 +77,7 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
         if (oldVersion < 6) createV6Tapes(db)
         if (oldVersion < 7) createV7Fermata(db)
         if (oldVersion < 8) createV8FermataLog(db)
+        if (oldVersion < 9) createV9AddedAt(db)
     }
 
     /**
@@ -88,6 +90,16 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
      * - fermata_meta: the first-launch import marker and similar flags
      * - tape_plays.fermata_key: another phone's tape play, so a merge never adds it twice
      */
+    /**
+     * 6.8.0: when each song was added to a playlist, for "Recently added". Until now the place
+     * in the playlist was the time it was added; hold-and-drag now moves the place, so the time
+     * gets its own column. Existing songs keep their place as their added time.
+     */
+    private fun createV9AddedAt(db: SQLiteDatabase) {
+        addColumn(db, "playlist_tracks", "added_at", "INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("UPDATE playlist_tracks SET added_at = position WHERE added_at = 0")
+    }
+
     private fun createV8FermataLog(db: SQLiteDatabase) {
         com.minim.fermata.android.SqliteEventStore.createSchema(db, FERMATA_LOG_TABLE)
         db.execSQL("CREATE TABLE IF NOT EXISTS fermata_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, k TEXT NOT NULL UNIQUE)")
@@ -1394,6 +1406,7 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
                 put("track_id", track.id)
                 put("position", now)
                 put("changed_at", now)
+                put("added_at", now)
             }
             db.insertWithOnConflict("playlist_tracks", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
             playlistUidOf(db, playlistId)?.let { uid ->
@@ -1424,6 +1437,7 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
                     put("track_id", track.id)
                     put("position", now + i)
                     put("changed_at", now + i)
+                    put("added_at", now + i)
                 }
                 db.insertWithOnConflict("playlist_tracks", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
                 if (uid != null) {
@@ -1470,6 +1484,52 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
                 queueFermata(db, "T|$uid|$trackId")
             }
             db.setTransactionSuccessful()
+        } finally {
+            endWrite(db)
+        }
+    }
+
+    /**
+     * 6.8.0: the songs with their place (your own order) and when they were added, for the
+     * playlist page's Sort and hold-and-drag.
+     */
+    suspend fun getPlaylistEntries(playlistId: Long): List<com.minim.music.ui.PlaylistLook.Entry> =
+        withContext(Dispatchers.IO) {
+            val order = LinkedHashMap<String, Pair<Long, Long>>()
+            readableDatabase.rawQuery(
+                "SELECT track_id, position, added_at FROM playlist_tracks WHERE playlist_id = ? ORDER BY position ASC",
+                arrayOf(playlistId.toString())
+            ).use { c -> while (c.moveToNext()) order[c.getString(0)] = c.getLong(1) to c.getLong(2) }
+            val tracks = getPlaylistTracks(playlistId)
+            tracks.mapNotNull { t -> order[t.id]?.let { com.minim.music.ui.PlaylistLook.Entry(t, it.first, it.second) } }
+        }
+
+    /**
+     * 6.8.0: hold-and-drag. [newOrder] is every song ID in the order on screen; the songs whose
+     * place changed get their new place and a change time, so the order reaches your other
+     * phones like any other playlist edit. Does nothing when the list no longer matches (a song
+     * was added or removed meanwhile). Returns true when it saved.
+     */
+    suspend fun reorderPlaylist(playlistId: Long, newOrder: List<String>): Boolean = withContext(Dispatchers.IO) {
+        val db = writableDatabase
+        beginWrite(db)
+        try {
+            val current = ArrayList<Pair<String, Long>>()
+            db.rawQuery(
+                "SELECT track_id, position FROM playlist_tracks WHERE playlist_id = ?",
+                arrayOf(playlistId.toString())
+            ).use { c -> while (c.moveToNext()) current.add(c.getString(0) to c.getLong(1)) }
+            val changes = com.minim.music.ui.PlaylistLook.reorderedPositions(current, newOrder)
+            if (changes.isEmpty()) return@withContext false
+            val now = changeTime()
+            val uid = playlistUidOf(db, playlistId)
+            for ((song, pos) in changes) {
+                val cv = ContentValues().apply { put("position", pos); put("changed_at", now) }
+                db.update("playlist_tracks", cv, "playlist_id = ? AND track_id = ?", arrayOf(playlistId.toString(), song))
+                if (uid != null) queueFermata(db, "T|$uid|$song")
+            }
+            db.setTransactionSuccessful()
+            true
         } finally {
             endWrite(db)
         }
@@ -1576,7 +1636,7 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
     companion object {
         /** The 5.9.1 file. 5.10.0 copies it once and never writes it again (see [LibraryFiles]). */
         const val DB_NAME = "minim_library.db"
-        private const val DB_VERSION = 8
+        private const val DB_VERSION = 9
         const val FERMATA_LOG_TABLE = "fermata_log"
 
         /**

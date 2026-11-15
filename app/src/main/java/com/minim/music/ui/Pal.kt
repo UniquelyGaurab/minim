@@ -84,6 +84,8 @@ object Painter {
         if (view is ProgressLine) view.setColors(p.fg, p.muted)
         if (view is AvatarView) view.setColors(p.fg)
         if (view is SegmentRow) view.setColors(p.fg, p.bg)
+        // 6.8.0: a playlist cover (Liked's filled square, the Type and Blur text)
+        if (view is PlaylistCoverView) view.setColors(p.fg, p.bg)
         if (view is ViewGroup) {
             for (i in 0 until view.childCount) paint(view.getChildAt(i), p)
         }

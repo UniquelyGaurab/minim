@@ -33,7 +33,9 @@ import android.view.animation.OvershootInterpolator
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -79,6 +81,7 @@ import com.minim.music.util.ArtworkPipeline
 import kotlinx.coroutines.Job
 import java.io.File
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -1171,6 +1174,7 @@ class MainActivity : AppCompatActivity() {
                     isSearchOpen -> closeSearch(animate = true)
                     // 5.3.2: Back while renaming keeps the old name
                     isListOpen && isRenaming -> cancelRename()
+                    isListOpen && listSearchOpen -> closeListSearch(animate = true)
                     isListOpen -> closeList()
                     isShelfOpen -> closeShelf()
                     isArtistOpen -> closeArtist()
@@ -2319,6 +2323,20 @@ class MainActivity : AppCompatActivity() {
                 // Inside a user playlist (not Liked Songs / Recents) the menu also offers "Remove from playlist".
                 val id = openListId
                 showTrackOptions(anchor, track, if (id != null && id >= 0L) id else null)
+            },
+            // 6.8.0: hold and drag in your own playlist (Custom order, no search) saves the new order
+            onReorder = { ids ->
+                val id = openListId
+                if (id != null && PlaylistLook.canDrag(openListType(), listSort, listQuery)) {
+                    val byId = listAllTracks.associateBy { it.id }
+                    listAllTracks = ids.mapNotNull { byId[it] }
+                    listCustomOrder = listAllTracks
+                    listCoverKey = null
+                    updateListCover()
+                    lifecycleScope.launch {
+                        if (app.database.reorderPlaylist(id, ids)) refreshData()
+                    }
+                }
             }
         )
         findViewById<RecyclerView>(R.id.list_tracks).apply {
@@ -3671,12 +3689,15 @@ class MainActivity : AppCompatActivity() {
         openListId = null
         openAlbum = album
         cancelRename()
+        resetListHeader()
         styleListFilter()
         listTitle.text = album.title
         listSubtitle.text = album.subtitle
         updateListHeader()
         showArtistRows(false)
         listAdapter.submitList(emptyList())
+        updateListPills()
+        updateListCover()
         findViewById<RecyclerView>(R.id.list_tracks).scrollToPosition(0)
         listEntrance.expect()
         screenList.visibility = View.VISIBLE
@@ -3694,16 +3715,20 @@ class MainActivity : AppCompatActivity() {
             if (openAlbum?.url != album.url) return@launch
             when (result) {
                 is SourceResult.Success -> {
-                    listAdapter.submitList(result.data)
+                    listAllTracks = result.data
+                    listCustomOrder = result.data
+                    showOpenListTracks()
                     listAdapter.setActiveTrack(app.playbackController.uiState.value.currentTrack?.id)
                     listEntrance.loaded(result.data.size)
-                    listSubtitle.text = listOf(album.subtitle, songCount(result.data.size))
+                    // 6.8.0: with the total time, like a playlist
+                    listSubtitle.text = listOf(album.subtitle, countWithTime(songCount(result.data.size), result.data))
                         .filter { it.isNotBlank() }.joinToString(" · ")
                     if (result.data.isEmpty()) {
                         listEmpty.text = getString(R.string.album_empty)
                         listEmpty.visibility = View.VISIBLE
                     } else {
                         listEmpty.visibility = View.GONE
+                        showListSearchEmpty(emptyText = null)
                     }
                 }
                 is SourceResult.Error -> {
@@ -3762,8 +3787,11 @@ class MainActivity : AppCompatActivity() {
         albumJob?.cancel()
         if (kind != null) listKind = kind
         else if (openListId != id) listKind = com.minim.music.data.stories.LibraryKind.SONGS
+        // 6.8.0: a list opened fresh starts with no search, the header showing, and its own sort
+        if (openListId != id || screenList.visibility != View.VISIBLE) resetListHeader()
         openListId = id
         openListName = name
+        listSort = if (id >= 0L) app.playlistCovers.sort(id) else PlaylistLook.Sort.CUSTOM
         cancelRename()
         listTitle.text = name
         listSubtitle.text = ""
@@ -3772,6 +3800,8 @@ class MainActivity : AppCompatActivity() {
         listAdapter.submitList(emptyList())
         listEmpty.visibility = View.GONE
         styleListFilter()
+        updateListPills()
+        updateListCover()
         listEntrance.expect()
         screenList.visibility = View.VISIBLE
         updateChrome()
@@ -3787,6 +3817,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupListHeader() {
         setupListFilter()
+        setupListPills()
         listTitleEdit = findViewById(R.id.list_title_edit)
         listAddSongs = findViewById(R.id.list_add_songs)
         listSubtitleRow = findViewById(R.id.list_subtitle_row)
@@ -4064,6 +4095,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun closeList() {
         cancelRename()
+        closeListSearch(animate = false)
         showArtistRows(false)
         openListId = null
         openAlbum = null
@@ -4126,7 +4158,9 @@ class MainActivity : AppCompatActivity() {
         // 5.7.0 u48: Liked > Artists, from the liked-artists store (no database read)
         if (id == LIKED_LIST && listKind == com.minim.music.data.stories.LibraryKind.ARTISTS) {
             val artists = app.likedArtists.artists.value
+            closeListSearch(animate = false)
             styleListFilter()
+            updateListPills()
             showArtistRows(true)
             likedArtistAdapter.submit(artists)
             listEntrance.loaded(artists.size)
@@ -4136,25 +4170,38 @@ class MainActivity : AppCompatActivity() {
             return
         }
         showArtistRows(false)
+        // 6.8.0: your own playlists come in your order, then the chosen sort
+        var custom: List<Track>? = null
+        val sort = if (id >= 0L) app.playlistCovers.sort(id) else PlaylistLook.Sort.CUSTOM
         val all = when (id) {
             LIKED_LIST -> app.database.getLikedTracks()
             RECENTS_LIST -> app.database.getRecentTracks(50)
             OFFLINE_LIST -> app.offlineStore.saved.value.map { it.track }
-            else -> app.database.getPlaylistTracks(id)
+            else -> {
+                val entries = app.database.getPlaylistEntries(id)
+                custom = PlaylistLook.sort(entries, PlaylistLook.Sort.CUSTOM)
+                PlaylistLook.sort(entries, sort)
+            }
         }
         if (openListId != id || likedArtistsOpen) return
         val filtered = id == LIKED_LIST || id == OFFLINE_LIST
         val tracks = if (filtered) com.minim.music.data.stories.LibraryFilter.split(all, listKind) else all
         val tapesOn = filtered && listKind == com.minim.music.data.stories.LibraryKind.TAPES
         styleListFilter()
-        listAdapter.submitList(tracks)
+        listSort = sort
+        listAllTracks = tracks
+        listCustomOrder = custom ?: tracks
+        updateListPills()
+        updateListCover()
+        showOpenListTracks()
         // v4.9.9: rises in on opening; later refreshes (a like, a play) just update
         listEntrance.loaded(tracks.size)
         // 5.3.0: "from Spotify · 84 songs" for an imported playlist
         // 5.3.2: "from [logo] · 84 songs", the logo tinted with the app colour; a pasted list keeps words
         val origin = com.minim.music.data.importer.ImportOrigin.fromCode(openListSource)
             ?.takeIf { id >= 0L }
-        showListSubtitle(origin, if (tapesOn) tapeCount(tracks.size) else songCount(tracks.size))
+        // 6.8.0: "from YouTube · 25 songs · 1 hr 32 min"
+        showListSubtitle(origin, countWithTime(if (tapesOn) tapeCount(tracks.size) else songCount(tracks.size), tracks))
         listEmpty.text = getString(
             when (id) {
                 LIKED_LIST -> if (tapesOn) R.string.liked_empty_tapes else R.string.liked_empty
@@ -4164,6 +4211,647 @@ class MainActivity : AppCompatActivity() {
             }
         )
         listEmpty.visibility = if (tracks.isEmpty()) View.VISIBLE else View.GONE
+        showListSearchEmpty(emptyText = null)
+    }
+
+    // ==========================================================================================
+    // 6.8.0: the playlist header: a cover, Play / Shuffle / search / ⋯, Sort and Edit cover.
+    // The header sits over the list and scrolls away with it.
+    // ==========================================================================================
+
+    private lateinit var listHeader: View
+    private lateinit var listCover: PlaylistCoverView
+    private lateinit var listPills: View
+    private lateinit var listMore: View
+    private lateinit var listSearchInput: EditText
+    private lateinit var listTracksView: RecyclerView
+    private var listSearchOpen = false
+    private var listQuery = ""
+    /** Every song in the open list, in the order on screen, before the search filter. */
+    private var listAllTracks: List<Track> = emptyList()
+    /** The open playlist's songs in your own order (the Auto and Mosaic covers use these). */
+    private var listCustomOrder: List<Track> = emptyList()
+    private var listSort = PlaylistLook.Sort.CUSTOM
+    private var listCoverKey: String? = null
+    private var listCoverJob: Job? = null
+    /** The playlist whose cover the photo picker is choosing. */
+    private var coverPhotoFor: Long? = null
+
+    /** Android's photo picker (no storage permission needed)... */
+    private val coverPhotoPicker = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+    ) { uri -> onCoverPhoto(uri) }
+
+    /** ...or, where there's no photo picker, any app that opens images. */
+    private val coverPhotoFallback = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri -> onCoverPhoto(uri) }
+
+    private fun setupListPills() {
+        listHeader = findViewById(R.id.list_header)
+        listCover = findViewById(R.id.list_cover)
+        listPills = findViewById(R.id.list_pills)
+        listMore = findViewById(R.id.list_more)
+        listSearchInput = findViewById(R.id.list_search_input)
+        listTracksView = findViewById(R.id.list_tracks)
+        (listHeader as ScrollThroughHeader).target = listTracksView
+        val gap = dp(22f).toInt()
+        listHeader.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+            val h = bottom - top
+            // the empty-list text sits in the middle of the space under the header
+            listEmpty.translationY = h / 2f
+            val pad = h + gap
+            if (listTracksView.paddingTop != pad) listTracksView.post {
+                listTracksView.setPadding(listTracksView.paddingLeft, pad, listTracksView.paddingRight, listTracksView.paddingBottom)
+                syncListHeader()
+            }
+        }
+        listTracksView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) = syncListHeader()
+        })
+        val play = findViewById<View>(R.id.list_play)
+        val shuffle = findViewById<View>(R.id.list_shuffle)
+        val search = findViewById<View>(R.id.list_search_pill)
+        play.setOnClickListener { v -> playOpenList(v, shuffled = false) }
+        shuffle.setOnClickListener { v -> playOpenList(v, shuffled = true) }
+        search.setOnClickListener { v -> if (!listSearchOpen) { haptic(v); openListSearch() } }
+        listMore.setOnClickListener { v ->
+            if (!isOwnPlaylistOpen) return@setOnClickListener
+            haptic(v)
+            if (isRenaming) cancelRename()
+            showListMoreSheet()
+        }
+        findViewById<View>(R.id.list_search_close).setOnClickListener { v -> haptic(v); closeListSearch(animate = true) }
+        for (v in listOf(play, shuffle, search, listMore)) PressScale.apply(v)
+        listSearchInput.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                if (!listSearchOpen) return
+                filterOpenList(s?.toString().orEmpty())
+            }
+        })
+        listSearchInput.setOnEditorActionListener { _, _, _ -> hideKeyboard(); true }
+    }
+
+    /** Moves the header up by exactly as far as the list has scrolled, until it's gone. */
+    private fun syncListHeader() {
+        if (!::listHeader.isInitialized) return
+        val lm = listTracksView.layoutManager as? LinearLayoutManager ?: return
+        val h = listHeader.height
+        val count = listTracksView.adapter?.itemCount ?: 0
+        val off = if (count == 0) 0 else {
+            val first = lm.findViewByPosition(0)
+            if (first == null) h else listTracksView.paddingTop - lm.getDecoratedTop(first)
+        }
+        listHeader.translationY = -off.coerceIn(0, h.coerceAtLeast(0)).toFloat()
+    }
+
+    /** Back at the top of a freshly opened list, with the header showing. */
+    private fun resetListHeader() {
+        if (!::listHeader.isInitialized) return
+        closeListSearch(animate = false)
+        listHeader.translationY = 0f
+        listAllTracks = emptyList()
+        listCustomOrder = emptyList()
+        listSort = PlaylistLook.Sort.CUSTOM
+        listAdapter.reorderable = false
+    }
+
+    /** Liked, Recents and Offline count as your library; anything else here is a playlist or album. */
+    private fun listPlaySource(): String =
+        if (openAlbum == null && (openListId == RECENTS_LIST || openListId == LIKED_LIST || openListId == OFFLINE_LIST))
+            com.minim.music.data.fermata.FermataSource.LIBRARY
+        else com.minim.music.data.fermata.FermataSource.PLAYLIST
+
+    /** Play plays the songs as shown (sort and search included); Shuffle plays them in a random order. */
+    private fun playOpenList(v: View, shuffled: Boolean) {
+        if (likedArtistsOpen) return
+        val shown = PlaylistLook.filter(listAllTracks, listQuery)
+        if (shown.isEmpty()) return
+        haptic(v)
+        if (isRenaming) cancelRename()
+        val list = if (shuffled) shown.shuffled() else shown
+        app.playbackController.playTrack(list.first(), list, listPlaySource())
+    }
+
+    private fun openListType(): PlaylistLook.ListType = when {
+        openAlbum != null -> PlaylistLook.ListType.ALBUM
+        likedArtistsOpen -> PlaylistLook.ListType.LIKED_ARTISTS
+        openListId == LIKED_LIST -> PlaylistLook.ListType.LIKED
+        openListId == RECENTS_LIST -> PlaylistLook.ListType.RECENTS
+        openListId == OFFLINE_LIST -> PlaylistLook.ListType.OFFLINE
+        else -> PlaylistLook.ListType.OWN
+    }
+
+    /** Play, Shuffle and search everywhere (not on Liked > Artists); ⋯ only on your own playlists. */
+    private fun updateListPills() {
+        if (!::listPills.isInitialized) return
+        val c = PlaylistLook.controls(openListType())
+        listPills.visibility = if (c.play || c.search) View.VISIBLE else View.GONE
+        if (listSearchOpen) return
+        findViewById<View>(R.id.list_play).visibility = if (c.play) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.list_shuffle).visibility = if (c.shuffle) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.list_search_pill).visibility = if (c.search) View.VISIBLE else View.GONE
+        listMore.visibility = if (c.more) View.VISIBLE else View.GONE
+    }
+
+    private fun listPillsTransition() {
+        if (!animationsOn()) return
+        val set = android.transition.TransitionSet()
+            .addTransition(android.transition.ChangeBounds())
+            .addTransition(android.transition.Fade())
+            .setOrdering(android.transition.TransitionSet.ORDERING_TOGETHER)
+            .setDuration(260L)
+            .setInterpolator(DecelerateInterpolator(1.5f))
+        android.transition.TransitionManager.beginDelayedTransition(listPills as ViewGroup, set)
+    }
+
+    /** The search pill widens into a field across the row, the same morph as Library's search. */
+    private fun openListSearch() {
+        if (listSearchOpen || likedArtistsOpen) return
+        if (isRenaming) cancelRename()
+        listSearchOpen = true
+        val pill = findViewById<View>(R.id.list_search_pill)
+        val label = findViewById<View>(R.id.list_search_label)
+        val box = findViewById<View>(R.id.list_search_box)
+        listPillsTransition()
+        findViewById<View>(R.id.list_play).visibility = View.GONE
+        findViewById<View>(R.id.list_shuffle).visibility = View.GONE
+        listMore.visibility = View.GONE
+        pill.layoutParams = (pill.layoutParams as LinearLayout.LayoutParams).apply {
+            width = 0; weight = 1f; marginStart = 0
+        }
+        pill.isClickable = false
+        pill.contentDescription = null
+        label.animate().cancel(); box.animate().cancel()
+        box.visibility = View.VISIBLE
+        if (animationsOn()) {
+            label.animate().alpha(0f).setDuration(120L).withEndAction { label.visibility = View.INVISIBLE }.start()
+            box.alpha = 0f
+            box.animate().alpha(1f).setStartDelay(90L).setDuration(200L).start()
+        } else {
+            label.alpha = 0f; label.visibility = View.INVISIBLE; box.alpha = 1f
+        }
+        listSearchInput.setText("")
+        listSearchInput.requestFocus()
+        showKeyboard(listSearchInput)
+    }
+
+    /** Closes the search: every song shows again ([animate] false when the list closes or changes). */
+    private fun closeListSearch(animate: Boolean) {
+        if (!listSearchOpen) return
+        val pill = findViewById<View>(R.id.list_search_pill)
+        val label = findViewById<View>(R.id.list_search_label)
+        val box = findViewById<View>(R.id.list_search_box)
+        if (listSearchInput.hasFocus()) hideKeyboard()
+        listSearchInput.clearFocus()
+        val anim = animate && animationsOn()
+        if (anim) listPillsTransition()
+        listSearchOpen = false
+        listSearchInput.setText("")
+        filterOpenList("")
+        pill.layoutParams = (pill.layoutParams as LinearLayout.LayoutParams).apply {
+            width = ViewGroup.LayoutParams.WRAP_CONTENT; weight = 0f; marginStart = dp(8f).toInt()
+        }
+        pill.isClickable = true
+        pill.contentDescription = getString(R.string.list_search_desc)
+        updateListPills()
+        label.animate().cancel(); box.animate().cancel()
+        label.visibility = View.VISIBLE
+        if (anim) {
+            box.animate().alpha(0f).setDuration(110L).withEndAction { box.visibility = View.GONE }.start()
+            label.alpha = 0f
+            label.animate().alpha(1f).setStartDelay(100L).setDuration(200L).start()
+        } else {
+            box.alpha = 0f; box.visibility = View.GONE; label.alpha = 1f
+        }
+    }
+
+    private fun filterOpenList(q: String) {
+        if (q == listQuery) return
+        val was = PlaylistLook.isActive(listQuery)
+        listQuery = q
+        if (likedArtistsOpen) return
+        showOpenListTracks()
+        if (PlaylistLook.isActive(q) != was) listTracksView.scrollToPosition(0)
+        showListSearchEmpty(emptyText = null)
+    }
+
+    /** The songs that match the search; drag only in your own order with no search typed. */
+    private fun showOpenListTracks(): List<Track> {
+        val shown = PlaylistLook.filter(listAllTracks, listQuery)
+        listAdapter.reorderable = PlaylistLook.canDrag(openListType(), listSort, listQuery)
+        listAdapter.submitList(shown)
+        listTracksView.post { syncListHeader() }
+        return shown
+    }
+
+    /**
+     * "No songs match …" while a search finds nothing; otherwise the list's own empty text
+     * ([emptyText], or the one already set) when the list itself is empty.
+     */
+    private fun showListSearchEmpty(emptyText: String?) {
+        if (likedArtistsOpen) return
+        if (emptyText != null) listEmpty.tag = emptyText
+        val none = PlaylistLook.isActive(listQuery) && listAllTracks.isNotEmpty() &&
+            PlaylistLook.filter(listAllTracks, listQuery).isEmpty()
+        when {
+            none -> {
+                listEmpty.text = getString(R.string.list_search_empty, listQuery.trim())
+                listEmpty.visibility = View.VISIBLE
+            }
+            listAllTracks.isEmpty() && emptyText != null -> {
+                listEmpty.text = emptyText
+                listEmpty.visibility = View.VISIBLE
+            }
+            listAllTracks.isNotEmpty() -> listEmpty.visibility = View.GONE
+        }
+    }
+
+    /** "25 songs · 1 hr 32 min" (just the count when no song has a length). */
+    private fun countWithTime(count: String, tracks: List<Track>): String =
+        listOfNotNull(count, PlaylistLook.totalTime(tracks)).joinToString(" · ")
+
+    /** The cover square: the album's cover, Liked's heart, or the playlist's chosen cover. */
+    private fun updateListCover() {
+        if (!::listCover.isInitialized) return
+        val album = openAlbum
+        val id = openListId
+        when {
+            album != null -> showListCoverLook(PlaylistLook.Cover.AUTO, listOf(album.thumbnailUrl), album.title)
+            id == LIKED_LIST -> showFixedListCover(R.drawable.ic_heart_filled)
+            id == RECENTS_LIST -> showFixedListCover(R.drawable.ic_history)
+            id == OFFLINE_LIST -> showFixedListCover(R.drawable.ic_offline)
+            id != null && id >= 0L -> showListCoverLook(
+                app.playlistCovers.cover(id), listCustomOrder.map { it.thumbnailUrl }, openListName
+            )
+        }
+    }
+
+    private fun showFixedListCover(icon: Int) {
+        val key = "fixed|$icon"
+        if (key == listCoverKey) return
+        listCoverKey = key
+        listCoverJob?.cancel()
+        listCover.show(PlaylistCoverView.Look.Filled(icon))
+    }
+
+    private fun showListCoverLook(cover: PlaylistLook.Cover, urls: List<String?>, name: String) {
+        val px = dp(140f).toInt()
+        val key = PlaylistCoverLoader.key(cover, urls, name, px)
+        if (key == listCoverKey) return
+        listCoverKey = key
+        listCoverJob?.cancel()
+        val cached = PlaylistCoverLoader.cached(key)
+        if (cached != null) { listCover.show(cached); return }
+        listCover.show(
+            if (cover.mode == PlaylistLook.Mode.TYPE) PlaylistCoverView.Look.Type(cover.text, cover.color)
+            else PlaylistCoverView.Look.Single(null)
+        )
+        listCoverJob = lifecycleScope.launch {
+            val look = PlaylistCoverLoader.look(cover, urls, name, px, app.artworkPipeline, app.playlistCovers)
+            if (listCoverKey == key) listCover.show(look)
+        }
+    }
+
+    // ---- ⋯: Sort, Edit cover, save offline, Delete ------------------------------------------------
+
+    private fun showListMoreSheet() {
+        val id = openListId?.takeIf { isOwnPlaylistOpen } ?: return
+        val name = openListName
+        val tracks = listCustomOrder
+        openSheet { box ->
+            sheetHeading(box, name, songCount(tracks.size))
+            sheetAction(box, R.drawable.ic_sort, getString(R.string.list_sort), trailing = sortLabel(listSort)) {
+                showSortSheet(id)
+            }
+            sheetAction(box, R.drawable.ic_image, getString(R.string.edit_cover)) { showEditCoverSheet(id) }
+            // "Save offline" for every song, the same row as the Library tile's menu
+            if (tracks.isNotEmpty()) offlineGroupActions(box, tracks, "pl:$id", name)
+            // Delete keeps its own "Are you sure?" step
+            sheetAction(box, R.drawable.ic_delete, getString(R.string.delete_playlist)) {
+                lifecycleScope.launch {
+                    val pl = app.database.getPlaylists().firstOrNull { it.id == id } ?: return@launch
+                    confirmDeletePlaylist(pl)
+                }
+            }
+        }
+    }
+
+    private fun sortLabel(s: PlaylistLook.Sort): String = getString(
+        when (s) {
+            PlaylistLook.Sort.CUSTOM -> R.string.sort_custom
+            PlaylistLook.Sort.RECENT -> R.string.sort_recent
+            PlaylistLook.Sort.TITLE -> R.string.sort_title
+            PlaylistLook.Sort.ARTIST -> R.string.sort_artist
+        }
+    )
+
+    private fun showSortSheet(id: Long) {
+        val current = app.playlistCovers.sort(id)
+        openSheet { box ->
+            sheetHeading(box, getString(R.string.list_sort))
+            for (s in PlaylistLook.Sort.values()) {
+                val icon = when (s) {
+                    PlaylistLook.Sort.CUSTOM -> R.drawable.ic_drag_handle
+                    PlaylistLook.Sort.RECENT -> R.drawable.ic_history
+                    PlaylistLook.Sort.TITLE -> R.drawable.ic_text_cover
+                    PlaylistLook.Sort.ARTIST -> R.drawable.ic_person
+                }
+                sheetAction(box, icon, sortLabel(s), trailingIcon = if (s == current) R.drawable.ic_check else null) { v ->
+                    if (sheetClosing) return@sheetAction
+                    haptic(v)
+                    app.playlistCovers.setSort(id, s)
+                    closeSheet()
+                    if (openListId == id && openAlbum == null) {
+                        listSort = s
+                        listTracksView.scrollToPosition(0)
+                        lifecycleScope.launch { refreshOpenList() }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- Edit cover: Auto, Mosaic, Type, Blur, Gallery ----------------------------------------------
+
+    private fun showEditCoverSheet(id: Long) {
+        val current = app.playlistCovers.cover(id)
+        val tracks = listCustomOrder
+        val mosaicOk = PlaylistLook.mosaicUrls(tracks.map { it.thumbnailUrl }) != null
+        fun mark(m: PlaylistLook.Mode): Int? = if (current.mode == m) R.drawable.ic_check else null
+        openSheet { box ->
+            sheetHeading(box, getString(R.string.edit_cover), openListName)
+            sheetAction(box, R.drawable.ic_auto_cover, getString(R.string.cover_auto), trailingIcon = mark(PlaylistLook.Mode.AUTO)) { v ->
+                haptic(v)
+                saveCover(id, PlaylistLook.Cover.AUTO)
+            }
+            sheetAction(box, R.drawable.ic_grid, getString(R.string.cover_mosaic), trailingIcon = mark(PlaylistLook.Mode.MOSAIC)) { v ->
+                if (!mosaicOk) { showNote(getString(R.string.cover_mosaic_needs)); return@sheetAction }
+                haptic(v)
+                saveCover(id, PlaylistLook.Cover(mode = PlaylistLook.Mode.MOSAIC))
+            }
+            sheetAction(box, R.drawable.ic_text_cover, getString(R.string.cover_type), trailingIcon = mark(PlaylistLook.Mode.TYPE)) {
+                showTypeCoverSheet(id, current)
+            }
+            sheetAction(box, R.drawable.ic_blur, getString(R.string.cover_blur), trailingIcon = mark(PlaylistLook.Mode.BLUR)) {
+                showBlurCoverSheet(id, current)
+            }
+            sheetAction(box, R.drawable.ic_image, getString(R.string.cover_gallery), trailingIcon = mark(PlaylistLook.Mode.PHOTO)) {
+                pickCoverPhoto(id)
+            }
+        }
+    }
+
+    /** Saves the cover; the page and the Library tile both redraw with it. */
+    private fun saveCover(id: Long, cover: PlaylistLook.Cover) {
+        if (sheetClosing) return
+        app.playlistCovers.setCover(id, cover)
+        closeSheet()
+        listCoverKey = null
+        lifecycleScope.launch { refreshData() }
+    }
+
+    /** A cover preview in a sheet, as big as on the page. */
+    private fun coverPreview(box: LinearLayout): PlaylistCoverView {
+        val side = dp(140f).toInt()
+        val v = PlaylistCoverView(this)
+        v.setColors(pal.fg, pal.bg)
+        box.addView(v, LinearLayout.LayoutParams(side, side).apply {
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+            bottomMargin = dp(18f).toInt()
+        })
+        return v
+    }
+
+    /** Type: a word or one emoji in Poppins bold, on a colour from the playlist's own covers. */
+    private fun showTypeCoverSheet(id: Long, current: PlaylistLook.Cover) {
+        val tracks = listCustomOrder
+        lifecycleScope.launch {
+            val urls = PlaylistLook.distinctCovers(tracks, { it.thumbnailUrl }, 8).map { it.thumbnailUrl }
+            val accents = kotlinx.coroutines.withTimeoutOrNull(3000L) {
+                urls.map { u -> async { app.artworkPipeline.extractAccentForUrl(u) } }.awaitAll()
+            }.orEmpty()
+            val colors = PlaylistLook.typeColors(accents).toMutableList()
+            if (current.mode == PlaylistLook.Mode.TYPE && current.color != 0 && current.color !in colors) colors.add(0, current.color)
+            var color = if (current.mode == PlaylistLook.Mode.TYPE && current.color != 0) current.color else colors.first()
+            var text = if (current.mode == PlaylistLook.Mode.TYPE) current.text else ""
+            openSheet { box ->
+                sheetHeading(box, getString(R.string.cover_type))
+                val preview = coverPreview(box)
+                fun redraw() = preview.show(PlaylistCoverView.Look.Type(PlaylistLook.typeText(text).ifEmpty { " " }, color))
+                val input = EditText(this@MainActivity).apply {
+                    setText(text)
+                    hint = getString(R.string.cover_type_hint)
+                    isSingleLine = true
+                    imeOptions = EditorInfo.IME_ACTION_DONE
+                    filters = arrayOf(android.text.InputFilter.LengthFilter(24))
+                    importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
+                    typeface = androidx.core.content.res.ResourcesCompat.getFont(this@MainActivity, R.font.poppins_bold)
+                    textSize = 14f
+                    gravity = android.view.Gravity.CENTER
+                    setBackgroundResource(R.drawable.shape_pill)
+                    tag = "fill:soft text:fg"
+                    setHintTextColor(pal.muted)
+                    val padH = dp(18f).toInt()
+                    setPadding(padH, 0, padH, 0)
+                }
+                box.addView(input, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44f).toInt()).apply {
+                    bottomMargin = dp(16f).toInt()
+                })
+                // the colours: small circles, the chosen one ringed
+                val row = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER
+                }
+                val rings = ArrayList<Pair<Int, View>>()
+                fun styleRings() = rings.forEach { (c, ring) -> ring.visibility = if (c == color) View.VISIBLE else View.INVISIBLE }
+                for (c in colors) {
+                    val cell = FrameLayout(this@MainActivity)
+                    val ring = View(this@MainActivity).apply {
+                        setBackgroundResource(R.drawable.shape_pill_outline)
+                        backgroundTintList = android.content.res.ColorStateList.valueOf(pal.fg)
+                    }
+                    val dot = View(this@MainActivity).apply {
+                        setBackgroundResource(R.drawable.shape_pill)
+                        backgroundTintList = android.content.res.ColorStateList.valueOf(c)
+                    }
+                    cell.addView(ring, FrameLayout.LayoutParams(dp(40f).toInt(), dp(40f).toInt()))
+                    cell.addView(dot, FrameLayout.LayoutParams(dp(30f).toInt(), dp(30f).toInt(), android.view.Gravity.CENTER))
+                    cell.setOnClickListener { v -> haptic(v); color = c; styleRings(); redraw() }
+                    cell.contentDescription = getString(R.string.cover_type)
+                    row.addView(cell, LinearLayout.LayoutParams(dp(40f).toInt(), dp(40f).toInt()).apply {
+                        marginStart = dp(4f).toInt(); marginEnd = dp(4f).toInt()
+                    })
+                    rings.add(c to ring)
+                }
+                styleRings()
+                box.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = dp(18f).toInt()
+                })
+                val confirm = layoutInflater.inflate(R.layout.sheet_confirm, box, false)
+                val ok = confirm.findViewById<TextView>(R.id.sheet_confirm_ok)
+                ok.text = getString(R.string.cover_save)
+                fun styleOk() { ok.alpha = if (PlaylistLook.typeText(text).isEmpty()) 0.4f else 1f }
+                input.addTextChangedListener(object : android.text.TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                    override fun afterTextChanged(s: android.text.Editable?) { text = s?.toString().orEmpty(); redraw(); styleOk() }
+                })
+                input.setOnEditorActionListener { _, _, _ -> hideKeyboard(); true }
+                confirm.findViewById<TextView>(R.id.sheet_confirm_cancel).setOnClickListener { hideKeyboard(); closeSheet() }
+                ok.setOnClickListener { v ->
+                    val word = PlaylistLook.typeText(text)
+                    if (word.isEmpty() || sheetClosing) return@setOnClickListener
+                    haptic(v)
+                    hideKeyboard()
+                    saveCover(id, PlaylistLook.Cover(mode = PlaylistLook.Mode.TYPE, text = word, color = color))
+                }
+                box.addView(confirm)
+                redraw()
+                styleOk()
+            }
+        }
+    }
+
+    /** Blur: one of the playlist's covers, blurred, with the playlist's name on it. */
+    private fun showBlurCoverSheet(id: Long, current: PlaylistLook.Cover) {
+        val covers = PlaylistLook.distinctCovers(listCustomOrder, { it.thumbnailUrl }, 12)
+        if (covers.isEmpty()) { showNote(getString(R.string.cover_no_covers)); return }
+        var chosen = covers.firstOrNull { current.mode == PlaylistLook.Mode.BLUR && it.thumbnailUrl == current.url } ?: covers.first()
+        val name = openListName
+        openSheet { box ->
+            sheetHeading(box, getString(R.string.cover_blur), getString(R.string.cover_blur_pick))
+            val preview = coverPreview(box)
+            val px = dp(140f).toInt()
+            var job: Job? = null
+            fun redraw() {
+                job?.cancel()
+                val c = PlaylistLook.Cover(mode = PlaylistLook.Mode.BLUR, url = chosen.thumbnailUrl, trackId = chosen.id)
+                job = lifecycleScope.launch {
+                    preview.show(PlaylistCoverLoader.look(c, emptyList(), name, px, app.artworkPipeline, app.playlistCovers))
+                }
+            }
+            val scroller = android.widget.HorizontalScrollView(this@MainActivity).apply {
+                isHorizontalScrollBarEnabled = false
+                overScrollMode = View.OVER_SCROLL_NEVER
+            }
+            val row = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL }
+            val side = dp(60f).toInt()
+            val thumbs = ArrayList<Pair<Track, ImageView>>()
+            fun styleThumbs() = thumbs.forEach { (t, iv) -> iv.alpha = if (t.id == chosen.id) 1f else 0.45f }
+            for (t in covers) {
+                val iv = ImageView(this@MainActivity).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    setBackgroundResource(R.drawable.shape_card)
+                    clipToOutline = true
+                    contentDescription = t.title
+                }
+                app.artworkPipeline.loadInto(iv, t.thumbnailUrl, side)
+                iv.setOnClickListener { v -> haptic(v); chosen = t; styleThumbs(); redraw() }
+                row.addView(iv, LinearLayout.LayoutParams(side, side).apply { marginEnd = dp(10f).toInt() })
+                thumbs.add(t to iv)
+            }
+            styleThumbs()
+            scroller.addView(row)
+            box.addView(scroller, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(18f).toInt()
+            })
+            val confirm = layoutInflater.inflate(R.layout.sheet_confirm, box, false)
+            val ok = confirm.findViewById<TextView>(R.id.sheet_confirm_ok)
+            ok.text = getString(R.string.cover_save)
+            confirm.findViewById<TextView>(R.id.sheet_confirm_cancel).setOnClickListener { closeSheet() }
+            ok.setOnClickListener { v ->
+                if (sheetClosing) return@setOnClickListener
+                haptic(v)
+                saveCover(id, PlaylistLook.Cover(mode = PlaylistLook.Mode.BLUR, url = chosen.thumbnailUrl, trackId = chosen.id))
+            }
+            box.addView(confirm)
+            redraw()
+        }
+    }
+
+    /** Gallery: Android's photo picker (the file picker on phones without it), then the crop. */
+    private fun pickCoverPhoto(id: Long) {
+        coverPhotoFor = id
+        closeSheet()
+        try {
+            if (androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.isPhotoPickerAvailable(this)) {
+                coverPhotoPicker.launch(
+                    androidx.activity.result.PickVisualMediaRequest(
+                        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                    )
+                )
+            } else {
+                coverPhotoFallback.launch("image/*")
+            }
+        } catch (_: android.content.ActivityNotFoundException) {
+            coverPhotoFor = null
+            showNote(getString(R.string.cover_photo_failed))
+        }
+    }
+
+    private fun onCoverPhoto(uri: android.net.Uri?) {
+        val id = coverPhotoFor ?: return
+        if (uri == null) { coverPhotoFor = null; return }
+        lifecycleScope.launch {
+            val bmp = withContext(Dispatchers.IO) { decodeCoverPhoto(uri) }
+            if (bmp == null) { coverPhotoFor = null; showNote(getString(R.string.cover_photo_failed)); return@launch }
+            showCoverCropSheet(id, bmp)
+        }
+    }
+
+    /** The picked photo, turned the right way up and at most 2048 px on its long side. */
+    private fun decodeCoverPhoto(uri: android.net.Uri): android.graphics.Bitmap? = try {
+        val src = android.graphics.ImageDecoder.createSource(contentResolver, uri)
+        android.graphics.ImageDecoder.decodeBitmap(src) { d, info, _ ->
+            d.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+            val w = info.size.width
+            val h = info.size.height
+            val scale = 2048f / maxOf(w, h).coerceAtLeast(1)
+            if (scale < 1f) d.setTargetSize((w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1))
+        }
+    } catch (c: kotlinx.coroutines.CancellationException) {
+        throw c
+    } catch (_: Throwable) {
+        null
+    }
+
+    /** Drag and pinch the photo inside the square, then "Use photo". */
+    private fun showCoverCropSheet(id: Long, bmp: android.graphics.Bitmap) {
+        openSheet { box ->
+            sheetHeading(box, getString(R.string.cover_crop), getString(R.string.cover_crop_hint))
+            val crop = CropSquareView(this)
+            crop.setBitmap(bmp)
+            box.addView(crop, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(16f).toInt()
+            })
+            val confirm = layoutInflater.inflate(R.layout.sheet_confirm, box, false)
+            val ok = confirm.findViewById<TextView>(R.id.sheet_confirm_ok)
+            ok.text = getString(R.string.cover_use_photo)
+            confirm.findViewById<TextView>(R.id.sheet_confirm_cancel).setOnClickListener { coverPhotoFor = null; closeSheet() }
+            ok.setOnClickListener { v ->
+                if (sheetClosing) return@setOnClickListener
+                val rect = crop.cropRect() ?: return@setOnClickListener
+                haptic(v)
+                coverPhotoFor = null
+                closeSheet()
+                lifecycleScope.launch {
+                    val old = app.playlistCovers.cover(id)
+                    val saved = withContext(Dispatchers.IO) { app.playlistCovers.savePhoto(id, bmp, rect) }
+                    if (saved == null) { showNote(getString(R.string.cover_photo_failed)); return@launch }
+                    app.playlistCovers.setCover(id, saved)
+                    // the old photo file is no longer needed
+                    if (old.mode == PlaylistLook.Mode.PHOTO && old.file != saved.file) {
+                        withContext(Dispatchers.IO) { app.playlistCovers.photoFile(old).delete() }
+                    }
+                    listCoverKey = null
+                    refreshData()
+                }
+            }
+            box.addView(confirm)
+        }
     }
 
     private fun songCount(n: Int): String =
@@ -4306,8 +4994,13 @@ class MainActivity : AppCompatActivity() {
         // 5.4.0: pinned after Recents: the songs saved offline
         tiles.add(GridTile.OfflineTile(app.offlineStore.saved.value.size))
         for (p in playlists) {
-            val cover = app.database.getPlaylistTracks(p.id).firstOrNull()?.thumbnailUrl
-            tiles.add(GridTile.PlaylistTile(p, cover))
+            val songs = app.database.getPlaylistTracks(p.id)
+            val cover = songs.firstOrNull()?.thumbnailUrl
+            // 6.8.0: the cover chosen in Edit cover; a Mosaic needs the first four covers
+            val chosen = app.playlistCovers.cover(p.id)
+            val urls = if (chosen.mode == PlaylistLook.Mode.MOSAIC)
+                PlaylistLook.mosaicUrls(songs.map { it.thumbnailUrl }).orEmpty() else emptyList()
+            tiles.add(GridTile.PlaylistTile(p, cover, chosen, urls))
         }
         libraryTiles = tiles
         // 5.8.5 u57: while "Search Playlists" has a name typed, only the matching playlists show
@@ -9062,6 +9755,9 @@ class MainActivity : AppCompatActivity() {
                 closeSheet()
                 lifecycleScope.launch {
                     app.database.deletePlaylist(playlist.id)
+                    // 6.8.0: its cover and sort go too; deleted from its own page, the page closes
+                    app.playlistCovers.forget(playlist.id)
+                    if (openListId == playlist.id && openAlbum == null && screenList.visibility == View.VISIBLE) closeList()
                     refreshData()
                     showNote(getString(R.string.note_deleted, playlist.name))
                 }

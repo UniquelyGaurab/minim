@@ -2,6 +2,32 @@
 
 Every Minim release, newest first. Download any of them from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page.
 
+## 6.8.0 (test build, not released yet)
+
+Playlists get a cover, Play and Shuffle buttons, search, sorting and your own covers.
+
+**A new playlist header**
+- **A cover at the top:** a rounded square, the same shape as the Library tiles, with the title (still tap to rename) and subtitle under it. The colours still follow the song that's playing
+- **Total time in the subtitle,** like "from YouTube · 25 songs · 1 hr 32 min"
+- **Play, Shuffle, search and ⋯,** the same pills as the Artist page. Play plays the list as shown, Shuffle plays it in a random order
+- **Search inside the list:** the search pill opens a field right in the header and filters by title and artist as you type
+- **The header scrolls away with the songs**
+
+**Your own covers (⋯ > Edit cover)**
+- **Auto:** the first song's cover, like before
+- **Mosaic:** the first four different covers in a 2 × 2 grid
+- **Type:** a word or one emoji in Poppins bold, on a colour picked from the playlist's own covers. It stays fixed
+- **Blur:** one of the playlist's covers, blurred, with the playlist's name on it
+- **Gallery:** pick a photo with Android's photo picker and crop it square. Minim keeps its own small copy, so deleting the photo from your gallery doesn't break the cover. No new permission
+- The Library tile shows the same cover. Covers stay on your phone; a shared link still opens with the auto cover
+
+**Order and sorting**
+- **Hold and drag a song to move it,** with the same feel as Up Next. The new order syncs to your other phones
+- **Sort (in ⋯):** Custom, Recently added, Title or Artist. Your own order is kept, so you can always switch back to Custom
+- **⋯ also holds** Save offline for every song and Delete (with its usual "Are you sure?" step)
+
+**Albums and Liked Songs** get the cover header with Play, Shuffle and search. Liked Songs keeps its Songs, Tapes and Artists row.
+
 ## 6.7.0 (test build, not released yet)
 
 Lyrics cards can now move, with the song playing under them.

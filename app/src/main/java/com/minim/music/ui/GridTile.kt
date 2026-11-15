@@ -17,7 +17,16 @@ sealed class GridTile {
     data class RecentsTile(val count: Int) : GridTile()
     /** 5.4.0: "Offline" tile in Library, pinned after Recents: the songs saved offline. */
     data class OfflineTile(val count: Int) : GridTile()
-    data class PlaylistTile(val playlist: Playlist, val coverUrl: String?) : GridTile()
+    /**
+     * 6.8.0: [cover] is the cover chosen in Edit cover; [coverUrls] are the songs' covers in your
+     * own order (only filled in for a Mosaic), so the tile matches the playlist page.
+     */
+    data class PlaylistTile(
+        val playlist: Playlist,
+        val coverUrl: String?,
+        val cover: PlaylistLook.Cover = PlaylistLook.Cover.AUTO,
+        val coverUrls: List<String> = emptyList()
+    ) : GridTile()
     /** v4.6: an album on the Artist page's "Albums" grid. */
     data class AlbumTile(val album: com.minim.music.data.model.Album) : GridTile()
 }

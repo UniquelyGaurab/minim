@@ -101,6 +101,13 @@ open class MinimApp : Application(), com.minim.fermata.android.FermataHolder {
         com.minim.music.data.profile.ProfileStore(filesDir, preferences)
     }
 
+    /** 6.8.0: each playlist's custom cover and sort (this phone only). */
+    val playlistCovers: com.minim.music.data.local.PlaylistCoverStore by lazy {
+        com.minim.music.data.local.PlaylistCoverStore(
+            filesDir, getSharedPreferences(com.minim.music.data.local.PlaylistCoverStore.PREFS, MODE_PRIVATE)
+        )
+    }
+
     // ---- 5.10.0: Fermata (likes, playlists and history go through its log; folder backups) -----
 
     /** Null only if Fermata could not start; Minim then works as 5.9.1 did, without backups. */

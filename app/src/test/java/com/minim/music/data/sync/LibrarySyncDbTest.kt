@@ -116,8 +116,8 @@ class LibrarySyncDbTest {
         val l = open()
         val db = l.writableDatabase
         // 5.3.0 bumped the library to version 5 (playlists.source for imports), 5.7.0 u51 to 6 (tape stats),
-        // 5.9.0 u59 to 7 (the Fermata event log), 5.10.0 to 8 (history through Fermata)
-        assertEquals(8, db.version)
+        // 5.9.0 u59 to 7 (the Fermata event log), 5.10.0 to 8 (history through Fermata), 6.8.0 to 9 (playlist added-at times)
+        assertEquals(9, db.version)
         assertEquals(1, count(db, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'fermata_events'"))
         assertEquals(1, count(db, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'tape_plays'"))
         assertEquals(1, count(db, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'tape_listen_time'"))

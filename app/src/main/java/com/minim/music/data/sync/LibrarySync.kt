@@ -432,8 +432,10 @@ class LibrarySync(
         val keepAlive = m.tracks.filterValues { !it.removed }.keys
         val keepRemoved = m.tracks.filterValues { it.removed }.keys
         val localSongs = ArrayList<String>()
-        d.rawQuery("SELECT track_id FROM playlist_tracks WHERE playlist_id = ?", arrayOf(pid)).use { c ->
-            while (c.moveToNext()) localSongs.add(c.getString(0))
+        // 6.8.0: keep when each song was added here (the merge only brings the place and change time)
+        val addedAt = HashMap<String, Long>()
+        d.rawQuery("SELECT track_id, added_at FROM playlist_tracks WHERE playlist_id = ?", arrayOf(pid)).use { c ->
+            while (c.moveToNext()) { localSongs.add(c.getString(0)); addedAt[c.getString(0)] = c.getLong(1) }
         }
         for (s in localSongs) if (s !in keepAlive) d.delete("playlist_tracks", "playlist_id = ? AND track_id = ?", arrayOf(pid, s))
         val localRemoved = ArrayList<String>()
@@ -449,6 +451,7 @@ class LibrarySync(
                 ensureTrack(d, song, e.meta)
                 val cv = ContentValues().apply {
                     put("playlist_id", id); put("track_id", song); put("position", e.pos); put("changed_at", e.at)
+                    put("added_at", addedAt[song]?.takeIf { it > 0L } ?: e.pos)
                 }
                 d.insertWithOnConflict("playlist_tracks", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
             }

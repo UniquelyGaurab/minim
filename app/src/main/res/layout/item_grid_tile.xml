@@ -30,6 +30,18 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
 
+        <!-- 6.8.0: a playlist's chosen cover (Mosaic, Type, Blur or a photo), over the art -->
+        <com.minim.music.ui.PlaylistCoverView
+            android:id="@+id/tile_cover"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:importantForAccessibility="no"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="@id/tile_art"
+            app:layout_constraintEnd_toEndOf="@id/tile_art"
+            app:layout_constraintStart_toStartOf="@id/tile_art"
+            app:layout_constraintTop_toTopOf="@id/tile_art" />
+
         <View
             android:id="@+id/tile_outline"
             android:layout_width="0dp"
