@@ -2,6 +2,7 @@ package com.minim.music.ui
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
@@ -26,14 +27,19 @@ import com.minim.music.data.share.ShareLinks
 
 /**
  * The lyrics card. 1080 x 1920 (9:16): a backdrop (the cover's colours, or the cover blurred),
- * one light card with the picked lines in Poppins bold, sized down only as far as they need to
- * fit; under a hairline, a small cover with the title and artist, then "Shared by <name>" and
- * the minim mark.
+ * one light 4:5 card with the picked lines in Poppins bold, sized down only as far as they need
+ * to fit, centred in the space above a hairline; under it the footer, pinned to the card's
+ * bottom, with the minim mark in the bottom-right corner.
  *
  * 6.7.0: smaller text, tight rows inside a wrapped line and a clear gap between lines
  * ([LyricsCardSpacing]); a Blurred cover background; and [Scene], which draws the frames of the
  * animated card: the same word-by-word fill as the in-app lyrics, then a 1-second ending that
  * fades to "minim" with "Shared by <name>" (the only place the name shows in a video).
+ *
+ * 6.7.0 revision 3: the card is always 4:5 (wider, still 4:5, only when the text can't fit);
+ * the footer is one row [cover · title/artist … minim] on animated cards and static cards without
+ * a name, two rows (cover row, then "Shared by" + minim) on static cards with one; and on
+ * animated cards only the line being sung is lit, finished lines dim back down.
  */
 object LyricsCard {
     /** One picked line: [text] as sung, [translation] when there is one. */
@@ -42,48 +48,104 @@ object LyricsCard {
     const val W = ShareCard.W
     const val H = ShareCard.H
     /**
-     * 6.7.0 revision 2: the card is 68% of the width (about 734 px; it was 880 px, then 0.78), so
-     * clearly more backdrop shows on every side.
+     * 6.7.0 revision 3: the card is always 4:5 (portrait), whatever the lines, the mode, the type
+     * or the background: about 68% of the width (734 x 918), centred, with backdrop on all sides.
      */
     const val CARD_SHARE = 0.68f
+    /** When the lines don't fit even at the smallest text, the card widens (still 4:5) up to this. */
+    const val MAX_CARD_SHARE = 0.80f
+    /** Height over width. */
+    const val ASPECT = 1.25f
     const val CARD_W = W * CARD_SHARE
-    /** Everything inside the card scales with it. */
+    const val CARD_H = CARD_W * ASPECT
+    /** Everything inside the card is sized from the 68% card (also on a widened one). */
     const val SCALE = CARD_W / 880f
     const val PAD = 64f * SCALE
-    private const val TEXT_W = (CARD_W - 2 * PAD).toInt()
-    /**
-     * The least backdrop above and below the card (200 px, then 330). At 480 the tallest card is
-     * half the canvas height, so a five-line card leaves a quarter of backdrop above and below.
-     */
-    const val MARGIN_Y = 480f
     private const val COVER = 116f * SCALE
+    /** The cover in a one-row footer, next to minim. */
+    private const val SMALL_COVER = 88f * SCALE
     /** Footer: "Shared by" and the minim mark, scaled down a bit more than the rest. */
     const val FOOTER_SCALE = SCALE * 0.86f
-    /** The bottom part under the lyrics: gap, hairline, cover row, footer row, padding. */
-    private const val BOTTOM_H = (56f + 2f + 44f) * SCALE + COVER + 84f * SCALE + PAD
-    const val MAX_TEXT_H = H - 2 * MARGIN_Y - PAD - BOTTOM_H
+    /** Card bottom to the bottom of the lyric space with two footer rows (cover row, then "Shared by" + minim). */
+    const val RESERVE_TWO_ROWS = PAD + (84f + 116f + 46f + 56f) * SCALE
+    /** The same with one footer row: cover, title and artist beside minim. */
+    const val RESERVE_ONE_ROW = PAD + 14f * FOOTER_SCALE + (44f + 46f + 56f) * SCALE
     const val MAX_SIZE = LyricsCardSpacing.MAX_SIZE * SCALE
     /** Auto-size can go smaller on the smaller card, but never under [MIN_TEXT_PX] (stays readable). */
     const val MIN_TEXT_PX = 28f
     val MIN_SIZE: Float = maxOf(LyricsCardSpacing.MIN_SIZE * SCALE, MIN_TEXT_PX)
-    /** The ending: "minim" about half its 6.7.0 size (150 px), "Shared by" smaller and lighter. */
+    /** Only when the widest card still can't hold the lines at [MIN_SIZE]: smaller rather than cut. */
+    const val LAST_RESORT_PX = 20f
     /** 30/45/60 cards: text at most this share of the biggest size. */
     const val SCROLL_SIZE = 0.8f
+    /** The ending: "minim" about half its 6.7.0 size (150 px), "Shared by" smaller and lighter. */
     const val END_MARK_SIZE = 76f
     const val END_NAME_SIZE = 30f
     const val END_NAME_ALPHA = 150
+    /** How lit an unsung word (and a finished line) is on the animated card. */
+    const val DIM = 0.32f
+    /** How long a finished line takes to dim back down. */
+    const val PAST_FADE_MS = 300L
 
-    /** Where the card sits for a card [cardH] tall: centred, a touch above the middle. */
-    fun cardRect(cardH: Float): RectF {
-        val left = (W - CARD_W) / 2f
-        val top = ((H - cardH) / 2f - 20f).coerceAtLeast(MARGIN_Y / 2f)
-        return RectF(left, top, left + CARD_W, top + cardH)
+    /** The 4:5 card for a card [share] of the width, centred on the canvas. */
+    fun cardRect(share: Float = CARD_SHARE): RectF {
+        val w = W * share
+        val h = w * ASPECT
+        val left = (W - w) / 2f
+        val top = (H - h) / 2f
+        return RectF(left, top, left + w, top + h)
     }
 
-    /** Card height for lyric text [textH] tall. */
-    fun cardHeight(textH: Float): Float = PAD + textH.coerceAtLeast(COVER) + BOTTOM_H
-    /** How lit an unsung word is on the animated card. */
-    const val DIM = 0.32f
+    /** Width the lyrics wrap at on a card [share] of the width. */
+    fun textWidth(share: Float): Int = (W * share - 2 * PAD).toInt()
+
+    /** Height of the lyric space (card top padding to the gap above the divider). */
+    fun lyricSpace(share: Float, oneRow: Boolean): Float =
+        W * share * ASPECT - PAD - if (oneRow) RESERVE_ONE_ROW else RESERVE_TWO_ROWS
+
+    /** How wide the card is ([share] of the canvas) and the text size the lines get. */
+    data class Fit(val share: Float, val size: Float)
+
+    /**
+     * Text shrinks from [MAX_SIZE] only as far as it has to, down to [MIN_SIZE]. When it still
+     * doesn't fit, the card widens (staying 4:5) just enough, up to [MAX_CARD_SHARE]; never cut.
+     * [measure] gives the text's height at a size and wrap width.
+     */
+    fun fitCard(oneRow: Boolean, measure: (Float, Int) -> Float): Fit {
+        val baseW = textWidth(CARD_SHARE)
+        val baseH = lyricSpace(CARD_SHARE, oneRow)
+        if (measure(MIN_SIZE, baseW) <= baseH) return Fit(CARD_SHARE, fitSize(baseH) { measure(it, baseW) })
+        var step = 1
+        while (true) {
+            val share = minOf(MAX_CARD_SHARE, CARD_SHARE + step * 0.005f)
+            val tw = textWidth(share)
+            val space = lyricSpace(share, oneRow)
+            if (measure(MIN_SIZE, tw) <= space) return Fit(share, fitSize(space) { measure(it, tw) })
+            if (share >= MAX_CARD_SHARE) {
+                var size = MIN_SIZE
+                while (size > LAST_RESORT_PX && measure(size, tw) > space) size -= 1f
+                return Fit(share, size.coerceAtLeast(LAST_RESORT_PX))
+            }
+            step++
+        }
+    }
+
+    /** How far a finished line has dimmed back down: 0 while it's sung, 1 [PAST_FADE_MS] after it ends. */
+    fun pastFade(nowMs: Long, endMs: Long?): Float {
+        if (endMs == null) return 0f
+        val x = ((nowMs - endMs).toFloat() / PAST_FADE_MS).coerceIn(0f, 1f)
+        return x * x * (3 - 2 * x)
+    }
+
+    /**
+     * When line [i] of [timing] is done: when its words finish (never after the next line starts).
+     * The last line on the card has no next one and stays lit into the ending.
+     */
+    fun lineEndMs(timing: List<Timing>, i: Int): Long? {
+        if (i !in timing.indices || i + 1 >= timing.size) return null
+        val t = timing[i]
+        return minOf(t.startMs + t.durMs, timing[i + 1].startMs)
+    }
 
     /** Whether any picked line has a translation worth showing. */
     fun hasTranslation(lines: List<Line>): Boolean = lines.any { usable(it) != null }
@@ -139,6 +201,34 @@ object LyricsCard {
     data class Timing(val startMs: Long, val durMs: Long, val source: LyricsLine?)
 
     /**
+     * Where the footer's parts sit. [oneRow]: cover, title and artist on minim's row (animated
+     * cards, and static cards without a name); else the cover row, then "Shared by" + minim.
+     */
+    class Footer(
+        val oneRow: Boolean,
+        val divider: Float,
+        val cover: RectF,
+        /** minim's baseline and the mark (logo + "minim") bounds. */
+        val markBaseline: Float,
+        val mark: RectF,
+        val textLeft: Float,
+        /** Title and artist end with "…" before this. */
+        val textLimit: Float,
+        val titleBaseline: Float,
+        val artistBaseline: Float,
+        val titleSize: Float,
+        val artistSize: Float,
+        val shownTitle: String,
+        val shownArtist: String,
+        /** Right edges of the title and artist as drawn. */
+        val titleRight: Float,
+        val artistRight: Float,
+        /** "Shared by <name>" on minim's row (two-row footer only). */
+        val sharedBy: String?,
+        val sharedByRight: Float
+    )
+
+    /**
      * The pieces of a card, laid out once. For a static card [drawBase] + [drawText]; for a video
      * frame [drawFrame], which lights the words for a time and fades into the ending.
      */
@@ -185,9 +275,23 @@ object LyricsCard {
         private val laid: List<Laid>
         /** The lyric area's height: the text, or the scrolling window. */
         private val textH: Float
+        /** The 4:5 card. */
         val card: RectF
+        /** The card's width as a share of the canvas: [CARD_SHARE], more only when the lines need it. */
+        val cardShare: Float
         /** The text size the lines were laid out at. */
         val textSize: Float
+        /** Cover, title and artist on minim's row: animated cards, and static cards without a name. */
+        val oneRowFooter: Boolean = video || this.sharer == null
+        /** The lyric space: top of the text area and its height. */
+        val lyricTop: Float
+        val lyricSpace: Float
+        /** Where the (non-scrolling) text starts: centred in the lyric space. */
+        val textTop: Float
+        /** The text's own height (all of it). */
+        val textHeight: Float get() = fullH
+        private val textW: Int
+        val footer: Footer
 
         // ---- the scrolling window (30/45/60) ----
         private val fullH: Float
@@ -202,11 +306,13 @@ object LyricsCard {
             val pieces = LyricsCardSpacing.pieces(lines.map { it.text }, lines.map { usableOf(it) }, mode)
             val picked = if (scrolls) pieces.filter { it.line < pickedCount } else pieces
             val pickedPieces = picked.mapIndexed { i, p -> if (i == picked.lastIndex) p.copy(gapAfter = LyricsCardSpacing.Gap.NONE) else p }
-            val fitted = fitSize(MAX_TEXT_H) { s -> layOut(pickedPieces, s).second }
+            val fit = fitCard(oneRowFooter) { s, w -> layOut(pickedPieces, s, w).second }
+            cardShare = fit.share
             // a scrolling card is a small lyrics screen: a bit smaller so 4-5 lines show at once
-            val size = if (scrolls) minOf(fitted, MAX_SIZE * SCROLL_SIZE) else fitted
+            val size = if (scrolls) minOf(fit.size, MAX_SIZE * SCROLL_SIZE) else fit.size
             textSize = size
-            val (l, h) = layOut(pieces, size)
+            textW = textWidth(fit.share)
+            val (l, h) = layOut(pieces, size, textW)
             laid = l
             fullH = h
             val n = lines.size
@@ -223,22 +329,95 @@ object LyricsCard {
                 lineBottoms[i] = lineTops[i]
             }
             pickedH = if (pickedCount in 1..n) lineBottoms[pickedCount - 1] else h
-            textH = if (scrolls) {
-                val big = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = size; typeface = bold }
-                val fm = big.fontMetrics
-                val row = (fm.descent - fm.ascent) * LyricsCardSpacing.ROW_MULT
-                val slot = if (mode == LyricsCardOptions.Lyrics.BOTH && pieces.any { it.sub })
-                    row * (1 + LyricsCardSpacing.PAIR_GAP + LyricsCardSpacing.SUB_SCALE + LyricsCardSpacing.LINE_GAP)
-                else row * (1 + LyricsCardSpacing.LINE_GAP)
-                LyricsCardScroll.windowHeight(pickedH, slot, MAX_TEXT_H)
-            } else h
-            card = cardRect(cardHeight(textH))
+            card = cardRect(fit.share)
+            lyricTop = card.top + PAD
+            lyricSpace = LyricsCard.lyricSpace(fit.share, oneRowFooter)
+            // 30/45/60: the scrolling window fills the lyric space; else the text sits in its middle
+            textH = if (scrolls) lyricSpace else h
+            textTop = if (scrolls) lyricTop else lyricTop + ((lyricSpace - h) / 2f).coerceAtLeast(0f)
+            footer = layOutFooter()
         }
 
         private fun usableOf(l: Line): String? =
             l.translation?.trim()?.takeIf { it.isNotEmpty() && !it.equals(l.text.trim(), ignoreCase = true) }
 
-        private fun layOut(pieces: List<LyricsCardSpacing.Piece>, size: Float): Pair<List<Laid>, Float> {
+        private fun markPaint() = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 38f * FOOTER_SCALE; typeface = medium; color = ink
+        }
+
+        private fun layOutFooter(): Footer {
+            val x = card.left + PAD
+            val right = card.right - PAD
+            // minim: bottom-right corner, the same spot and size on every card
+            val baseline = card.bottom - PAD
+            val markW = markPaint().measureText("minim")
+            val markLeft = right - markW
+            val logoSize = 60f * FOOTER_SCALE
+            val logo = RectF(markLeft - 16f * FOOTER_SCALE - logoSize, baseline - 44f * FOOTER_SCALE,
+                markLeft - 16f * FOOTER_SCALE, baseline - 44f * FOOTER_SCALE + logoSize)
+            val mark = RectF(logo.left, logo.top, right, logo.bottom)
+            val markCy = logo.centerY()
+            val art: RectF
+            val titleBase: Float
+            val artistBase: Float
+            val titleSize: Float
+            val artistSize: Float
+            val limit: Float
+            if (oneRowFooter) {
+                art = RectF(x, markCy - SMALL_COVER / 2f, x + SMALL_COVER, markCy + SMALL_COVER / 2f)
+                titleSize = 40f * SCALE
+                artistSize = 30f * SCALE
+                titleBase = markCy - 7f * SCALE
+                artistBase = markCy + 31f * SCALE
+                limit = mark.left - 24f * SCALE
+            } else {
+                art = RectF(x, baseline - 84f * SCALE - COVER, x + COVER, baseline - 84f * SCALE)
+                titleSize = 44f * SCALE
+                artistSize = 32f * SCALE
+                titleBase = art.centerY() - 6f * SCALE
+                artistBase = art.centerY() + 44f * SCALE
+                limit = right
+            }
+            val textLeft = art.right + (if (oneRowFooter) 28f else 32f) * SCALE
+            val maxW = (limit - textLeft).coerceAtLeast(0f)
+            val tp = ShareCard.paint(titleSize, bold, ink)
+            val ap = ShareCard.paint(artistSize, regular, muted)
+            val t = fitText(title.trim(), tp, maxW)
+            val a = fitText(artist.trim(), ap, maxW)
+            val shared = if (oneRowFooter) null else sharer?.let { name ->
+                val sp = ShareCard.paint(30f * FOOTER_SCALE, regular, muted)
+                val w = (logo.left - 28f * FOOTER_SCALE - x).coerceAtLeast(0f)
+                fitText("Shared by $name", sp, w).takeIf { it.isNotEmpty() }
+            }
+            val sharedRight = shared?.let { x + ShareCard.paint(30f * FOOTER_SCALE, regular, muted).measureText(it) } ?: x
+            return Footer(
+                oneRow = oneRowFooter,
+                divider = art.top - 46f * SCALE,
+                cover = art,
+                markBaseline = baseline,
+                mark = mark,
+                textLeft = textLeft,
+                textLimit = limit,
+                titleBaseline = titleBase,
+                artistBaseline = artistBase,
+                titleSize = titleSize,
+                artistSize = artistSize,
+                shownTitle = t,
+                shownArtist = a,
+                titleRight = textLeft + tp.measureText(t),
+                artistRight = textLeft + ap.measureText(a),
+                sharedBy = shared,
+                sharedByRight = sharedRight
+            )
+        }
+
+        /** Where line [i] sits on a card that doesn't scroll (for tests). */
+        fun lineRect(i: Int): RectF {
+            val x = card.left + PAD
+            return RectF(x, textTop + lineTops[i], x + textW, textTop + lineBottoms[i])
+        }
+
+        private fun layOut(pieces: List<LyricsCardSpacing.Piece>, size: Float, width: Int): Pair<List<Laid>, Float> {
             val big = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = size; typeface = bold; color = ink }
             val small = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                 textSize = size * LyricsCardSpacing.SUB_SCALE; typeface = regular; color = muted
@@ -265,7 +444,7 @@ object LyricsCard {
                         }
                     }
                 }
-                val layout = if (p.sub) layout(text, small, 1f) else layout(text, big, LyricsCardSpacing.ROW_MULT)
+                val layout = if (p.sub) layout(text, small, 1f, width) else layout(text, big, LyricsCardSpacing.ROW_MULT, width)
                 Triple(p, layout, spans to words)
             }
             val heights = FloatArray(built.size) { built[it].second.height.toFloat() }
@@ -277,33 +456,36 @@ object LyricsCard {
         private fun wordByWord(p: LyricsCardSpacing.Piece): Boolean =
             !p.sub && mode != LyricsCardOptions.Lyrics.TRANSLATION
 
-        /** Backdrop, card, hairline, cover row and footer: everything but the lyric text. */
+        /** Backdrop, card, divider and footer: everything but the lyric text. */
         fun drawBase(c: Canvas) {
             drawBackdrop(c)
             ShareCard.drawCardShape(c, card, cardColor, SCALE)
+            val f = footer
             val x = card.left + PAD
             val right = card.right - PAD
-            var y = card.top + PAD + textH.coerceAtLeast(COVER) + 56f * SCALE
-            c.drawRect(x, y, right, y + 2f, Paint().apply { color = ColorUtils.setAlphaComponent(ink, 34) })
-            y += (2f + 44f) * SCALE
-            val art = RectF(x, y, x + COVER, y + COVER)
+            c.drawRect(x, f.divider, right, f.divider + 2f, Paint().apply { color = ColorUtils.setAlphaComponent(ink, 34) })
+            val art = f.cover
             if (cover != null) {
-                ShareCard.roundImage(c, cover, art, 24f * SCALE)
+                ShareCard.roundImage(c, cover, art, 24f * SCALE * art.width() / COVER)
             } else {
-                c.drawRoundRect(art, 24f * SCALE, 24f * SCALE, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                val k = art.width() / COVER
+                c.drawRoundRect(art, 24f * SCALE * k, 24f * SCALE * k, Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = ColorUtils.blendARGB(cardColor, ink, 0.08f)
                 })
-                ShareCard.centered(c, "♪", art.centerX(), art.centerY() + 22f * SCALE, 64f * SCALE, bold, muted, 100)
+                ShareCard.centered(c, "♪", art.centerX(), art.centerY() + 22f * SCALE * k, 64f * SCALE * k, bold, muted, 100)
             }
-            val textLeft = art.right + 32f * SCALE
-            val textW = (right - textLeft).toInt()
-            ShareCard.start(c, title, textLeft, art.centerY() - 6f * SCALE, 44f * SCALE, bold, ink, textW)
-            ShareCard.start(c, artist, textLeft, art.centerY() + 44f * SCALE, 32f * SCALE, regular, muted, textW)
-            // A video keeps "Shared by" for its ending only
-            ShareCard.drawFooter(
-                ctx, c, x, right, art.bottom + 84f * SCALE, if (video) null else sharer, medium, semi, ink, muted,
-                FOOTER_SCALE
-            )
+            if (f.shownTitle.isNotEmpty()) c.drawText(f.shownTitle, f.textLeft, f.titleBaseline, ShareCard.paint(f.titleSize, bold, ink))
+            if (f.shownArtist.isNotEmpty()) c.drawText(f.shownArtist, f.textLeft, f.artistBaseline, ShareCard.paint(f.artistSize, regular, muted))
+            // minim, bottom-right
+            val logo = runCatching { BitmapFactory.decodeResource(ctx.resources, R.mipmap.ic_launcher_round) }.getOrNull()
+            val logoSize = f.mark.height()
+            if (logo != null) ShareCard.roundImage(c, logo, RectF(f.mark.left, f.mark.top, f.mark.left + logoSize, f.mark.bottom), logoSize / 2f)
+            val mp = markPaint()
+            c.drawText("minim", right - mp.measureText("minim"), f.markBaseline, mp)
+            // "Shared by <name>" on minim's row, small and lighter (static cards with a name only)
+            f.sharedBy?.let {
+                c.drawText(it, x, f.markBaseline, ShareCard.paint(30f * FOOTER_SCALE, regular, ColorUtils.setAlphaComponent(muted, 180)))
+            }
         }
 
         fun drawText(c: Canvas) {
@@ -311,14 +493,14 @@ object LyricsCard {
             if (!scrolls) {
                 for (l in laid) {
                     c.save()
-                    c.translate(x, card.top + PAD + l.top)
+                    c.translate(x, textTop + l.top)
                     l.layout.draw(c)
                     c.restore()
                 }
                 return
             }
             // 30/45/60: the lines move up inside a window; the edges fade where text goes past them
-            val top = card.top + PAD
+            val top = lyricTop
             val winTop = top - PAD * 0.6f
             val winBottom = top + textH + 30f * SCALE
             val shown = LyricsCardScroll.visible(lineTops, lineBottoms, scrollY, textH, PAD)
@@ -379,17 +561,23 @@ object LyricsCard {
             }
         }
 
-        /** Sets each word's level for a lyric-timeline time. */
+        /**
+         * Sets each word's level for a lyric-timeline time. Only the line being sung is lit (word
+         * by word, or whole in Translation mode); once it's done it dims back to [DIM] over
+         * [PAST_FADE_MS], its translation with it.
+         */
         fun setTime(nowMs: Long, timing: List<Timing>) {
             for (l in laid) {
-                val t = timing.getOrNull(l.piece.line) ?: continue
+                val i = l.piece.line
+                val t = timing.getOrNull(i) ?: continue
+                val keep = 1f - pastFade(nowMs, lineEndMs(timing, i))
                 if (wordByWord(l.piece) && l.spans.size == l.words.size && l.spans.isNotEmpty()) {
                     val bounds = boundsFor(l, t)
                     val since = nowMs - t.startMs
-                    l.spans.forEachIndexed { i, s -> s.level = DIM + (1 - DIM) * FlowTiming.wordFill(bounds, i, since) }
+                    l.spans.forEachIndexed { k, s -> s.level = DIM + (1 - DIM) * FlowTiming.wordFill(bounds, k, since) * keep }
                 } else {
                     val lv = LyricsVideoPlan.lineLevel(nowMs, t.startMs)
-                    l.spans.forEach { it.level = DIM + (1 - DIM) * lv }
+                    l.spans.forEach { it.level = DIM + (1 - DIM) * lv * keep }
                 }
             }
         }
@@ -474,11 +662,26 @@ object LyricsCard {
         })
     }
 
-    private fun layout(s: CharSequence, p: TextPaint, spacing: Float): StaticLayout =
-        StaticLayout.Builder.obtain(s, 0, s.length, p, TEXT_W)
+    /** [s] as it fits in [maxW] at [p]: whole, or cut at a word or letter with "…" at the end. */
+    internal fun fitText(s: String, p: Paint, maxW: Float): String {
+        if (s.isEmpty() || maxW <= 0f) return ""
+        if (p.measureText(s) <= maxW) return s
+        val dots = "\u2026"
+        var lo = 0
+        var hi = s.length
+        while (lo < hi) {
+            val mid = (lo + hi + 1) / 2
+            if (p.measureText(s.substring(0, mid).trimEnd() + dots) <= maxW) lo = mid else hi = mid - 1
+        }
+        val cut = s.substring(0, lo).trimEnd().trimEnd(',', '(', '-', '&', '·')
+        return if (cut.isEmpty()) (if (p.measureText(dots) <= maxW) dots else "") else cut.trimEnd() + dots
+    }
+
+    private fun layout(s: CharSequence, p: TextPaint, spacing: Float, width: Int): StaticLayout =
+        StaticLayout.Builder.obtain(s, 0, s.length, p, width)
             .setAlignment(Layout.Alignment.ALIGN_NORMAL)
             .setLineSpacing(0f, spacing)
             .setIncludePad(false)
-            .setMaxLines(8)
+            .setMaxLines(12)
             .build()
 }

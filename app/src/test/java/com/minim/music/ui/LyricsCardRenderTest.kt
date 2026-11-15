@@ -210,17 +210,15 @@ class LyricsCardRenderTest {
         assertTrue(LyricsCard.MIN_SIZE >= LyricsCard.MIN_TEXT_PX && LyricsCard.MIN_TEXT_PX >= 28f)
         assertTrue(LyricsCard.MAX_SIZE * LyricsCard.SCROLL_SIZE > LyricsCard.MIN_SIZE)
         assertTrue(LyricsCard.FOOTER_SCALE < LyricsCard.SCALE)
-        // the tallest card leaves backdrop above and below: at most half the height
-        val tallest = LyricsCard.cardHeight(LyricsCard.MAX_TEXT_H)
-        assertTrue(tallest <= 1920f * 0.50f + 0.5f)
-        val r = LyricsCard.cardRect(tallest)
+        // the card is 4:5 and centred, with backdrop above and below
+        val r = LyricsCard.cardRect()
+        assertEquals(r.width() * 1.25f, r.height(), 1f)
         assertTrue(r.top >= 440f && 1920f - r.bottom >= 440f)
         assertEquals(540f, r.centerX(), 0.5f)
         // a five-line card really draws inside those bounds
         val five = List(5) { LyricsCard.Line("Kesariya tera ishq hai piya, rang jaaun jo main haath lagaaun $it") }
         val s = LyricsCard.Scene(ctx, ShareCard.palette(Color.rgb(200, 40, 90)), five, LyricsCardOptions.Lyrics.ORIGINAL,
             "Kesariya", "Arijit Singh", "Gaurab", null, LyricsCardOptions.Background.COLOURS, false)
-        assertTrue(s.card.height() <= tallest + 0.5f)
         assertTrue(s.card.width() < 1080f * 0.69f)
         assertTrue(s.card.height() in 1920f * 0.40f..1920f * 0.50f + 0.5f)
         assertTrue(s.textSize >= LyricsCard.MIN_SIZE)
@@ -252,7 +250,7 @@ class LyricsCardRenderTest {
         assertFalse(early.sameAs(bmp))
         save(bmp, "lyrics-scroll-mid")
         // the window holds about four or five lines, and the card stays inside the backdrop
-        assertTrue(s.windowH <= LyricsCard.MAX_TEXT_H)
+        assertEquals(s.lyricSpace, s.windowH, 0.01f)
         assertTrue(s.textSize <= LyricsCard.MAX_SIZE * LyricsCard.SCROLL_SIZE + 0.01f)
         assertTrue(s.textSize >= LyricsCard.MIN_SIZE)
         assertTrue(s.card.top >= 300f)
