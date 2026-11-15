@@ -34,7 +34,7 @@
         android:paddingTop="10dp"
         android:paddingEnd="22dp"
         android:paddingBottom="18dp"
-        android:tag="fill:bg">
+        android:tag="fill:bg haze:sheet">
 
         <View
             android:id="@+id/sheet_handle"

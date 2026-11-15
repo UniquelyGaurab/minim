@@ -556,7 +556,7 @@ class FullscreenLyrics(
 
     /** The app palette changed (new song colours, dark mode): only the bar's start and the base. */
     fun onPalette(p: Pal) {
-        backdrop.setBackgroundColor(p.bg)
+        Painter.paintBg(backdrop, p)
         ai.setCoverColors(p)
         if (shownUrl == null && isShowing) applyBaseInk(animate = true)
         if (isShowing) updateBarColors()
@@ -588,7 +588,7 @@ class FullscreenLyrics(
         }
         overlay.visibility = View.VISIBLE
         host.nowPlayingContent.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-        backdrop.setBackgroundColor(host.palette().bg)
+        Painter.paintBg(backdrop, host.palette())
         syncBarWidth()
         applyPadding()
         showLookNow()

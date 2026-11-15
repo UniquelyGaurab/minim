@@ -401,6 +401,8 @@ class NowPlayingMorph(
         bg.rect.set(c[0], c[1], c[2], c[3])
         bg.radius = MorphMotion.corner(p, g.pill.height() / 2f)
         bg.color = MorphMotion.color(p).let { lerpColor(g.pillFill, npBackground(), it) }
+        // 6.8.0 (71): under Haze the stretching pill fills with the blurred cover as it grows
+        bg.haze = if (HazeBackdrop.active) MorphMotion.color(p) else 0f
         bg.dim = MorphMotion.dim(p)
         bg.snapshotRect.set(g.pill)
         bg.snapshotAlpha = MorphMotion.pillButtons(p)
@@ -479,13 +481,32 @@ class NowPlayingMorph(
         var snapshot: Bitmap? = null
         val snapshotRect = RectF()
         var snapshotAlpha = 0f
+        /** 0..1: how much of the pill is the Haze background instead of [color]. */
+        var haze = 0f
+        private val clip = android.graphics.Path()
+        private val window = RectF()
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
         private val bmp = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 
         override fun draw(canvas: Canvas) {
             if (dim > 0f) canvas.drawColor(Color.argb((dim * 255).toInt().coerceIn(0, 255), 0, 0, 0))
-            fill.color = color
-            if (radius > 0.5f) canvas.drawRoundRect(rect, radius, radius, fill) else canvas.drawRect(rect, fill)
+            if (haze > 0f) {
+                val save = canvas.save()
+                clip.reset()
+                clip.addRoundRect(rect, radius, radius, android.graphics.Path.Direction.CW)
+                canvas.clipPath(clip)
+                window.set(bounds)
+                HazeBackdrop.drawWindow(canvas, window)
+                canvas.restoreToCount(save)
+                fill.color = color
+                fill.alpha = (Color.alpha(color) * (1f - haze)).toInt().coerceIn(0, 255)
+                if (fill.alpha > 0) {
+                    if (radius > 0.5f) canvas.drawRoundRect(rect, radius, radius, fill) else canvas.drawRect(rect, fill)
+                }
+            } else {
+                fill.color = color
+                if (radius > 0.5f) canvas.drawRoundRect(rect, radius, radius, fill) else canvas.drawRect(rect, fill)
+            }
             val s = snapshot
             if (s != null && !s.isRecycled && snapshotAlpha > 0f) {
                 bmp.alpha = (255 * snapshotAlpha).toInt().coerceIn(0, 255)

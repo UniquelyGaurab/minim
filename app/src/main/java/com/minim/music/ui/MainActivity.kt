@@ -410,8 +410,10 @@ class MainActivity : AppCompatActivity() {
         // so views made clickable by their click listeners are included)
         PressScale.applyTree(findViewById(android.R.id.content))
 
+        HazeBackdrop.active = app.preferences.isHazeTheme // 6.8.0 (71)
         pal = appPal()
         applyPalette(pal, includeLists = true)
+        refreshHaze()
         showTab(Tab.HOME, animate = false)
         showTimeGreeting()
         showFirstTip()
@@ -1056,7 +1058,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun restoreTabBackground(screen: ViewGroup) {
         if (screen === screenHome) applyHomeOverrides()
-        else screen.setBackgroundColor(pal.bg)
+        else Painter.paintBg(screen, pal)
     }
 
     /**
@@ -3331,12 +3333,15 @@ class MainActivity : AppCompatActivity() {
         lightNav = barsPlan.lightNav
         if (wallOnTop != themeNavClear && !isTakeoverActive) {
             themeNavClear = wallOnTop
-            window.navigationBarColor = if (barsPlan.navTransparent) android.graphics.Color.TRANSPARENT else pal.bg
+            window.navigationBarColor =
+                if (barsPlan.navTransparent || HazeBackdrop.active) android.graphics.Color.TRANSPARENT else pal.bg
         }
         // 5.5.2 (39): no grey scrim over the wallpaper behind 3-button nav; back to normal elsewhere
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && barsPlan.navContrastEnforced != themeNavContrast) {
-            themeNavContrast = barsPlan.navContrastEnforced
-            window.isNavigationBarContrastEnforced = barsPlan.navContrastEnforced
+        // (6.8.0 (71): none over Haze either, its own scrim keeps the icons readable)
+        val navContrast = barsPlan.navContrastEnforced && !HazeBackdrop.active
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && navContrast != themeNavContrast) {
+            themeNavContrast = navContrast
+            window.isNavigationBarContrastEnforced = navContrast
         }
         // v4.9.3: during the top artist takeover the bars follow the photo
         if (isTakeoverActive && takeoverT >= 0.5f && tab == Tab.HOME && !isArtistOpen && !isShelfOpen &&
@@ -5296,7 +5301,8 @@ class MainActivity : AppCompatActivity() {
         npLyric.setCovered(fsLyrics.isShowing && FullscreenLyricsLook.nowPlayingAlpha(fsLyrics.mix) <= 0f)
         val k = fsLyrics.backdropMix
         val p = pal
-        window.navigationBarColor = (p.bg and 0x00FFFFFF) or (((1f - k) * 255f + 0.5f).toInt().coerceIn(0, 255) shl 24)
+        window.navigationBarColor = if (HazeBackdrop.active) android.graphics.Color.TRANSPARENT
+            else (p.bg and 0x00FFFFFF) or (((1f - k) * 255f + 0.5f).toInt().coerceIn(0, 255) shl 24)
         if (::statusCover.isInitialized) statusCover.alpha = 1f - k
         updateSystemBars()
     }
@@ -5488,7 +5494,7 @@ class MainActivity : AppCompatActivity() {
                 Painter.paint(npTitle, pal)
                 Painter.paint(npArtist, pal)
                 Painter.paint(npControls.like, pal)
-                screenNowPlaying.setBackgroundColor(pal.bg)
+                Painter.paintBg(screenNowPlaying, pal)
             },
             npBackground = { pal.bg },
             onLock = { haptic(screenNowPlaying, HapticFeedbackConstants.CLOCK_TICK) }
@@ -5948,6 +5954,7 @@ class MainActivity : AppCompatActivity() {
         // Theme: the app's own Light / Dark setting
         option(R.id.set_theme_light) { setThemeMode(AppPreferences.THEME_LIGHT) }
         option(R.id.set_theme_dark) { setThemeMode(AppPreferences.THEME_DARK) }
+        option(R.id.set_theme_haze) { setThemeMode(AppPreferences.THEME_HAZE) }
         option(R.id.set_colours_dynamic) { setColourMode(AppPreferences.COLOURS_DYNAMIC) }
         option(R.id.set_colours_default) { setColourMode(AppPreferences.COLOURS_DEFAULT) }
 
@@ -6144,7 +6151,35 @@ class MainActivity : AppCompatActivity() {
     private fun setThemeMode(mode: Int) {
         if (app.preferences.themeMode == mode) return
         app.preferences.themeMode = mode
+        // 6.8.0 (71): Haze turns the shared blurred cover on (or off) before the colours fade
+        refreshHaze()
         animatePaletteTo(appPal())
+    }
+
+    /** 6.8.0 (71): the Colours row and its Haze note, faded in or out. */
+    private fun renderColoursRow(row: HazeLook.ColoursRow) {
+        val box = findViewById<View>(R.id.settings_colours_box)
+        val note = findViewById<View>(R.id.set_haze_note)
+        val alpha = HazeLook.coloursAlpha(row.enabled)
+        for (id in intArrayOf(R.id.set_colours_dynamic, R.id.set_colours_default)) {
+            findViewById<View>(id).isEnabled = row.enabled
+        }
+        val animate = animationsOn() && box.isShown
+        if (box.alpha != alpha) {
+            box.animate().cancel()
+            if (animate) box.animate().alpha(alpha).setDuration(220L).start() else box.alpha = alpha
+        }
+        val wantNote = if (row.showNote) View.VISIBLE else View.GONE
+        if (note.visibility != wantNote) {
+            note.animate().cancel()
+            note.visibility = wantNote
+            if (row.showNote && animate) {
+                note.alpha = 0f
+                note.animate().alpha(1f).setDuration(220L).start()
+            } else {
+                note.alpha = 1f
+            }
+        }
     }
 
     /** v4.9.4: Dynamic / Default colours, applied straight away with the usual colour fade. */
@@ -6160,10 +6195,15 @@ class MainActivity : AppCompatActivity() {
         fun sel(id: Int, on: Boolean) {
             findViewById<View>(id).isSelected = on
         }
-        sel(R.id.set_theme_light, !p.isDarkTheme)
-        sel(R.id.set_theme_dark, p.isDarkTheme)
-        sel(R.id.set_colours_dynamic, p.isDynamicColours)
-        sel(R.id.set_colours_default, !p.isDynamicColours)
+        sel(R.id.set_theme_light, p.themeMode == AppPreferences.THEME_LIGHT)
+        sel(R.id.set_theme_dark, p.themeMode == AppPreferences.THEME_DARK)
+        sel(R.id.set_theme_haze, p.themeMode == AppPreferences.THEME_HAZE)
+        // 6.8.0 (71): under Haze the Colours row fades out and can't be tapped; the saved choice
+        // stays lit underneath, so Light or Dark bring it back as it was
+        val colours = HazeLook.coloursRow(p.themeMode, p.colourMode)
+        sel(R.id.set_colours_dynamic, colours.dynamicSelected)
+        sel(R.id.set_colours_default, !colours.dynamicSelected)
+        renderColoursRow(colours)
         sel(R.id.set_swipe_skip, p.gestureSwipeAction == AppPreferences.GESTURE_SWIPE_SKIP)
         sel(R.id.set_swipe_off, p.gestureSwipeAction == AppPreferences.GESTURE_DISABLED)
         sel(R.id.set_dtap_play, p.gestureDoubleTapAction == AppPreferences.GESTURE_DTAP_PLAY_PAUSE)
@@ -6464,6 +6504,7 @@ class MainActivity : AppCompatActivity() {
         lastErrorShown = error
 
         setPaletteSeed(state.accentColor ?: 0)
+        onHazeTrack(track.thumbnailUrl)
     }
 
     private fun renderLikes(likedIds: Set<String>) {
@@ -7141,7 +7182,8 @@ class MainActivity : AppCompatActivity() {
         // Home back in the song's colours exactly (5.5.2: or the festival wallpaper's)
         Painter.paint(screenHome, pal)
         applyHomeOverrides()
-        window.navigationBarColor = if (themeWallpaperOnTop()) android.graphics.Color.TRANSPARENT else pal.bg
+        window.navigationBarColor =
+            if (themeWallpaperOnTop() || HazeBackdrop.active) android.graphics.Color.TRANSPARENT else pal.bg
         themeNavClear = themeWallpaperOnTop()
         updateSystemBars()
         val ours = takeoverLinesShown
@@ -7328,7 +7370,7 @@ class MainActivity : AppCompatActivity() {
         }
         val tp = themeHomePal
         if (tp == null) {
-            screenHome.setBackgroundColor(pal.bg)
+            Painter.paintBg(screenHome, pal)
             return
         }
         Painter.paint(screenHome, tp)
@@ -8683,10 +8725,110 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** v4.9.4: the app palette: song colours in Dynamic, black and white in Default. */
-    private fun appPal(): Pal = Pal.build(
-        ColourMode.seedFor(paletteSeed, app.preferences.isDynamicColours, festivalSeed),
-        app.preferences.isDarkTheme
-    )
+    private fun appPal(): Pal = if (app.preferences.isHazeTheme) {
+        // 6.8.0 (71): Haze: the ink and base from the blurred cover; the Dark look with no cover
+        hazeLook?.pal ?: HazeLook.NO_COVER_PAL
+    } else {
+        Pal.build(
+            ColourMode.seedFor(paletteSeed, app.preferences.isDynamicColours, festivalSeed),
+            app.preferences.isDarkTheme
+        )
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // 6.8.0 (71): Haze theme. One small blurred copy of the cover per song (HazeBackdrop.build,
+    // off the main thread), shared by every screen's background, crossfading over half a second.
+    // ------------------------------------------------------------------------------------------
+
+    // Kept on HazeBackdrop (not the activity) so a recreated activity starts on the same look
+    private var hazeLook: HazeLook.Look?
+        get() = HazeBackdrop.look
+        set(v) { HazeBackdrop.look = v }
+    private var hazeKey: String?
+        get() = HazeBackdrop.key
+        set(v) { HazeBackdrop.key = v }
+    private var hazeJob: kotlinx.coroutines.Job? = null
+    private var hazeFade: ValueAnimator? = null
+
+    /** Haze on or off from the setting; with nothing playing, the last played song's cover. */
+    private fun refreshHaze() {
+        val on = app.preferences.isHazeTheme
+        HazeBackdrop.active = on
+        if (!on) {
+            hazeJob?.cancel()
+            hazeFade?.cancel()
+            hazeKey = null
+            hazeLook = null
+            HazeBackdrop.clear()
+            return
+        }
+        val playing = app.playbackController.uiState.value.currentTrack?.thumbnailUrl
+        if (!playing.isNullOrBlank()) {
+            loadHaze(HazeLook.source(playing, null))
+            return
+        }
+        lifecycleScope.launch {
+            val last = runCatching { app.database.getRecentTracks(1).firstOrNull()?.thumbnailUrl }.getOrNull()
+            if (!app.preferences.isHazeTheme) return@launch
+            val now = app.playbackController.uiState.value.currentTrack?.thumbnailUrl
+            loadHaze(HazeLook.source(now, last))
+        }
+    }
+
+    /** The playing song changed (or its cover arrived): its haze, once per cover. */
+    private fun onHazeTrack(thumbnailUrl: String?) {
+        if (!HazeBackdrop.active || thumbnailUrl.isNullOrBlank()) return
+        loadHaze(HazeLook.Source.Cover(thumbnailUrl))
+    }
+
+    private fun loadHaze(src: HazeLook.Source) {
+        val url = (src as? HazeLook.Source.Cover)?.url
+        val key = url ?: HAZE_KEY_DARK
+        if (key == hazeKey) return
+        hazeKey = key
+        hazeJob?.cancel()
+        if (url == null) {
+            hazeLook = null
+            showHaze(null)
+            return
+        }
+        val wasLight = hazeLook?.lightInk
+        hazeJob = lifecycleScope.launch {
+            val cover = runCatching { app.artworkPipeline.loadBitmap(url, HAZE_COVER_PX) }.getOrNull()
+            val built = cover?.let { c ->
+                withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    runCatching { HazeBackdrop.build(c, wasLight) }.getOrNull()
+                }
+            }
+            if (hazeKey != key || !app.preferences.isHazeTheme) return@launch
+            if (built == null) {
+                // The cover wouldn't load: keep the haze on screen, or the Dark look with none yet
+                if (!HazeBackdrop.hasCover) showHaze(null)
+                hazeKey = null
+                return@launch
+            }
+            hazeLook = built.second
+            showHaze(built.first)
+        }
+    }
+
+    private fun showHaze(bmp: android.graphics.Bitmap?) {
+        HazeBackdrop.emptyColor = HazeLook.NO_COVER_PAL.bg
+        hazeFade?.cancel()
+        hazeFade = null
+        HazeBackdrop.push(bmp)
+        if (!animationsOn() || !root.isShown) {
+            HazeBackdrop.setFade(1f)
+        } else {
+            hazeFade = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = HazeBackdrop.FADE_MS
+                interpolator = DecelerateInterpolator(1.5f)
+                addUpdateListener { HazeBackdrop.setFade(it.animatedValue as Float) }
+                start()
+            }
+        }
+        animatePaletteTo(appPal())
+    }
 
     /**
      * The one shared colour fade (v4.9.9: eased, with text that crosses over at the midpoint).
@@ -8741,7 +8883,8 @@ class MainActivity : AppCompatActivity() {
         // v4.6.1: the status bar is see-through; the root's background (p.bg) shows behind it,
         // so it looks the same as before everywhere except on the Artist page
         window.statusBarColor = android.graphics.Color.TRANSPARENT
-        window.navigationBarColor = p.bg
+        // 6.8.0 (71): under Haze the nav bar is see-through, the blurred cover runs behind it
+        window.navigationBarColor = if (HazeBackdrop.active) android.graphics.Color.TRANSPARENT else p.bg
         themeNavClear = false // 5.5.2: updateSystemBars clears it again over the wallpaper
         // v4.9.3: a takeover on Home keeps its colours through a song change
         // (5.5.2: so does the festival wallpaper's Home)
@@ -12257,6 +12400,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        /** 6.8.0 (71): Haze's key for "no cover, the Dark look", and the cover size it reads. */
+        private const val HAZE_KEY_DARK = "haze:dark"
+        private const val HAZE_COVER_PX = 160
         /** 6.1.1: how long a note with an action (Undo) stays up. */
         private const val NOTE_ACTION_MS = 4000L
         /** 6.6.0: songs listed in the "Shared with you" pop-up for a playlist. */

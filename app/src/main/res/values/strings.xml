@@ -103,6 +103,8 @@
     <string name="settings_theme">Theme</string>
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
+    <string name="theme_haze">Haze</string>
+    <string name="haze_note">Haze takes its look from the cover.</string>
     <string name="settings_colours">Colours</string>
     <string name="colours_dynamic">Dynamic</string>
     <string name="colours_default">Default</string>

@@ -27,7 +27,7 @@
         android:clickable="true"
         android:focusable="false"
         android:orientation="vertical"
-        android:tag="fill:bg">
+        android:tag="fill:bg haze:sheet">
 
         <!-- The top: drag it to resize or close the chat -->
         <LinearLayout

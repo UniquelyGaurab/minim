@@ -308,28 +308,49 @@
                     android:id="@+id/set_theme_dark"
                     style="@style/MinimSet.Seg"
                     android:text="@string/theme_dark" />
+
+                <TextView
+                    android:id="@+id/set_theme_haze"
+                    style="@style/MinimSet.Seg"
+                    android:text="@string/theme_haze" />
             </com.minim.music.ui.SegmentRow>
 
-            <TextView
-                style="@style/MinimSet.Label"
-                android:text="@string/settings_colours" />
+            <!-- 6.8.0 (71): fades out and can't be tapped under Haze, which takes its look from the cover -->
+            <LinearLayout
+                android:id="@+id/settings_colours_box"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/MinimSet.Label"
+                    android:text="@string/settings_colours" />
+
+                <TextView
+                    style="@style/MinimSet.Hint"
+                    android:text="@string/colours_hint" />
+
+                <com.minim.music.ui.SegmentRow
+                    android:id="@+id/set_colours_row"
+                    style="@style/MinimSet.Segments">
+
+                    <TextView
+                        android:id="@+id/set_colours_dynamic"
+                        style="@style/MinimSet.Seg"
+                        android:text="@string/colours_dynamic" />
+
+                    <TextView
+                        android:id="@+id/set_colours_default"
+                        style="@style/MinimSet.Seg"
+                        android:text="@string/colours_default" />
+                </com.minim.music.ui.SegmentRow>
+            </LinearLayout>
 
             <TextView
+                android:id="@+id/set_haze_note"
                 style="@style/MinimSet.Hint"
-                android:text="@string/colours_hint" />
-
-            <com.minim.music.ui.SegmentRow style="@style/MinimSet.Segments">
-
-                <TextView
-                    android:id="@+id/set_colours_dynamic"
-                    style="@style/MinimSet.Seg"
-                    android:text="@string/colours_dynamic" />
-
-                <TextView
-                    android:id="@+id/set_colours_default"
-                    style="@style/MinimSet.Seg"
-                    android:text="@string/colours_default" />
-            </com.minim.music.ui.SegmentRow>
+                android:text="@string/haze_note"
+                android:visibility="gone" />
         </LinearLayout>
 
         <!-- Sound -->

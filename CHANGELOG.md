@@ -28,6 +28,11 @@ Playlists get a cover, Play and Shuffle buttons, search, sorting and your own co
 
 **Albums and Liked Songs** get the cover header with Play, Shuffle and search. Liked Songs keeps its Songs, Tapes and Artists row.
 
+**Haze theme (build 71)**
+- **Settings > Theme is now Light, Dark or Haze.** Haze puts the playing song's cover, blurred, behind every screen, Now Playing and the sheets included. When the song changes, the background crossfades over half a second
+- **Text and icons go white or near-black** depending on how bright the cover is, with a faint shade underneath so mid-tone covers stay readable. Cards and soft pills turn frosted, and the status and nav bar icons follow along
+- **With nothing playing** it uses the last song you played, or the Dark look if there's none yet. Colours (Dynamic/Default) fades out under Haze and comes back as you left it
+
 ## 6.7.0 (test build, not released yet)
 
 Lyrics cards can now move, with the song playing under them.

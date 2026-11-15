@@ -16,15 +16,22 @@ class AppPreferences(context: Context) {
         if (prefs.contains(KEY_V6_NOTICE_DISMISSED)) prefs.edit().remove(KEY_V6_NOTICE_DISMISSED).apply()
     }
 
-    /** The app's own Light/Dark setting (it does not follow the phone's dark mode). */
+    /**
+     * The app's own Light/Dark/Haze setting (it does not follow the phone's dark mode).
+     * 6.8.0 (71): Haze is stored in the same key, so builds up to 70 keep their Light or Dark.
+     */
     var themeMode: Int
-        get() = if (prefs.getInt(KEY_THEME_MODE, THEME_LIGHT) == THEME_DARK) THEME_DARK else THEME_LIGHT
+        get() = validTheme(prefs.getInt(KEY_THEME_MODE, THEME_LIGHT))
         set(value) {
-            prefs.edit().putInt(KEY_THEME_MODE, if (value == THEME_DARK) THEME_DARK else THEME_LIGHT).apply()
+            prefs.edit().putInt(KEY_THEME_MODE, validTheme(value)).apply()
             applySavedTheme()
         }
 
-    val isDarkTheme: Boolean get() = themeMode == THEME_DARK
+    /** Dark, or Haze (whose fallback and anything it doesn't colour use the dark look). */
+    val isDarkTheme: Boolean get() = themeMode != THEME_LIGHT
+
+    /** 6.8.0 (71): the blurred cover behind the whole app. */
+    val isHazeTheme: Boolean get() = themeMode == THEME_HAZE
 
     /** v4.9.4: Dynamic (colours from the playing song's cover) or Default (black and white always). */
     var colourMode: Int
@@ -339,6 +346,9 @@ class AppPreferences(context: Context) {
 
         const val THEME_LIGHT = 1
         const val THEME_DARK = 2
+        const val THEME_HAZE = 3
+
+        fun validTheme(v: Int): Int = if (v == THEME_DARK || v == THEME_HAZE) v else THEME_LIGHT
 
         const val GESTURE_DISABLED = "DISABLED"
         const val GESTURE_SWIPE_SKIP = "SWIPE_SKIP"

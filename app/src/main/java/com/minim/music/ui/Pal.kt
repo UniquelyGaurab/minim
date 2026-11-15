@@ -101,10 +101,43 @@ object Painter {
         else -> p.fg
     }
 
+    /** 6.8.0 (71): a sheet panel's tag token; under Haze it's frosted haze instead of a solid fill. */
+    const val HAZE_SHEET = "haze:sheet"
+
+    /** A screen background: the colour, or under Haze the shared blurred cover. */
+    fun paintBg(view: View, p: Pal) {
+        if (HazeBackdrop.active) {
+            val d = view.background
+            if (d !is HazeDrawable || d.sheet) view.background = HazeDrawable()
+        } else {
+            view.setBackgroundColor(p.bg)
+        }
+    }
+
+    /** True when it handled [view] (a sheet panel under Haze, or one coming back from it). */
+    private fun paintSheet(view: View, tag: String, p: Pal): Boolean {
+        if (!tag.contains(HAZE_SHEET)) return false
+        val d = view.background
+        if (HazeBackdrop.active) {
+            val frost = HazeLook.frost(p.fg)
+            if (d is HazeDrawable && d.sheet) {
+                if (d.frost != frost) { d.frost = frost; d.invalidateSelf() }
+            } else {
+                view.backgroundTintList = null
+                view.background = HazeDrawable(view.resources.displayMetrics.density * 28f, frost)
+            }
+            return true
+        }
+        if (d is HazeDrawable) view.setBackgroundResource(R.drawable.shape_sheet)
+        return false
+    }
+
     private fun paintOne(view: View, tag: String, p: Pal) {
+        val sheet = paintSheet(view, tag, p)
         for (token in tag.split(' ')) {
             when {
-                token == "bg" -> view.setBackgroundColor(p.bg)
+                token == "bg" -> paintBg(view, p)
+                sheet && token.startsWith("fill:") -> Unit
                 token == "opt" -> {
                     val on = view.isSelected
                     view.setBackgroundResource(if (on) R.drawable.shape_pill else R.drawable.shape_pill_outline)
