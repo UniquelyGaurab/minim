@@ -13,6 +13,12 @@ object FullscreenLyricsLook {
     const val WHITE_INK: Int = -0x1          // 0xFFFFFFFF
     const val DARK_INK: Int = -0xededee      // 0xFF121212
 
+    /** 6.7.0: padding above and below a lyric row; picking lines for a card gives each row more room. */
+    const val SELECT_EXTRA_PAD_DP = 7f
+
+    fun rowPadDp(selecting: Boolean): Float =
+        FullscreenLyricsAdapter.LINE_PAD_DP + if (selecting) SELECT_EXTRA_PAD_DP else 0f
+
     /**
      * Same rule as the Artist page photo and the Home takeover ([MainActivity.isAreaLight]):
      * an average luminance above 0.40 is a light picture, so the text goes dark.

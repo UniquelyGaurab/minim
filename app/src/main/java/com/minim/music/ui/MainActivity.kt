@@ -77,6 +77,7 @@ import com.minim.music.ui.adapter.SearchResultsAdapter
 import com.minim.music.ui.adapter.TrackAdapter
 import com.minim.music.util.ArtworkPipeline
 import kotlinx.coroutines.Job
+import java.io.File
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -7650,6 +7651,11 @@ class MainActivity : AppCompatActivity() {
     private val storagePermission = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
     ) { granted ->
+        pendingCardSave?.let { save ->
+            pendingCardSave = null
+            if (granted) save() else showNote(getString(R.string.recap_save_needs_permission))
+            return@registerForActivityResult
+        }
         val pending = pendingRecapSave
         pendingRecapSave = null
         if (pending == null) return@registerForActivityResult
@@ -10927,11 +10933,16 @@ class MainActivity : AppCompatActivity() {
     /** 6.6.0: the lyrics card being drawn for the open share sheet. */
     private var lyricsCardJob: Job? = null
 
+    /** 6.7.0: Save to gallery waiting for the Android 9 storage permission. */
+    private var pendingCardSave: (() -> Unit)? = null
+
     /**
-     * 6.6.0: the Share pill in full-screen lyrics' select mode. Opens the share sheet with a
-     * preview of the lyrics card, Original / Translation / Both when a translation is there, then
-     * the usual "Share with card" / "Link only". The link starts at the first picked line (synced
-     * lyrics only) and carries a checksum of the lines, never the words themselves.
+     * The Share pill in full-screen lyrics' select mode. 6.7.0: one sheet with everything in it:
+     * a live preview at the top (the image, or the animated card playing, with sound when Sound is
+     * On), then Style (Static / Animated), Sound (On / Off, Animated only), Lyrics (Original /
+     * Translation / Both, when there is a translation) and Background (Cover colours / Blurred
+     * cover); then Share card, Link only and Save to gallery. The last choices are remembered.
+     * The link starts at the first picked line (synced lyrics only), as in 6.6.0.
      */
     private fun showLyricsShare(share: FullscreenLyrics.LyricShare) {
         val data = share.data
@@ -10955,78 +10966,390 @@ class MainActivity : AppCompatActivity() {
         val text = com.minim.music.data.share.ShareLinks.lyricShareText(sharer, track.title, texts.size, link)
         val coverUrl = track.thumbnailUrl.ifBlank { com.minim.music.data.share.SharedSave.coverUrl(track.id) }
         val chooser = getString(R.string.share_chooser)
+        val synced = data.isSynced
+        val plan = com.minim.music.data.share.LyricsVideoPlan.plan(
+            data.lines, share.first, share.last, synced, data.offsetMs, app.preferences.lyricsOffsetMs
+        )
 
+        val shareDir = File(cacheDir, "share").apply { mkdirs() }
+        // a new picking: the videos of the last one are no use
+        shareDir.listFiles()?.forEach { if (it.name.startsWith("lyrics-") && it.name.endsWith(".mp4")) it.delete() }
+
+        var opts = app.preferences.lyricsCardOptions
         var lines = texts.map { LyricsCard.Line(it) }
-        var mode = LyricsCard.Mode.ORIGINAL
         var art: Pair<android.graphics.Bitmap?, Pal>? = null
-        val cards = HashMap<LyricsCard.Mode, android.graphics.Bitmap>()
-        var preview: ImageView? = null
-        var modes: SegmentRow? = null
+        val cards = HashMap<String, android.graphics.Bitmap>()
+        val silent = HashMap<String, File>()
+        val withSound = HashMap<String, File>()
+        val videoJobs = HashMap<String, Job>()
+        val combineJobs = HashMap<String, Job>()
+        var videoFailed = HashSet<String>()
+        var progress = 0f
+        var audioStatus = com.minim.music.data.share.LyricsCardAudio.Status.IDLE
+        var audioClip: File? = null
+        var audioJob: Job? = null
+        var skipSound = false
+        var pendingShare = false
+        var cappedNoted = false
+        var sheetView: View? = null
+        var player: androidx.media3.exoplayer.ExoPlayer? = null
+        var playing: File? = null
+        var pausedMain = false
+        var shareRow: View? = null
+        var saveRow: View? = null
 
-        fun card(m: LyricsCard.Mode): android.graphics.Bitmap {
+        fun hasTr() = LyricsCard.hasTranslation(lines)
+        fun eff() = com.minim.music.data.share.LyricsCardRules.effective(opts, synced, hasTr())
+        fun keyOf(e: com.minim.music.data.share.LyricsCardOptions) = "${e.lyrics.name.lowercase()}-${e.background.name.lowercase()}"
+        fun soundOn(e: com.minim.music.data.share.LyricsCardOptions) = e.sound && !skipSound
+        fun previewState(): com.minim.music.data.share.LyricsCardAudio.Preview {
+            val e = eff()
+            val k = keyOf(e)
+            val ready = if (soundOn(e)) withSound[k] != null else silent[k] != null
+            return com.minim.music.data.share.LyricsCardAudio.preview(e, ready, audioStatus, skipSound)
+        }
+        /** The file the Share / Save buttons use for an animated card, when it's ready. */
+        fun videoFile(): File? {
+            val e = eff()
+            val k = keyOf(e)
+            return if (soundOn(e)) withSound[k] else silent[k]
+        }
+
+        fun card(e: com.minim.music.data.share.LyricsCardOptions): android.graphics.Bitmap {
             val a = art ?: (null to ShareCard.palette(0))
             val l = lines
-            synchronized(cards) { cards[m] }?.let { return it }
-            val bmp = LyricsCard.render(this, a.second, l, m, track.title, track.artist, sharer, a.first)
-            synchronized(cards) { if (lines === l) cards[m] = bmp }
+            val k = keyOf(e)
+            synchronized(cards) { cards[k] }?.let { return it }
+            val bmp = LyricsCard.render(this, a.second, l, e.lyrics, track.title, track.artist, sharer, a.first, e.background)
+            synchronized(cards) { if (lines === l) cards[k] = bmp }
             return bmp
         }
+
+        fun stopPlayer() {
+            player?.let { runCatching { it.stop(); it.release() } }
+            player = null
+            playing = null
+        }
+        fun resumeMain() {
+            if (pausedMain) {
+                pausedMain = false
+                app.playbackController.togglePlayPause()
+            }
+        }
+
+        lateinit var refresh: () -> Unit
+
+        fun shareVideo(file: File) {
+            try {
+                val uri = ShareCardFiles.uriFor(this, file)
+                startActivity(ShareCardFiles.intent(uri, text, track.title, chooser, "video/mp4"))
+            } catch (_: Exception) {
+                shareText(text, track.title, chooser)
+            }
+        }
+
+        fun startAudio() {
+            if (audioJob?.isActive == true || audioStatus == com.minim.music.data.share.LyricsCardAudio.Status.READY) return
+            val p = plan ?: return
+            audioStatus = com.minim.music.data.share.LyricsCardAudio.Status.LOADING
+            audioJob = lifecycleScope.launch {
+                val clip = File(File(cacheDir, "card_audio").apply { mkdirs() }, "lyrics-clip.m4a")
+                val ok = try {
+                    if (isTape) throw java.io.IOException("tape")
+                    val src = app.cardAudio.fileFor(track.id)
+                    LyricsVideo.makeAudioClip(src, p.audioStartMs, p.audioMs, p.totalMs, clip)
+                    clip.length() > 0
+                } catch (c: kotlinx.coroutines.CancellationException) {
+                    throw c
+                } catch (_: Throwable) {
+                    false
+                }
+                audioClip = if (ok) clip else null
+                audioStatus = if (ok) com.minim.music.data.share.LyricsCardAudio.Status.READY
+                else com.minim.music.data.share.LyricsCardAudio.Status.FAILED
+                refresh()
+            }
+        }
+
+        fun startVideo(e: com.minim.music.data.share.LyricsCardOptions) {
+            val p = plan ?: return
+            val a = art ?: return
+            val k = keyOf(e)
+            if (silent[k] != null || videoJobs[k]?.isActive == true || k in videoFailed) return
+            // one video at a time: the newest choice wins
+            videoJobs.values.forEach { it.cancel() }
+            progress = 0f
+            val l = lines
+            videoJobs[k] = lifecycleScope.launch {
+                val out = File(shareDir, "lyrics-$k.mp4")
+                val scene = withContext(Dispatchers.Default) {
+                    LyricsCard.Scene(
+                        this@MainActivity, a.second, l, e.lyrics, track.title, track.artist, sharer, a.first,
+                        e.background, video = true
+                    )
+                }
+                val ok = try {
+                    LyricsVideo.renderVideo(scene, p, LyricsCard.timings(p, picked), out) { f ->
+                        runOnUiThread {
+                            progress = f
+                            sheetView?.findViewById<ProgressRing>(R.id.lyrics_card_ring)?.setProgress(f)
+                        }
+                    }
+                    out.length() > 0
+                } catch (c: kotlinx.coroutines.CancellationException) {
+                    out.delete()
+                    throw c
+                } catch (_: Throwable) {
+                    false
+                } finally {
+                    scene.recycle()
+                }
+                if (lines !== l) return@launch
+                if (ok) silent[k] = out else {
+                    videoFailed.add(k)
+                    showNote(getString(R.string.lyrics_card_video_failed))
+                }
+                refresh()
+            }
+        }
+
+        fun startCombine(e: com.minim.music.data.share.LyricsCardOptions) {
+            val k = keyOf(e)
+            val v = silent[k] ?: return
+            val au = audioClip ?: return
+            if (withSound[k] != null || combineJobs[k]?.isActive == true) return
+            combineJobs[k] = lifecycleScope.launch {
+                val out = File(shareDir, "lyrics-$k-sound.mp4")
+                val ok = try {
+                    LyricsVideo.combine(v, au, out)
+                    out.length() > 0
+                } catch (c: kotlinx.coroutines.CancellationException) {
+                    out.delete()
+                    throw c
+                } catch (_: Throwable) {
+                    false
+                }
+                if (ok) withSound[k] = out else {
+                    audioStatus = com.minim.music.data.share.LyricsCardAudio.Status.FAILED
+                }
+                refresh()
+            }
+        }
+
+        fun play(file: File, sound: Boolean) {
+            val v = sheetView ?: return
+            val tv = v.findViewById<android.view.TextureView>(R.id.lyrics_card_video)
+            if (playing != file) {
+                stopPlayer()
+                val pl = androidx.media3.exoplayer.ExoPlayer.Builder(this)
+                    // no audio focus: the song is paused below while the preview has sound
+                    .setAudioAttributes(
+                        androidx.media3.common.AudioAttributes.Builder()
+                            .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                            .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC).build(),
+                        false
+                    )
+                    .build()
+                pl.setVideoTextureView(tv)
+                pl.repeatMode = androidx.media3.common.Player.REPEAT_MODE_ONE
+                pl.setMediaItem(androidx.media3.common.MediaItem.fromUri(android.net.Uri.fromFile(file)))
+                pl.prepare()
+                pl.playWhenReady = true
+                player = pl
+                playing = file
+            }
+            player?.volume = if (sound) 1f else 0f
+            if (sound && app.playbackController.uiState.value.isPlaying) {
+                app.playbackController.pause()
+                pausedMain = true
+            }
+            tv.visibility = View.VISIBLE
+        }
+
         fun showPreview() {
-            val iv = preview ?: return
+            val v = sheetView ?: return
+            val iv = v.findViewById<ImageView>(R.id.lyrics_card_preview)
+            val tv = v.findViewById<View>(R.id.lyrics_card_video)
+            val making = v.findViewById<View>(R.id.lyrics_card_making)
+            val failed = v.findViewById<View>(R.id.lyrics_card_audio_failed)
+            val ring = v.findViewById<ProgressRing>(R.id.lyrics_card_ring)
             if (art == null) return
-            val m = mode
+            val e = eff()
+            val state = previewState()
+            making.visibility = if (state == com.minim.music.data.share.LyricsCardAudio.Preview.RENDERING) View.VISIBLE else View.GONE
+            failed.visibility = if (state == com.minim.music.data.share.LyricsCardAudio.Preview.AUDIO_FAILED) View.VISIBLE else View.GONE
+            ring.setColor(android.graphics.Color.WHITE)
+            ring.setProgress(if (silent[keyOf(e)] != null) 0f else progress)
+            val ready = com.minim.music.data.share.LyricsCardAudio.ready(state)
+            shareRow?.alpha = if (ready) 1f else 0.45f
+            saveRow?.alpha = if (ready) 1f else 0.45f
+            when (state) {
+                com.minim.music.data.share.LyricsCardAudio.Preview.VIDEO_SILENT,
+                com.minim.music.data.share.LyricsCardAudio.Preview.VIDEO_SOUND -> {
+                    val f = videoFile() ?: return
+                    play(f, state == com.minim.music.data.share.LyricsCardAudio.Preview.VIDEO_SOUND)
+                    if (pendingShare) {
+                        pendingShare = false
+                        closeSheet { shareVideo(f) }
+                    }
+                    return
+                }
+                else -> {
+                    stopPlayer()
+                    tv.visibility = View.INVISIBLE
+                    resumeMain()
+                }
+            }
+            // the still card: the image itself, or what the video looks like while it's made
             lifecycleScope.launch {
-                val bmp = withContext(Dispatchers.Default) { runCatching { card(m) }.getOrNull() } ?: return@launch
-                if (preview !== iv || mode != m) return@launch
+                val bmp = withContext(Dispatchers.Default) { runCatching { card(e) }.getOrNull() } ?: return@launch
+                if (sheetView !== v || keyOf(eff()) != keyOf(e)) return@launch
                 iv.setImageBitmap(bmp)
                 if (iv.alpha < 1f) {
                     if (animationsOn()) iv.animate().alpha(1f).setDuration(180L).start() else iv.alpha = 1f
                 }
             }
         }
-        fun renderModes() {
-            val row = modes ?: return
-            row.visibility = if (LyricsCard.hasTranslation(lines)) View.VISIBLE else View.GONE
-            row.findViewById<View>(R.id.lyrics_card_original).isSelected = mode == LyricsCard.Mode.ORIGINAL
-            row.findViewById<View>(R.id.lyrics_card_translation).isSelected = mode == LyricsCard.Mode.TRANSLATION
-            row.findViewById<View>(R.id.lyrics_card_both).isSelected = mode == LyricsCard.Mode.BOTH
-            row.setColors(pal.fg, pal.bg)
+
+        fun renderOptions() {
+            val v = sheetView ?: return
+            val e = eff()
+            val shown = com.minim.music.data.share.LyricsCardRules.shown(opts, synced, hasTr())
+            val styles = v.findViewById<SegmentRow>(R.id.lyrics_card_styles)
+            val animatedPill = v.findViewById<View>(R.id.lyrics_card_animated)
+            v.findViewById<View>(R.id.lyrics_card_static).isSelected = !e.animated
+            animatedPill.isSelected = e.animated
+            animatedPill.isEnabled = shown.animatedEnabled
+            animatedPill.alpha = if (shown.animatedEnabled) 1f else 0.4f
+            v.findViewById<View>(R.id.lyrics_card_animated_note).visibility = if (shown.animatedNote) View.VISIBLE else View.GONE
+            v.findViewById<View>(R.id.lyrics_card_sound_row).visibility = if (shown.soundRow) View.VISIBLE else View.GONE
+            v.findViewById<View>(R.id.lyrics_card_sound_on).isSelected = opts.sound
+            v.findViewById<View>(R.id.lyrics_card_sound_off).isSelected = !opts.sound
+            v.findViewById<View>(R.id.lyrics_card_lyrics_row).visibility = if (shown.lyricsRow) View.VISIBLE else View.GONE
+            v.findViewById<View>(R.id.lyrics_card_original).isSelected = e.lyrics == com.minim.music.data.share.LyricsCardOptions.Lyrics.ORIGINAL
+            v.findViewById<View>(R.id.lyrics_card_translation).isSelected = e.lyrics == com.minim.music.data.share.LyricsCardOptions.Lyrics.TRANSLATION
+            v.findViewById<View>(R.id.lyrics_card_both).isSelected = e.lyrics == com.minim.music.data.share.LyricsCardOptions.Lyrics.BOTH
+            v.findViewById<View>(R.id.lyrics_card_bg_colours).isSelected = e.background == com.minim.music.data.share.LyricsCardOptions.Background.COLOURS
+            v.findViewById<View>(R.id.lyrics_card_bg_blur).isSelected = e.background == com.minim.music.data.share.LyricsCardOptions.Background.BLUR
+            listOf(styles, v.findViewById(R.id.lyrics_card_sounds), v.findViewById(R.id.lyrics_card_modes),
+                v.findViewById<SegmentRow>(R.id.lyrics_card_backgrounds)).forEach { it.setColors(pal.fg, pal.bg) }
+        }
+
+        refresh = {
+            if (sheetView != null) {
+                renderOptions()
+                val e = eff()
+                if (e.animated && art != null) {
+                    startVideo(e)
+                    if (soundOn(e)) {
+                        startAudio()
+                        startCombine(e)
+                    }
+                }
+                showPreview()
+            }
+        }
+
+        fun choose(b: View, change: (com.minim.music.data.share.LyricsCardOptions) -> com.minim.music.data.share.LyricsCardOptions) {
+            if (sheetClosing) return
+            val next = change(opts)
+            if (next == opts) return
+            opts = next
+            app.preferences.lyricsCardOptions = next
+            pendingShare = false
+            haptic(b, HapticFeedbackConstants.CLOCK_TICK)
+            if (eff().animated && plan?.capped == true && !cappedNoted) {
+                cappedNoted = true
+                showNote(getString(R.string.lyrics_card_capped))
+            }
+            refresh()
+        }
+
+        fun saveNow() {
+            val e = eff()
+            lifecycleScope.launch {
+                val ok = if (e.animated) {
+                    val f = videoFile()
+                    f != null && LyricsCardGallery.saveVideo(this@MainActivity, f)
+                } else {
+                    val bmp = withContext(Dispatchers.Default) { runCatching { card(e) }.getOrNull() }
+                    bmp != null && LyricsCardGallery.saveImage(this@MainActivity, bmp)
+                }
+                showNote(getString(if (ok) R.string.lyrics_card_saved else R.string.lyrics_card_save_failed))
+            }
         }
 
         lyricsCardJob?.cancel()
         openSheet { box ->
             val v = layoutInflater.inflate(R.layout.sheet_lyrics_card, box, false)
             v.findViewById<View>(R.id.lyrics_card_box).clipToOutline = true
-            preview = v.findViewById(R.id.lyrics_card_preview)
-            modes = v.findViewById(R.id.lyrics_card_modes)
-            listOf(
-                R.id.lyrics_card_original to LyricsCard.Mode.ORIGINAL,
-                R.id.lyrics_card_translation to LyricsCard.Mode.TRANSLATION,
-                R.id.lyrics_card_both to LyricsCard.Mode.BOTH
-            ).forEach { (id, m) ->
-                v.findViewById<View>(id).setOnClickListener { b ->
-                    if (sheetClosing || mode == m) return@setOnClickListener
-                    mode = m
-                    renderModes()
-                    haptic(b, HapticFeedbackConstants.CLOCK_TICK)
-                    showPreview()
-                }
+            sheetView = v
+            v.findViewById<View>(R.id.lyrics_card_static).setOnClickListener { b -> choose(b) { it.copy(animated = false) } }
+            v.findViewById<View>(R.id.lyrics_card_animated).setOnClickListener { b -> choose(b) { it.copy(animated = true) } }
+            v.findViewById<View>(R.id.lyrics_card_sound_on).setOnClickListener { b -> choose(b) { it.copy(sound = true) } }
+            v.findViewById<View>(R.id.lyrics_card_sound_off).setOnClickListener { b -> choose(b) { it.copy(sound = false) } }
+            v.findViewById<View>(R.id.lyrics_card_original).setOnClickListener { b -> choose(b) { it.copy(lyrics = com.minim.music.data.share.LyricsCardOptions.Lyrics.ORIGINAL) } }
+            v.findViewById<View>(R.id.lyrics_card_translation).setOnClickListener { b -> choose(b) { it.copy(lyrics = com.minim.music.data.share.LyricsCardOptions.Lyrics.TRANSLATION) } }
+            v.findViewById<View>(R.id.lyrics_card_both).setOnClickListener { b -> choose(b) { it.copy(lyrics = com.minim.music.data.share.LyricsCardOptions.Lyrics.BOTH) } }
+            v.findViewById<View>(R.id.lyrics_card_bg_colours).setOnClickListener { b -> choose(b) { it.copy(background = com.minim.music.data.share.LyricsCardOptions.Background.COLOURS) } }
+            v.findViewById<View>(R.id.lyrics_card_bg_blur).setOnClickListener { b -> choose(b) { it.copy(background = com.minim.music.data.share.LyricsCardOptions.Background.BLUR) } }
+            v.findViewById<View>(R.id.lyrics_card_no_sound).setOnClickListener { b ->
+                if (sheetClosing) return@setOnClickListener
+                haptic(b, HapticFeedbackConstants.CLOCK_TICK)
+                skipSound = true
+                val f = videoFile()
+                if (f != null) closeSheet { shareVideo(f) } else { pendingShare = true; refresh() }
             }
             box.addView(v)
-            renderModes()
-            sheetAction(box, R.drawable.ic_photo, getString(R.string.share_card), trailing = null) {
-                val m = mode
-                closeSheet { shareLyricsCard(m, { card(it) }, art != null, text, track.title, chooser) }
+            shareRow = sheetAction(box, R.drawable.ic_photo, getString(R.string.lyrics_card_share), trailing = null) {
+                val e = eff()
+                if (e.animated) {
+                    val f = videoFile()
+                    if (f == null) {
+                        if (previewState() != com.minim.music.data.share.LyricsCardAudio.Preview.AUDIO_FAILED) {
+                            showNote(getString(R.string.lyrics_card_making))
+                        }
+                        return@sheetAction
+                    }
+                    closeSheet { shareVideo(f) }
+                } else {
+                    closeSheet { shareLyricsCard(e, { card(it) }, art != null, text, track.title, chooser) }
+                }
             }
             sheetAction(box, R.drawable.ic_open_link, getString(R.string.share_link_only)) {
                 closeSheet { shareText(text, track.title, chooser) }
             }
-            // stop drawing when the sheet goes
+            saveRow = sheetAction(box, R.drawable.ic_save_gallery, getString(R.string.lyrics_card_save)) {
+                if (!com.minim.music.data.share.LyricsCardAudio.ready(previewState())) {
+                    if (previewState() != com.minim.music.data.share.LyricsCardAudio.Preview.AUDIO_FAILED) {
+                        showNote(getString(R.string.lyrics_card_making))
+                    }
+                    return@sheetAction
+                }
+                if (RecapShare.needsPermission(this)) {
+                    pendingCardSave = { saveNow() }
+                    try {
+                        storagePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    } catch (_: Exception) {
+                        pendingCardSave = null
+                        showNote(getString(R.string.lyrics_card_save_failed))
+                    }
+                } else saveNow()
+            }
+            renderOptions()
+            // stop drawing and playing when the sheet goes
             v.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
                 override fun onViewAttachedToWindow(view: View) = Unit
                 override fun onViewDetachedFromWindow(view: View) {
-                    preview = null
-                    modes = null
+                    sheetView = null
+                    shareRow = null
+                    saveRow = null
+                    pendingShare = false
+                    stopPlayer()
+                    resumeMain()
+                    videoJobs.values.forEach { it.cancel() }
+                    combineJobs.values.forEach { it.cancel() }
+                    audioJob?.cancel()
                 }
             })
         }
@@ -11043,19 +11366,18 @@ class MainActivity : AppCompatActivity() {
             if (trans != null) {
                 lines = texts.mapIndexed { i, t -> LyricsCard.Line(t, trans.getOrNull(i)) }
                 synchronized(cards) { cards.clear() }
-                renderModes()
             }
             art = kotlinx.coroutines.withTimeoutOrNull(SHARE_CARD_TIMEOUT_MS) {
                 runCatching { ShareCard.loadArt(app.artworkPipeline, coverUrl) }.getOrNull()
             } ?: (null to ShareCard.palette(0))
-            showPreview()
+            refresh()
         }
     }
 
     /** 6.6.0: share the lyrics card image with [text]; plain text if the card can't be made. */
     private fun shareLyricsCard(
-        mode: LyricsCard.Mode,
-        card: (LyricsCard.Mode) -> android.graphics.Bitmap,
+        options: com.minim.music.data.share.LyricsCardOptions,
+        card: (com.minim.music.data.share.LyricsCardOptions) -> android.graphics.Bitmap,
         artReady: Boolean,
         text: String,
         subject: String,
@@ -11066,7 +11388,7 @@ class MainActivity : AppCompatActivity() {
         shareCardJob = lifecycleScope.launch {
             if (!artReady) lyricsCardJob?.let { kotlinx.coroutines.withTimeoutOrNull(SHARE_CARD_TIMEOUT_MS) { it.join() } }
             val uri = try {
-                val bmp = withContext(Dispatchers.Default) { card(mode) }
+                val bmp = withContext(Dispatchers.Default) { card(options) }
                 ShareCardFiles.write(this@MainActivity, bmp)
             } catch (c: kotlinx.coroutines.CancellationException) {
                 throw c

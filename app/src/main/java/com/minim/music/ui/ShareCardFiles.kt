@@ -24,10 +24,14 @@ object ShareCardFiles {
         FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
     }
 
+    /** 6.7.0: a file already in cache/share (the animated lyrics card). */
+    fun uriFor(context: Context, file: File): Uri =
+        FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
+
     /** The share sheet with the card, the line and the link (apps that take one or the other pick theirs). */
-    fun intent(uri: Uri, text: String, subject: String, chooser: String): Intent {
+    fun intent(uri: Uri, text: String, subject: String, chooser: String, mime: String = "image/png"): Intent {
         val send = Intent(Intent.ACTION_SEND).apply {
-            type = "image/png"
+            type = mime
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_TEXT, text)
             putExtra(Intent.EXTRA_SUBJECT, subject)

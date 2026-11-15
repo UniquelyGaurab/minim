@@ -153,4 +153,16 @@ class AppVersionTest {
         assertFalse(v("v6.5.0") > installed)
         assertTrue(v("v6.6.1") > installed)
     }
+
+    /** 6.7.0: animated lyrics cards, offered to 6.6.0 and older, not to itself. */
+    @Test
+    fun v670IsOfferedTo660AndOlder() {
+        val installed = AppVersion.installed("6.7.0-debug")
+        assertEquals(v("6.7.0"), installed)
+        for (older in listOf("6.6.0-debug", "6.5.0-debug", "6.2.0-debug")) {
+            assertTrue(older, v("v6.7.0") > AppVersion.installed(older)!!)
+        }
+        assertFalse(v("v6.7.0") > installed!!)
+        assertFalse(v("v6.6.0") > installed)
+    }
 }

@@ -172,6 +172,13 @@ class AppPreferences(context: Context) {
         prefs.edit().putString("artist_photo_" + name.lowercase().trim(), url).apply()
     }
 
+    /** 6.7.0: the last choices on the lyrics-card sheet ([com.minim.music.data.share.LyricsCardOptions]). */
+    var lyricsCardOptions: com.minim.music.data.share.LyricsCardOptions
+        get() = com.minim.music.data.share.LyricsCardOptions.decode(prefs.getString("lyrics_card_options", null))
+        set(value) {
+            prefs.edit().putString("lyrics_card_options", value.encode()).apply()
+        }
+
     var userName: String
         get() = prefs.getString(KEY_USER_NAME, "")?.trim().orEmpty()
         set(value) {

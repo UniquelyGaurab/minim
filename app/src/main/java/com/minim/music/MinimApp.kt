@@ -324,6 +324,21 @@ open class MinimApp : Application(), com.minim.fermata.android.FermataHolder {
      * tap. Saved lyrics live in the no-backup folder (this phone only, never synced); the audio
      * is put together in the cache and deleted right after the request.
      */
+    /** 6.7.0: the song audio for animated lyrics cards. */
+    val cardAudio: com.minim.music.data.share.CardSongAudio by lazy {
+        com.minim.music.data.share.CardSongAudio(
+            workDir = File(cacheDir, "card_audio"),
+            offline = { if (this::offlineStore.isInitialized) offlineStore else null },
+            options = { id, fresh -> sourceAdapter.audioOptionsBlocking(id, fresh) },
+            fetcher = com.minim.music.data.offline.ParallelFetcher(
+                okHttpClient.newBuilder().cache(null)
+                    .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+            ),
+        )
+    }
+
     val aiLyrics: com.minim.music.data.ai.AiLyricsMaker by lazy {
         com.minim.music.data.ai.AiLyricsMaker(
             store = com.minim.music.data.ai.AiLyricsStore(File(noBackupFilesDir, "ai_lyrics")),

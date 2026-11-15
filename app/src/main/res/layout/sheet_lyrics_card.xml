@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 6.6.0: the lyrics card's share sheet: a preview of the card, Original / Translation / Both
-     (only when a translation is there), then Share with card / Link only below it. -->
+<!-- 6.7.0: the lyrics card's share sheet, everything in one place: a live preview (the image, or
+     the animated card playing), then Style / Sound / Lyrics / Background pills. Share card,
+     Link only and Save to gallery are added under it by the sheet. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -10,8 +11,8 @@
 
     <FrameLayout
         android:id="@+id/lyrics_card_box"
-        android:layout_width="180dp"
-        android:layout_height="320dp"
+        android:layout_width="162dp"
+        android:layout_height="288dp"
         android:background="@drawable/shape_card"
         android:tag="fill:soft">
 
@@ -22,28 +23,215 @@
             android:alpha="0"
             android:contentDescription="@string/fs_share_lyrics"
             android:scaleType="fitCenter" />
+
+        <TextureView
+            android:id="@+id/lyrics_card_video"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="invisible" />
+
+        <!-- making the video: the card dimmed with a ring -->
+        <FrameLayout
+            android:id="@+id/lyrics_card_making"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#66000000"
+            android:visibility="gone">
+
+            <com.minim.music.ui.ProgressRing
+                android:id="@+id/lyrics_card_ring"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_gravity="center" />
+        </FrameLayout>
+
+        <!-- the audio couldn't be fetched -->
+        <LinearLayout
+            android:id="@+id/lyrics_card_audio_failed"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#B3000000"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="14dp"
+            android:visibility="gone">
+
+            <TextView
+                style="@style/MinimText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="@string/lyrics_card_no_audio"
+                android:textColor="#FFFFFFFF"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/lyrics_card_no_sound"
+                style="@style/MinimText"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/shape_pill"
+                android:backgroundTint="#FFFFFFFF"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:text="@string/lyrics_card_share_no_sound"
+                android:textColor="#FF111111"
+                android:textSize="12.5sp" />
+        </LinearLayout>
     </FrameLayout>
 
-    <com.minim.music.ui.SegmentRow
-        android:id="@+id/lyrics_card_modes"
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="44dp"
-        android:layout_marginTop="16dp"
+        android:layout_height="38dp"
+        android:layout_marginTop="18dp"
+        android:orientation="horizontal">
+
+        <TextView
+            style="@style/MinimText"
+            android:layout_width="86dp"
+            android:layout_height="match_parent"
+            android:gravity="center_vertical"
+            android:tag="text:muted"
+            android:text="@string/lyrics_card_style"
+            android:textSize="13sp" />
+
+        <com.minim.music.ui.SegmentRow
+            android:id="@+id/lyrics_card_styles"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1">
+
+            <TextView
+                android:id="@+id/lyrics_card_static"
+                style="@style/MinimSet.Seg"
+                android:text="@string/lyrics_card_static" />
+
+            <TextView
+                android:id="@+id/lyrics_card_animated"
+                style="@style/MinimSet.Seg"
+                android:text="@string/lyrics_card_animated" />
+        </com.minim.music.ui.SegmentRow>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/lyrics_card_animated_note"
+        style="@style/MinimSet.Hint"
+        android:layout_width="match_parent"
+        android:layout_marginTop="4dp"
+        android:paddingStart="86dp"
+        android:paddingEnd="0dp"
+        android:text="@string/lyrics_card_animated_needs_sync"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/lyrics_card_sound_row"
+        android:layout_width="match_parent"
+        android:layout_height="38dp"
+        android:layout_marginTop="10dp"
+        android:orientation="horizontal"
         android:visibility="gone">
 
         <TextView
-            android:id="@+id/lyrics_card_original"
-            style="@style/MinimSet.Seg"
-            android:text="@string/lyrics_card_original" />
+            style="@style/MinimText"
+            android:layout_width="86dp"
+            android:layout_height="match_parent"
+            android:gravity="center_vertical"
+            android:tag="text:muted"
+            android:text="@string/lyrics_card_sound"
+            android:textSize="13sp" />
+
+        <com.minim.music.ui.SegmentRow
+            android:id="@+id/lyrics_card_sounds"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1">
+
+            <TextView
+                android:id="@+id/lyrics_card_sound_on"
+                style="@style/MinimSet.Seg"
+                android:text="@string/lyrics_card_on" />
+
+            <TextView
+                android:id="@+id/lyrics_card_sound_off"
+                style="@style/MinimSet.Seg"
+                android:text="@string/lyrics_card_off" />
+        </com.minim.music.ui.SegmentRow>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/lyrics_card_lyrics_row"
+        android:layout_width="match_parent"
+        android:layout_height="38dp"
+        android:layout_marginTop="10dp"
+        android:orientation="horizontal"
+        android:visibility="gone">
 
         <TextView
-            android:id="@+id/lyrics_card_translation"
-            style="@style/MinimSet.Seg"
-            android:text="@string/lyrics_card_translation" />
+            style="@style/MinimText"
+            android:layout_width="86dp"
+            android:layout_height="match_parent"
+            android:gravity="center_vertical"
+            android:tag="text:muted"
+            android:text="@string/lyrics_card_lyrics"
+            android:textSize="13sp" />
+
+        <com.minim.music.ui.SegmentRow
+            android:id="@+id/lyrics_card_modes"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1">
+
+            <TextView
+                android:id="@+id/lyrics_card_original"
+                style="@style/MinimSet.Seg"
+                android:text="@string/lyrics_card_original" />
+
+            <TextView
+                android:id="@+id/lyrics_card_translation"
+                style="@style/MinimSet.Seg"
+                android:text="@string/lyrics_card_translation" />
+
+            <TextView
+                android:id="@+id/lyrics_card_both"
+                style="@style/MinimSet.Seg"
+                android:text="@string/lyrics_card_both" />
+        </com.minim.music.ui.SegmentRow>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="38dp"
+        android:layout_marginTop="10dp"
+        android:orientation="horizontal">
 
         <TextView
-            android:id="@+id/lyrics_card_both"
-            style="@style/MinimSet.Seg"
-            android:text="@string/lyrics_card_both" />
-    </com.minim.music.ui.SegmentRow>
+            style="@style/MinimText"
+            android:layout_width="86dp"
+            android:layout_height="match_parent"
+            android:gravity="center_vertical"
+            android:tag="text:muted"
+            android:text="@string/lyrics_card_background"
+            android:textSize="13sp" />
+
+        <com.minim.music.ui.SegmentRow
+            android:id="@+id/lyrics_card_backgrounds"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1">
+
+            <TextView
+                android:id="@+id/lyrics_card_bg_colours"
+                style="@style/MinimSet.Seg"
+                android:text="@string/lyrics_card_bg_colours" />
+
+            <TextView
+                android:id="@+id/lyrics_card_bg_blur"
+                style="@style/MinimSet.Seg"
+                android:text="@string/lyrics_card_bg_blur" />
+        </com.minim.music.ui.SegmentRow>
+    </LinearLayout>
 </LinearLayout>

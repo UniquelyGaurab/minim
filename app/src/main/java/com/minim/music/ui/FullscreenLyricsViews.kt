@@ -291,7 +291,7 @@ class FullscreenLyricsAdapter(
             // Balanced wrapping: a long line breaks into two even halves, not one long + one word
             breakStrategy = Layout.BREAK_STRATEGY_BALANCED
             hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE
-            val pad = (LINE_PAD_DP * dm.density).toInt()
+            val pad = (FullscreenLyricsLook.rowPadDp(false) * dm.density).toInt()
             setPadding(0, pad, 0, pad)
         }
         val t = TranslationLineView(parent.context, translationFont)
@@ -407,6 +407,9 @@ class FullscreenLyricsAdapter(
         val a = if (sel != null) (if (picked) 1f else SELECT_DIM_ALPHA) else FullscreenLyricsLook.lineAlpha(d, synced)
         val s = if (sel != null) (if (picked) 1f else SELECT_DIM_SCALE) else FullscreenLyricsLook.lineScale(d, synced)
         v.setTextColor(ink)
+        // 6.7.0: a bit more room around each row while picking, so a moving line is easier to tap
+        val pad = (FullscreenLyricsLook.rowPadDp(sel != null) * v.resources.displayMetrics.density).toInt()
+        if (v.paddingTop != pad) v.setPadding(0, pad, 0, pad)
         v.flowOn = flow && synced && sel == null
         v.setActiveLine(synced && d == 0 && sel == null)
         // 5.6.0: the row scales (so a translation shrinks with its line); line and translation
