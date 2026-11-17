@@ -80,6 +80,29 @@ object HazeBackdrop {
     private val src = Rect()
 
     /** Draws the haze for a window [dst] (in the canvas's coordinates). */
+    /**
+     * 6.8.0 b72: where the window-sized blurred cover sits in [v]'s own coordinates, so a drawable
+     * on any view (a screen, a morphing sheet) shows the part of the one backdrop behind it.
+     */
+    fun windowFor(v: View, b: android.graphics.Rect, out: RectF): Boolean {
+        val root = v.rootView
+        var x = 0f
+        var y = 0f
+        var cur: View? = v
+        while (cur != null && cur !== root) {
+            x += cur.left - cur.scrollX
+            y += cur.top - cur.scrollY
+            cur = cur.parent as? View
+        }
+        // Scrolled parents move the view, not its background: undo the view's own scroll
+        x += v.scrollX
+        y += v.scrollY
+        val w = if (root.width > 0) root.width.toFloat() else v.resources.displayMetrics.widthPixels.toFloat()
+        val h = if (root.height > 0) root.height.toFloat() else v.resources.displayMetrics.heightPixels.toFloat()
+        out.set(b.left - x, b.top - y, b.left - x + w, b.top - y + h)
+        return true
+    }
+
     fun drawWindow(canvas: Canvas, dst: RectF) {
         val cur = current
         val prev = previous
@@ -166,22 +189,8 @@ class HazeDrawable(private val topRadius: Float = 0f, var frost: Int = 0) : Draw
 
     override fun draw(canvas: Canvas) {
         val v = callback as? View ?: return
-        val root = v.rootView
-        var x = 0f
-        var y = 0f
-        var cur: View? = v
-        while (cur != null && cur !== root) {
-            x += cur.left - cur.scrollX
-            y += cur.top - cur.scrollY
-            cur = cur.parent as? View
-        }
-        // Scrolled parents move the view, not its background: undo the view's own scroll
-        x += v.scrollX
-        y += v.scrollY
-        val w = if (root.width > 0) root.width.toFloat() else v.resources.displayMetrics.widthPixels.toFloat()
-        val h = if (root.height > 0) root.height.toFloat() else v.resources.displayMetrics.heightPixels.toFloat()
         val b = bounds
-        dst.set(b.left - x, b.top - y, b.left - x + w, b.top - y + h)
+        HazeBackdrop.windowFor(v, b, dst)
         val save = canvas.save()
         if (topRadius > 0f) {
             path.reset()

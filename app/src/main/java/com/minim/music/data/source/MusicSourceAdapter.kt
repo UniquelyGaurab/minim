@@ -172,6 +172,73 @@ class MusicSourceAdapter(okHttpClient: OkHttpClient) {
         }
     }
 
+    /**
+     * 6.8.0 b72: the Albums search pill. YouTube Music's album search (music_albums); each opens in
+     * the playlist screen like an album from an Artist page.
+     */
+    suspend fun searchAlbums(query: String): SourceResult<List<Album>> = withContext(Dispatchers.IO) {
+        val q = query.trim()
+        if (q.isEmpty()) return@withContext SourceResult.Success(emptyList())
+        try {
+            val qh = ServiceList.YouTube.searchQHFactory.fromQuery(
+                q, listOf(YoutubeSearchQueryHandlerFactory.MUSIC_ALBUMS), ""
+            )
+            val extractor = ServiceList.YouTube.getSearchExtractor(qh)
+            extractor.fetchPage()
+            val albums = extractor.initialPage.items
+                .filterIsInstance<PlaylistInfoItem>()
+                .mapNotNull { searchAlbum(it) }
+                .distinctBy { it.url }
+            SourceResult.Success(albums)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            SourceResult.Error("Album search failed", e)
+        }
+    }
+
+    private fun searchAlbum(item: PlaylistInfoItem): Album? {
+        val url = item.url?.takeIf { it.isNotBlank() } ?: return null
+        val title = item.name?.trim().orEmpty()
+        if (title.isEmpty()) return null
+        val artist = item.uploaderName?.removeSuffix(" - Topic")?.trim().orEmpty()
+        return Album(
+            url = url.replace("music.youtube.com", "www.youtube.com"),
+            title = title,
+            subtitle = artist,
+            thumbnailUrl = upscaleYtImage(bigImage(item.thumbnails, 544), 544)
+        )
+    }
+
+    /**
+     * 6.8.0 b72: the Tapes search pill. Regular YouTube video search (not YouTube Music), the same
+     * search importing and the Tapes tab use; each result is a tape (plays like one, with its channel).
+     */
+    suspend fun searchTapes(query: String): SourceResult<List<Track>> = withContext(Dispatchers.IO) {
+        val q = query.trim()
+        if (q.isEmpty()) return@withContext SourceResult.Success(emptyList())
+        try {
+            val qh = ServiceList.YouTube.searchQHFactory.fromQuery(
+                q, listOf(YoutubeSearchQueryHandlerFactory.VIDEOS), ""
+            )
+            val extractor = ServiceList.YouTube.getSearchExtractor(qh)
+            extractor.fetchPage()
+            val tapes = extractor.initialPage.items
+                .filterIsInstance<StreamInfoItem>()
+                .mapNotNull { item ->
+                    val t = toTrack(item) ?: return@mapNotNull null
+                    val channelId = item.uploaderUrl?.let { ArtistAudience.channelId(it) }
+                    com.minim.music.data.stories.StoryTracks.track(t.id, t.title, t.artist, t.durationSec, channelId)
+                }
+                .distinctBy { it.id }
+            SourceResult.Success(tapes)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            SourceResult.Error("Video search failed", e)
+        }
+    }
+
     private fun executeSearchFilter(
         queryHandler: org.schabi.newpipe.extractor.linkhandler.SearchQueryHandler
     ): List<Track> {

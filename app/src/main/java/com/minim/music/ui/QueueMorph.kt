@@ -10,6 +10,7 @@ import android.graphics.Color
 import android.graphics.ColorFilter
 import android.graphics.Outline
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.graphics.drawable.ColorDrawable
@@ -48,7 +49,11 @@ class QueueMorph(
     private val behind: View,
     /** (pill fill, sheet background) right now. */
     private val colors: () -> Pair<Int, Int>,
-    private val onLock: () -> Unit
+    private val onLock: () -> Unit,
+    /** 6.8.0 b72: Haze is on (the sheet ends on the blurred cover, not a flat colour). */
+    private val hazeOn: () -> Boolean = { HazeBackdrop.active },
+    /** 6.8.0 b72: puts the screen's resting background back (Painter.paintBg: Haze or the colour). */
+    private val paintBg: (View) -> Unit = { it.setBackgroundColor(colors().second) }
 ) {
     private val density = screen.resources.displayMetrics.density
     private var source: View? = null
@@ -215,7 +220,8 @@ class QueueMorph(
         screen.outlineProvider = ViewOutlineProvider.BACKGROUND
         screen.background = savedBackground
         savedBackground = null
-        screen.setBackgroundColor(colors().second)
+        // 6.8.0 b72: was a flat setBackgroundColor, which wiped the Haze backdrop off Up Next
+        paintBg(screen)
         behind.foreground = null
         for (v in listOf(header, content)) {
             v.alpha = 1f
@@ -281,6 +287,7 @@ class QueueMorph(
         bg.rect.set(r[0], r[1], r[2], r[3])
         bg.radius = QueueMotion.corner(p, pill.height() / 2f, QueueMotion.SHEET_CORNER_DP * density)
         bg.color = SearchMotion.lerpColor(bg.pillFill, colors().second, QueueMotion.color(p))
+        bg.haze = QueueMotion.hazeAmount(hazeOn(), p)
         bg.snapshotAlpha = QueueMotion.pillLabel(p)
         bg.snapshotRect.set(
             bg.rect.centerX() - pill.width() / 2f, pill.top + (bg.rect.top - pill.top) * 0.35f,
@@ -336,12 +343,28 @@ class QueueMorph(
         var snapshot: Bitmap? = null
         val snapshotRect = RectF()
         var snapshotAlpha = 0f
+        /** 6.8.0 b72: how much of the Haze backdrop shows through (0 = only [color]). */
+        var haze = 0f
+        private val window = RectF()
+        private val clipPath = Path()
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
         private val bmp = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 
         override fun draw(canvas: Canvas) {
             if (rect.isEmpty) return
-            fill.color = color
+            val v = callback as? View
+            if (haze > 0f && v != null && HazeBackdrop.windowFor(v, bounds, window)) {
+                val save = canvas.save()
+                clipPath.reset()
+                clipPath.addRoundRect(rect, radius, radius, Path.Direction.CW)
+                canvas.clipPath(clipPath)
+                HazeBackdrop.drawWindow(canvas, window)
+                canvas.restoreToCount(save)
+                fill.color = color
+                fill.alpha = (Color.alpha(color) * (1f - haze)).toInt().coerceIn(0, 255)
+            } else {
+                fill.color = color
+            }
             if (radius > 0.5f) canvas.drawRoundRect(rect, radius, radius, fill) else canvas.drawRect(rect, fill)
             val s = snapshot
             if (s != null && !s.isRecycled && snapshotAlpha > 0f) {

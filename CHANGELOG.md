@@ -33,6 +33,10 @@ Playlists get a cover, Play and Shuffle buttons, search, sorting and your own co
 - **Text and icons go white or near-black** depending on how bright the cover is, with a faint shade underneath so mid-tone covers stay readable. Cards and soft pills turn frosted, and the status and nav bar icons follow along
 - **With nothing playing** it uses the last song you played, or the Dark look if there's none yet. Colours (Dynamic/Default) fades out under Haze and comes back as you left it
 
+**Search filters and an Up Next fix (build 72)**
+- **Filter pills under the search bar:** All · Songs · Artists · Albums · Tapes. All is the usual results; Songs, Artists and Albums search only that on YouTube Music, and Tapes searches YouTube videos. Switching pills is instant once each has loaded, and a new search starts back on All
+- **Up Next on Haze:** the queue now sits on the blurred cover too, with frosted rows, instead of a flat colour
+
 ## 6.7.0 (test build, not released yet)
 
 Lyrics cards can now move, with the song playing under them.

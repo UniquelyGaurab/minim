@@ -68,4 +68,10 @@ object QueueMotion {
         if (dy <= slop || dy <= abs(dx) * 1.5f) return false
         return onHeader || listAtTop
     }
+
+    /**
+     * 6.8.0 b72: under Haze the sheet fades from the pill's colour onto the blurred cover in step
+     * with the colour blend, so it lands on the same backdrop as every other screen. 0 off Haze.
+     */
+    fun hazeAmount(hazeOn: Boolean, p: Float): Float = if (hazeOn) color(p).coerceIn(0f, 1f) else 0f
 }

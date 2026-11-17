@@ -863,4 +863,19 @@
     <string name="cover_use_photo">Use photo</string>
     <string name="cover_save">Save</string>
     <string name="cover_photo_failed">Couldn\'t open that photo</string>
+    <!-- 6.8.0 b72: search filter pills -->
+    <string name="search_filter_all">All</string>
+    <string name="search_filter_songs">Songs</string>
+    <string name="search_filter_artists">Artists</string>
+    <string name="search_filter_albums">Albums</string>
+    <string name="search_filter_tapes">Tapes</string>
+    <string name="album_label_short">Album</string>
+    <string name="search_empty_songs">No songs for “%1$s”</string>
+    <string name="search_empty_artists">No artists for “%1$s”</string>
+    <string name="search_empty_albums">No albums for “%1$s”</string>
+    <string name="search_empty_tapes">No tapes for “%1$s”</string>
+    <string name="search_failed_songs">Couldn\'t search songs. Check your connection and try again.</string>
+    <string name="search_failed_artists">Couldn\'t search artists. Check your connection and try again.</string>
+    <string name="search_failed_albums">Couldn\'t search albums. Check your connection and try again.</string>
+    <string name="search_failed_tapes">Couldn\'t search tapes. Check your connection and try again.</string>
 </resources>

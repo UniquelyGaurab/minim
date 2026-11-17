@@ -292,6 +292,16 @@ class MainActivity : AppCompatActivity() {
 
     private var lastQuery = ""
     private var searchJob: Job? = null
+    // 6.8.0 b72: the search filter pills (All · Songs · Artists · Albums · Tapes)
+    private val searchFilter = SearchFilterState()
+    private lateinit var searchFilterAdapter: com.minim.music.ui.adapter.SearchFilterAdapter
+    private val searchPillJobs = java.util.EnumMap<SearchPill, Job>(SearchPill::class.java)
+    /** The (normalised) query All's results on screen belong to. */
+    private var allResultsQuery = ""
+    /** All's status line (searching / nothing found / failed), null when hidden. */
+    private var allStatus: String? = null
+    /** 6.8.0 b72: an album opened from the Albums pill; Back goes back to Search. */
+    private var listFromSearch = false
     private var searchDebounce: Job? = null
     private var searchGeneration = 0
 
@@ -1177,7 +1187,7 @@ class MainActivity : AppCompatActivity() {
                     // 5.3.2: Back while renaming keeps the old name
                     isListOpen && isRenaming -> cancelRename()
                     isListOpen && listSearchOpen -> closeListSearch(animate = true)
-                    isListOpen -> closeList()
+                    isListOpen -> closeList(back = true)
                     isShelfOpen -> closeShelf()
                     isArtistOpen -> closeArtist()
                     // 5.7.0 u46: a channel's list (from its photo or its shelf title) goes back to the shelves
@@ -1861,6 +1871,7 @@ class MainActivity : AppCompatActivity() {
             adapter = searchAdapter
             searchEntrance = RowEntrance(this)
         }
+        setupSearchFilters()
         searchInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_DONE) {
                 searchNow()
@@ -1884,6 +1895,7 @@ class MainActivity : AppCompatActivity() {
                     return
                 }
                 setSearchTyping(true)
+                styleSearchFilters()
                 if (query == lastQuery) return
                 searchDebounce = lifecycleScope.launch {
                     delay(SEARCH_DEBOUNCE_MS)
@@ -1914,6 +1926,13 @@ class MainActivity : AppCompatActivity() {
         searchAdapter.submit(emptyList())
         searchAdapter.submitArtists(emptyList(), first = false)
         searchStatus.visibility = View.GONE
+        // 6.8.0 b72: a new search starts on All; whatever the pills had goes
+        cancelPillJobs()
+        searchFilter.onCleared()
+        allResultsQuery = ""
+        allStatus = null
+        if (::searchFilterAdapter.isInitialized) searchFilterAdapter.submit(SearchPill.SONGS, emptyList())
+        showSelectedPill(fetch = false)
     }
 
     /**
@@ -1978,7 +1997,11 @@ class MainActivity : AppCompatActivity() {
             discover = searchDiscover,
             colors = { pal.fg to pal.bg },
             animationsOn = { ValueAnimator.areAnimatorsEnabled() },
-            onProgress = { t -> applySearchRow(t) }
+            onProgress = { t ->
+                applySearchRow(t)
+                // 6.8.0 b72: the filter pills come and go with the box
+                findViewById<View>(R.id.search_filter_scroll)?.alpha = t
+            }
         )
     }
 
@@ -2207,14 +2230,31 @@ class MainActivity : AppCompatActivity() {
             searchInput.clearFocus()
         }
         lastQuery = query
+        // 6.8.0 b72: typing keeps the pill; a new search (the key, the arrow) goes back to All
+        val before = searchFilter.query
+        if (live) searchFilter.onTyped(query) else searchFilter.onSubmitted(query)
+        if (searchFilter.query != before) cancelPillJobs()
+        if (searchFilter.selected != SearchPill.ALL) {
+            searchGeneration++
+            searchJob?.cancel()
+            showSelectedPill()
+            return
+        }
+        runAllSearch(query, live)
+    }
+
+    /** All: today's results (songs, up to two matching artist pills, the top result). */
+    private fun runAllSearch(query: String, live: Boolean) {
         val generation = ++searchGeneration
         searchJob?.cancel()
-        if (!live || searchAdapter.itemCount == 0) {
-            searchStatus.text = getString(R.string.searching)
-            searchStatus.visibility = View.VISIBLE
-            searchAdapter.submit(emptyList())
-            searchAdapter.submitArtists(emptyList(), first = false)
+        if (!live || searchAdapter.itemCount == 0 || allResultsQuery != SearchFilters.norm(query)) {
+            if (!live || searchAdapter.itemCount == 0) {
+                setAllStatus(getString(R.string.searching))
+                searchAdapter.submit(emptyList())
+                searchAdapter.submitArtists(emptyList(), first = false)
+            }
         }
+        styleSearchFilters()
         searchJob = lifecycleScope.launch {
             // v4.6: artists are looked up next to the songs; the songs never wait for them
             val artistsAsync = async { app.sourceAdapter.searchArtists(query) }
@@ -2222,24 +2262,21 @@ class MainActivity : AppCompatActivity() {
             if (generation != searchGeneration) return@launch
             var tracksFound = 0
             var failed = false
+            allResultsQuery = SearchFilters.norm(query)
             when (result) {
                 is SourceResult.Success -> {
                     // v4.9.9: a new set of results rises in; the same songs again don't move
                     val newSet = result.data.map { it.id } != searchAdapter.shownTrackIds
                     searchAdapter.submit(result.data)
-                    if (newSet && result.data.isNotEmpty()) searchEntrance.play()
+                    if (newSet && result.data.isNotEmpty() && searchFilter.selected == SearchPill.ALL) searchEntrance.play()
                     tracksFound = result.data.size
-                    if (result.data.isEmpty()) {
-                        searchStatus.text = getString(R.string.no_results)
-                        searchStatus.visibility = View.VISIBLE
-                    } else {
-                        searchStatus.visibility = View.GONE
-                    }
+                    // 6.8.0 b72: the same music_songs search the Songs pill runs
+                    searchFilter.seed(SearchPill.SONGS, query, result.data)
+                    setAllStatus(if (result.data.isEmpty()) getString(R.string.no_results) else null)
                 }
                 is SourceResult.Error -> {
                     failed = true
-                    searchStatus.text = getString(R.string.search_failed)
-                    searchStatus.visibility = View.VISIBLE
+                    setAllStatus(getString(R.string.search_failed))
                 }
             }
             if (live) {
@@ -2247,13 +2284,18 @@ class MainActivity : AppCompatActivity() {
                 // still match what's typed now (no flicker), until this search's artists arrive
                 val (kept, keptExact) = pickArtistResults(query, searchAdapter.shownArtists)
                 searchAdapter.submitArtists(kept, first = keptExact || tracksFound == 0)
-                if (kept.isNotEmpty() && (tracksFound == 0 || failed)) searchStatus.visibility = View.GONE
+                if (kept.isNotEmpty() && (tracksFound == 0 || failed)) setAllStatus(null)
             }
-            val artists = (artistsAsync.await() as? SourceResult.Success)?.data.orEmpty()
+            styleSearchFilters()
+            val artistsResult = artistsAsync.await()
             if (generation != searchGeneration) return@launch
+            val artists = (artistsResult as? SourceResult.Success)?.data.orEmpty()
+            // 6.8.0 b72: the same music_artists search the Artists pill runs (its full list)
+            if (artistsResult is SourceResult.Success) searchFilter.seed(SearchPill.ARTISTS, query, artists)
             val (shown, exact) = pickArtistResults(query, artists)
             searchAdapter.submitArtists(shown, first = exact || tracksFound == 0)
-            if (shown.isNotEmpty() && (tracksFound == 0 || failed)) searchStatus.visibility = View.GONE
+            if (shown.isNotEmpty() && (tracksFound == 0 || failed)) setAllStatus(null)
+            styleSearchFilters()
         }
     }
 
@@ -2272,6 +2314,183 @@ class MainActivity : AppCompatActivity() {
         val sorted = matching.sortedByDescending { MusicSourceAdapter.normName(it.name) == q }
         val shown = sorted.take(2)
         return Pair(shown, shown.firstOrNull()?.let { MusicSourceAdapter.normName(it.name) == q } == true)
+    }
+
+    // ---- 6.8.0 b72: search filter pills -------------------------------------------------------
+
+    private val searchResultsView: RecyclerView get() = findViewById(R.id.search_results)
+
+    private fun searchPillViews(): List<Pair<TextView, SearchPill>> = listOf(
+        findViewById<TextView>(R.id.search_filter_all) to SearchPill.ALL,
+        findViewById<TextView>(R.id.search_filter_songs) to SearchPill.SONGS,
+        findViewById<TextView>(R.id.search_filter_artists) to SearchPill.ARTISTS,
+        findViewById<TextView>(R.id.search_filter_albums) to SearchPill.ALBUMS,
+        findViewById<TextView>(R.id.search_filter_tapes) to SearchPill.TAPES
+    )
+
+    private fun setupSearchFilters() {
+        searchFilterAdapter = com.minim.music.ui.adapter.SearchFilterAdapter(
+            artwork = app.artworkPipeline,
+            onSong = { track, list -> app.playbackController.playRadio(track, list, com.minim.music.data.fermata.FermataSource.SEARCH) },
+            onSongLong = { anchor, track -> showTrackOptions(anchor, track) },
+            onArtist = { artist -> openArtist(artist, fromSearch = true) },
+            onAlbum = { album -> openAlbumFromSearch(album) },
+            onTape = { track, all ->
+                // Like a tape on the Tapes tab: this one, then the ones under it (no radio after tapes)
+                val start = all.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
+                app.playbackController.playTrack(track, all.drop(start).take(100), com.minim.music.data.fermata.FermataSource.TAPE)
+            },
+            onTapeLong = { anchor, track -> showTrackOptions(anchor, track) }
+        )
+        searchFilterAdapter.setPalette(pal)
+        for ((chip, pill) in searchPillViews()) {
+            PressScale.apply(chip)
+            chip.setOnClickListener {
+                if (!searchFilter.select(pill)) return@setOnClickListener
+                haptic(it)
+                showSelectedPill()
+                searchResultsView.scrollToPosition(0)
+            }
+        }
+        styleSearchFilters()
+    }
+
+    /** The row's look (the picked pill filled) and whether it shows at all. */
+    private fun styleSearchFilters() {
+        val scroll = findViewById<View>(R.id.search_filter_scroll) ?: return
+        val query = searchInput.text?.toString().orEmpty()
+        val hasResults = searchAdapter.itemCount > 0 ||
+            (::searchFilterAdapter.isInitialized && searchFilterAdapter.itemCount > 0)
+        val show = SearchFilters.rowVisible(query, hasResults)
+        scroll.visibility = if (show) View.VISIBLE else View.GONE
+        if (show) {
+            for ((chip, pill) in searchPillViews()) ChipStyle.apply(chip, pill == searchFilter.selected, pal)
+        } else {
+            scroll.scrollTo(0, 0)
+        }
+        val rv = searchResultsView
+        val top = dp(if (show) 14f else 30f).toInt()
+        if (rv.paddingTop != top) rv.setPadding(rv.paddingLeft, top, rv.paddingRight, rv.paddingBottom)
+    }
+
+    private fun setAllStatus(text: String?) {
+        allStatus = text
+        if (searchFilter.selected != SearchPill.ALL) return
+        if (text == null) {
+            searchStatus.visibility = View.GONE
+        } else {
+            searchStatus.text = text
+            searchStatus.visibility = View.VISIBLE
+        }
+    }
+
+    private fun cancelPillJobs() {
+        for (j in searchPillJobs.values) j.cancel()
+        searchPillJobs.clear()
+    }
+
+    /** Shows the picked pill's results: from the cache, or searches that type once. */
+    private fun showSelectedPill(fetch: Boolean = true) {
+        styleSearchFilters()
+        val rv = searchResultsView
+        val pill = searchFilter.selected
+        if (pill == SearchPill.ALL) {
+            if (rv.adapter !== searchAdapter) rv.adapter = searchAdapter
+            val q = searchFilter.query
+            if (fetch && q.isNotEmpty() && allResultsQuery != q) {
+                runAllSearch(searchInput.text?.toString()?.trim().orEmpty().ifEmpty { q }, live = true)
+            } else {
+                setAllStatus(allStatus)
+            }
+            return
+        }
+        if (rv.adapter !== searchFilterAdapter) rv.adapter = searchFilterAdapter
+        when (val st = searchFilter.stateOf<Any>(pill)) {
+            null -> {
+                searchFilterAdapter.submit(pill, emptyList())
+                if (fetch && searchFilter.query.isNotEmpty()) fetchPill(pill) else searchStatus.visibility = View.GONE
+            }
+            is PillState.Loading -> {
+                searchFilterAdapter.submit(pill, emptyList())
+                searchStatus.text = getString(R.string.searching)
+                searchStatus.visibility = View.VISIBLE
+            }
+            is PillState.Done -> {
+                val newSet = searchFilterAdapter.pill != pill ||
+                    st.items.map { com.minim.music.ui.adapter.SearchFilterAdapter.keyOf(it) } != searchFilterAdapter.shownKeys
+                searchFilterAdapter.submit(pill, st.items)
+                if (newSet && st.items.isNotEmpty()) searchEntrance.play()
+                if (st.items.isEmpty()) {
+                    searchStatus.text = getString(pillEmptyText(pill), searchInput.text?.toString()?.trim().orEmpty())
+                    searchStatus.visibility = View.VISIBLE
+                } else {
+                    searchStatus.visibility = View.GONE
+                }
+            }
+            is PillState.Failed -> {
+                searchFilterAdapter.submit(pill, emptyList())
+                searchStatus.text = getString(pillFailedText(pill))
+                searchStatus.visibility = View.VISIBLE
+            }
+        }
+        styleSearchFilters()
+    }
+
+    private fun pillEmptyText(pill: SearchPill): Int = when (pill) {
+        SearchPill.SONGS -> R.string.search_empty_songs
+        SearchPill.ARTISTS -> R.string.search_empty_artists
+        SearchPill.ALBUMS -> R.string.search_empty_albums
+        SearchPill.TAPES -> R.string.search_empty_tapes
+        SearchPill.ALL -> R.string.no_results
+    }
+
+    private fun pillFailedText(pill: SearchPill): Int = when (pill) {
+        SearchPill.SONGS -> R.string.search_failed_songs
+        SearchPill.ARTISTS -> R.string.search_failed_artists
+        SearchPill.ALBUMS -> R.string.search_failed_albums
+        SearchPill.TAPES -> R.string.search_failed_tapes
+        SearchPill.ALL -> R.string.search_failed
+    }
+
+    /** One pill's own search: Songs, Artists and Albums on YouTube Music, Tapes on regular YouTube. */
+    private fun fetchPill(pill: SearchPill) {
+        val query = searchInput.text?.toString()?.trim().orEmpty()
+        if (query.isEmpty() || pill == SearchPill.ALL) return
+        searchPillJobs[pill]?.cancel()
+        val ticket = searchFilter.begin(pill)
+        if (searchFilter.selected == pill) showSelectedPill(fetch = false)
+        searchPillJobs[pill] = lifecycleScope.launch {
+            var delivered = false
+            try {
+                val src = app.sourceAdapter
+                val result: SourceResult<List<Any>> = when (pill) {
+                    SearchPill.SONGS -> src.searchTracks(query)
+                    SearchPill.ARTISTS -> src.searchArtists(query)
+                    SearchPill.ALBUMS -> src.searchAlbums(query)
+                    SearchPill.TAPES -> src.searchTapes(query)
+                    SearchPill.ALL -> return@launch
+                }
+                val state: PillState<Any> = when (result) {
+                    is SourceResult.Success -> PillState.Done(result.data)
+                    is SourceResult.Error -> PillState.Failed
+                }
+                delivered = searchFilter.deliver(pill, ticket, query, state)
+                // Stale (an older query, or a newer search for this pill): never shown
+                if (delivered && searchFilter.selected == pill && isSearchOpen) showSelectedPill(fetch = false)
+            } finally {
+                if (!delivered) searchFilter.forget(pill, ticket)
+                if (searchPillJobs[pill]?.isActive != true || delivered) searchPillJobs.remove(pill)
+            }
+        }
+    }
+
+    /** 6.8.0 b72: an album from the Albums pill opens in the playlist screen; Back comes back here. */
+    private fun openAlbumFromSearch(album: Album) {
+        hideKeyboard()
+        searchInput.clearFocus()
+        closeSearch()
+        openAlbum(album)
+        listFromSearch = true
     }
 
     // ==========================================================================================
@@ -3690,6 +3909,7 @@ class MainActivity : AppCompatActivity() {
 
     /** An album from the Artist page, in the playlist screen. */
     private fun openAlbum(album: Album) {
+        listFromSearch = false
         haptic(screenList)
         openListId = null
         openAlbum = album
@@ -4098,7 +4318,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun closeList() {
+    private fun closeList(back: Boolean = false) {
+        val toSearch = back && listFromSearch
+        listFromSearch = false
         cancelRename()
         closeListSearch(animate = false)
         showArtistRows(false)
@@ -4106,6 +4328,11 @@ class MainActivity : AppCompatActivity() {
         openAlbum = null
         albumJob?.cancel()
         screenList.visibility = View.GONE
+        if (toSearch) {
+            // 6.8.0 b72: back to the Albums pill, its results still there
+            screenSearch.visibility = View.VISIBLE
+            settleSearchRow()
+        }
         updateChrome()
     }
 
@@ -5771,7 +5998,8 @@ class MainActivity : AppCompatActivity() {
             list = queueList,
             behind = screenNowPlaying,
             colors = { pal.fg to pal.bg },
-            onLock = { haptic(screenQueue, HapticFeedbackConstants.CLOCK_TICK) }
+            onLock = { haptic(screenQueue, HapticFeedbackConstants.CLOCK_TICK) },
+            paintBg = { Painter.paintBg(it, pal) }
         )
         queueMorph.onSettled = { open ->
             if (!open) {
@@ -6374,6 +6602,7 @@ class MainActivity : AppCompatActivity() {
         updateChrome()
         listAdapter.setActiveTrack(track?.id)
         searchAdapter.setActiveTrack(track?.id)
+        if (::searchFilterAdapter.isInitialized) searchFilterAdapter.setActiveTrack(track?.id)
         if (::storiesScreen.isInitialized) storiesScreen.setActiveTrack(track?.id)
         shelfAdapter.setActiveTrack(track?.id)
         shelfGridAdapter.setActiveTrack(track?.id)
@@ -8909,6 +9138,10 @@ class MainActivity : AppCompatActivity() {
             if (::likedArtistAdapter.isInitialized) likedArtistAdapter.setPalette(p)
             if (::importAdapter.isInitialized) importAdapter.setPalette(p)
             searchAdapter.setPalette(p)
+            if (::searchFilterAdapter.isInitialized) {
+                searchFilterAdapter.setPalette(p)
+                styleSearchFilters()
+            }
             queueAdapter.setPalette(p)
             if (::storiesScreen.isInitialized) storiesScreen.setPalette(p)
             styleListFilter()
