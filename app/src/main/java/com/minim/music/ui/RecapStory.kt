@@ -595,6 +595,10 @@ class RecapStory(
         }.filter { it.first.isNotEmpty() }
     }
 
+    /** 6.9.0 b76: "1 play" / "2 plays", "once" / "2 times". */
+    private fun plays(n: Int) = if (n == 1) "1 play" else "$n plays"
+    private fun times(n: Int) = if (n == 1) "once" else "$n times"
+
     /** The Guess covers: as big as 96dp, but three always fit across the slide with room to grow. */
     private fun guessTileDp(): Float = StoryArt.guessTileDp(resources.displayMetrics.widthPixels / density)
 
@@ -1096,7 +1100,7 @@ class RecapStory(
         img.contentDescription = c.title
         col.addView(img)
         scaleIn(img, 150L)
-        val big = label("${c.count} times", 44f, bold, look.fg, top = 20f, lines = 1)
+        val big = label(times(c.count), 44f, bold, look.fg, top = 20f, lines = 1)
         col.addView(big)
         riseIn(big, 700L)
         val l = label("${c.title} in one day, on ${weekday(dayKey, false)}.", 16f, semi, look.fg, top = 8f, lines = 3)
@@ -1118,7 +1122,7 @@ class RecapStory(
         val t = label(c.title, 24f, bold, look.fg, top = 20f)
         col.addView(t)
         wordsIn(t, c.title, 500L)
-        val l = label("Skipped ${c.count} times this ${sc.word}. Still in your library.", 16f, semi, look.fg, top = 10f, lines = 3)
+        val l = label("Skipped ${times(c.count)} this ${sc.word}. Still in your library.", 16f, semi, look.fg, top = 10f, lines = 3)
         col.addView(l)
         riseIn(l, 1_300L)
         val l2 = label("Fermata noticed.", 14f, regular, look.muted, top = 10f)
@@ -1183,7 +1187,7 @@ class RecapStory(
         col.addView(t)
         wordsIn(t, s.title, 700L)
         col.addView(label(s.artist, 15f, regular, look.muted, top = 4f, lines = 1))
-        val l = label("Never played before ${sc.monthName}. Now ${s.plays} plays and top 5.", 16f, semi, look.fg, top = 14f, lines = 3)
+        val l = label("Never played before ${sc.monthName}. Now ${plays(s.plays)} and top 5.", 16f, semi, look.fg, top = 14f, lines = 3)
         col.addView(l)
         riseIn(l, 1_500L)
         return col
@@ -1241,7 +1245,7 @@ class RecapStory(
             row.addView(img)
             val text = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
             text.addView(label(c.title, 15f, semi, look.fg, lines = 1).apply { gravity = Gravity.START })
-            text.addView(label("${c.artist}  ·  ${c.count} plays", 12f, regular, look.muted, top = 2f, lines = 1).apply { gravity = Gravity.START })
+            text.addView(label("${c.artist}  ·  ${plays(c.count)}", 12f, regular, look.muted, top = 2f, lines = 1).apply { gravity = Gravity.START })
             row.addView(text, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(12f) })
             col.addView(row, matchWrap(if (i == 0) 22f else 12f))
             row.alpha = 0f

@@ -8062,6 +8062,12 @@ class MainActivity : AppCompatActivity() {
             sheetAction(box, R.drawable.ic_play, "This month's Monthly Reprise") {
                 closeSheet { openPeriodReprise(false, java.time.LocalDate.now().withDayOfMonth(1), atCard = false) }
             }
+            sheetAction(box, R.drawable.ic_auto_cover, "Weekly card (Receipt)") {
+                closeSheet { openPeriodReprise(true, RepriseClock.weekStart(java.time.LocalDate.now()), atCard = true) }
+            }
+            sheetAction(box, R.drawable.ic_auto_cover, "Monthly card (Calendar)") {
+                closeSheet { openPeriodReprise(false, java.time.LocalDate.now().withDayOfMonth(1), atCard = true) }
+            }
             for (kind in ReprisePreview.Teaser.values()) {
                 sheetAction(box, R.drawable.ic_history, kind.label) {
                     closeSheet {
@@ -9434,11 +9440,12 @@ class MainActivity : AppCompatActivity() {
             }
             if (lateChannel != null && recapStory === story) story.setChannelPhoto(lateChannel)
             val bmp = try {
-                RecapCard.build(
+                if (scope != null) buildPeriodCard(scope, recap, prep, storyPal, lateArtist)
+                else RecapCard.build(
                     this@MainActivity, app.artworkPipeline, recap, storyPal,
                     if (recap.topArtist == null) lateChannel else lateArtist,
                     persona,
-                    scope?.let { it.label to it.cardTag }
+                    null
                 )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -9446,6 +9453,50 @@ class MainActivity : AppCompatActivity() {
                 null
             }
             if (bmp != null && recapStory === story) story.setCard(bmp)
+        }
+    }
+
+    /**
+     * 6.9.0 b76: the Weekly "Receipt" and Monthly "Calendar" cards, with the same images the story
+     * shows (the cover's URL, else the song's own video frame). The Daily card is unchanged.
+     */
+    private suspend fun buildPeriodCard(
+        scope: com.minim.music.data.stats.RepriseScope,
+        recap: DayStats,
+        prep: RecapPrep,
+        pal: Pal,
+        artistPhoto: String?
+    ): android.graphics.Bitmap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+        suspend fun first(urls: List<String>, px: Int): android.graphics.Bitmap? {
+            for (u in urls) {
+                val b = try { app.artworkPipeline.loadBitmap(u, px) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+                if (b != null) return b
+            }
+            return null
+        }
+        val coverUrls = recap.topSong?.let { StoryArt.coverCandidates(it.thumbnailUrl, it.trackId, MusicArt::big) }?.takeIf { it.isNotEmpty() }
+            ?: recap.tapes.topTape?.let { StoryArt.coverCandidates(it.thumbnailUrl, it.videoId, MusicArt::big) }.orEmpty()
+        val name = app.preferences.userName.trim().takeIf { it.isNotEmpty() }
+        if (scope.isWeek) {
+            val cover = first(coverUrls, 160)
+            RepriseCards.receipt(
+                this@MainActivity,
+                RepriseCards.Week(
+                    scope.start, Days.date(scope.days.lastOrNull() ?: Days.key(scope.start.plusDays(6))),
+                    prep.day.top, recap.songs, recap.tapes.tapes, recap.topArtist?.name, scope.longestStreak, recap.totalMs
+                ),
+                cover, name
+            )
+        } else {
+            val cover = first(coverUrls, 320)
+            val photo = artistPhoto?.let { first(StoryArt.photoCandidates(it), 320) }
+            val ym = java.time.YearMonth.from(scope.start)
+            val todayKey = Days.key(java.time.LocalDate.now()).takeIf { java.time.YearMonth.now() == ym }
+            RepriseCards.calendar(
+                this@MainActivity,
+                RepriseCards.Month(ym, scope.dayTotals, todayKey, recap.totalMs, recap.topSong, recap.topArtist?.name),
+                pal, cover, photo, name
+            )
         }
     }
 
