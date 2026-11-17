@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <item name="tag_artwork_url" type="id" />
+    <item name="stats_period_row_photo" type="id" />
+    <item name="stats_reprise_link" type="id" />
     <item name="tag_artwork_job" type="id" />
     <item name="tag_artwork_fade" type="id" />
     <item name="tag_entrance" type="id" />

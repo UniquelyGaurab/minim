@@ -57,6 +57,7 @@ import com.minim.music.MinimApp
 import com.minim.music.R
 import com.minim.music.data.stats.DayStats
 import com.minim.music.data.stats.Days
+import com.minim.music.data.stats.RepriseClock
 import com.minim.music.data.stats.DayStreak
 import com.minim.music.data.stats.TodayLists
 import com.minim.music.data.stats.RecapRules
@@ -1656,11 +1657,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun nextGreeting(): Int {
+        // 6.9.0 part B: the month's last day, "Your November Reprise drops at 6." joins the rotation
+        Greetings.repriseLine = RepriseClock.greetingLine(System.currentTimeMillis(), repriseMonthUnlocked)
+        repriseGreetingSlot++
+        if (Greetings.repriseTurn(repriseGreetingSlot, greetingIndex)) return Greetings.REPRISE_DROP
         val facts = liveGreetingFacts()
         val now = java.util.Calendar.getInstance()
         val name = app.preferences.userName
         return greetingRotation.next { Greetings.fits(it, facts, name, now) }
     }
+
+    /** 6.9.0 part B: counts greetings for the drop line's turn. */
+    private var repriseGreetingSlot = 0
+
+    /** 6.9.0 part B: whether this month's listening has met the Monthly minimum (kept fresh by Stats). */
+    private var repriseMonthUnlocked = false
 
     /** A regular greeting to fall back on: the time-based ones and the remote anytime lines that fit. */
     private fun nextRegularGreeting(): Int {
@@ -1678,6 +1689,10 @@ class MainActivity : AppCompatActivity() {
         val name = app.preferences.userName
         repeat(3) {
             when {
+                greetingIndex == Greetings.REPRISE_DROP -> {
+                    Greetings.repriseLine?.let { return Greetings.repriseLines(it) }
+                    greetingIndex = nextRegularGreeting()
+                }
                 Greetings.isRemote(greetingIndex) -> {
                     val facts = if (Greetings.isAnytime(greetingIndex)) GreetingFacts() else liveGreetingFacts()
                     Greetings.remoteLines(greetingIndex, name, facts = facts)?.let { return it }
@@ -6986,6 +7001,7 @@ class MainActivity : AppCompatActivity() {
             onPeriod = { p ->
                 applyStatsPeriodChrome(p)
                 loadStatsPeriod(p)
+                renderReprise()
             },
             onPlaySong = { songs, i ->
                 val song = songs.getOrNull(i)
@@ -7000,13 +7016,21 @@ class MainActivity : AppCompatActivity() {
             onDay = { day -> openDayReprise(day) },
             onHeatMonth = { ym -> loadStatsHeat(ym) },
             // Part B opens the Monthly Reprise from the teaser; the teaser stays hidden till then
-            onTeaserDive = {},
-            onTeaserCard = {},
+            onTeaserDive = { openPeriodReprise(false, RepriseClock.teaser(teaserNow(), true).month.atDay(1), atCard = false) },
+            onTeaserCard = { openPeriodReprise(false, RepriseClock.teaser(teaserNow(), true).month.atDay(1), atCard = true) },
             tick = { v -> haptic(v) },
-            softHaptic = { v -> haptic(v, HapticFeedbackConstants.LONG_PRESS) }
+            softHaptic = { v -> haptic(v, HapticFeedbackConstants.LONG_PRESS) },
+            // 75: Top 5 artists and channels show their real photos (same cache as the Artist page)
+            artistPhoto = { name, put ->
+                val cached = app.preferences.artistPhoto(name)?.takeIf { it.isNotBlank() }
+                if (cached != null) put(cached)
+                else lifecycleScope.launch { artistPhotoUrl(name)?.let(put) }
+            },
+            channelPhoto = { c, put -> loadStatsChannelPhoto(c.key, c.name, c.channelId) { put(it) } }
         ))
         statsPeriodView.setTeaser(null, null)
         statsPeriodView.restyle(pal)
+        refreshReprise(force = true)
         applyStatsPeriodChrome(statsPeriodView.period)
         loadStatsHeat(java.time.YearMonth.now())
         // 74: the first load no longer waits for (and can't be lost with) the daily refresh
@@ -7059,6 +7083,273 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ---- 6.9.0 part B: the Weekly and Monthly Reprise ---------------------------------------
+
+    /** Hidden previews only: moves the Monthly teaser's clock (0 = real time). */
+    private var teaserClockShift = 0L
+    /** Hidden previews only: forces the teaser's unlocked state. */
+    private var teaserPreviewUnlocked: Boolean? = null
+    /** Hidden previews only: a popup to show next time Home is quiet. */
+    private var reprisePopupPreview: RecapPopupGate.RepriseDue? = null
+    private var teaserTickJob: Job? = null
+    private var repriseJob: Job? = null
+    private var repriseLoadedAt = 0L
+    private var teaserArtMonth: java.time.YearMonth? = null
+    /** The teaser month's listening so far, the newest dropped week's and the newest dropped month's. */
+    private var teaserMonthMs = 0L
+    private var repriseWeekMs = 0L
+    private var repriseLatestMonthMs = 0L
+
+    private fun teaserNow(): Long = System.currentTimeMillis() + teaserClockShift
+
+    /** Reads the Reprise totals (at most once a minute unless [force]), then redraws the teaser and links. */
+    private fun refreshReprise(force: Boolean = false) {
+        if (!::statsPeriodView.isInitialized) return
+        val fresh = android.os.SystemClock.elapsedRealtime() - repriseLoadedAt < REPRISE_RELOAD_MS
+        if (fresh && !force) {
+            renderReprise()
+            return
+        }
+        if (repriseJob?.isActive == true) return
+        repriseJob = lifecycleScope.launch {
+            try {
+                val db = app.database
+                val now = System.currentTimeMillis()
+                val week = RepriseClock.latestWeek(now)
+                val (wf, wt, wc) = com.minim.music.data.local.RepriseLoader.weekRange(week)
+                repriseWeekMs = com.minim.music.data.local.RepriseLoader.total(db, wf, wt, wc)
+                val lm = RepriseClock.latestMonth(now)
+                val (mf, mt, mc) = com.minim.music.data.local.RepriseLoader.monthRange(lm)
+                repriseLatestMonthMs = com.minim.music.data.local.RepriseLoader.total(db, mf, mt, mc)
+                val tm = RepriseClock.teaser(teaserNow(), true).month
+                teaserMonthMs = if (tm == lm) repriseLatestMonthMs else com.minim.music.data.local.RepriseLoader.monthSoFarMs(db, tm)
+                val cur = java.time.YearMonth.now()
+                repriseMonthUnlocked = RepriseClock.monthUnlocked(
+                    if (cur == tm) teaserMonthMs else com.minim.music.data.local.RepriseLoader.monthSoFarMs(db, cur)
+                )
+                repriseLoadedAt = android.os.SystemClock.elapsedRealtime()
+                if (teaserArtMonth != tm) loadTeaserArt(tm)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+            renderReprise()
+            checkRecapPopup()
+        }
+    }
+
+    /** The Monthly teaser, the Saturday line and the way back into the latest Weekly / Monthly. */
+    private fun renderReprise() {
+        if (!::statsPeriodView.isInitialized) return
+        val tn = teaserNow()
+        val unlocked = teaserPreviewUnlocked ?: RepriseClock.monthUnlocked(teaserMonthMs)
+        val t = RepriseClock.teaser(tn, unlocked)
+        val today = java.time.Instant.ofEpochMilli(tn).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+        statsPeriodView.setTeaser(t, RepriseClock.tease(today))
+        statsPeriodView.setWeeklyLine(RepriseClock.weeklyTeaser(today))
+        val now = System.currentTimeMillis()
+        when (statsPeriodView.period) {
+            StatsPeriods.Period.WEEK -> {
+                val w = RepriseClock.latestWeek(now)
+                if (RepriseClock.weekUnlocked(repriseWeekMs)) {
+                    statsPeriodView.setRepriseLink("Open your weekly Reprise · ${RepriseClock.weekLabel(w)}") {
+                        openPeriodReprise(true, w, atCard = false)
+                    }
+                } else statsPeriodView.setRepriseLink(null, null)
+            }
+            StatsPeriods.Period.MONTH -> {
+                val m = RepriseClock.latestMonth(now)
+                if (RepriseClock.monthUnlocked(repriseLatestMonthMs)) {
+                    statsPeriodView.setRepriseLink("Open your ${RepriseClock.monthName(m)} Reprise") {
+                        openPeriodReprise(false, m.atDay(1), atCard = false)
+                    }
+                } else statsPeriodView.setRepriseLink(null, null)
+            }
+            else -> statsPeriodView.setRepriseLink(null, null)
+        }
+        teaserTickJob?.cancel()
+        teaserTickJob = null
+        val ticking = t.phase == RepriseClock.Phase.DAYS || t.phase == RepriseClock.Phase.TOMORROW ||
+            t.phase == RepriseClock.Phase.HOURS || t.phase == RepriseClock.Phase.FINAL_HOUR
+        if (ticking) {
+            val wait = minOf(RepriseClock.tickMs(t), (t.msLeft).coerceAtLeast(250L))
+            teaserTickJob = lifecycleScope.launch {
+                kotlinx.coroutines.delay(wait)
+                renderReprise()
+            }
+        }
+    }
+
+    /** The teaser's blurred mosaic of the month's top covers. */
+    private fun loadTeaserArt(ym: java.time.YearMonth) {
+        teaserArtMonth = ym
+        lifecycleScope.launch {
+            try {
+                val urls = com.minim.music.data.local.RepriseLoader.monthTopCovers(app.database, ym)
+                val bms = urls.mapNotNull { app.artworkPipeline.loadBitmap(it, RepriseTeaserArt.SIZE) }
+                val art = withContext(Dispatchers.Default) { RepriseTeaserArt.build(bms) }
+                if (::statsPeriodView.isInitialized) statsPeriodView.setTeaserArt(art.first, art.second)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                teaserArtMonth = null
+            }
+        }
+    }
+
+    /** Opens the Weekly ([isWeek], week starting [start]) or Monthly (month of [start]) Reprise story. */
+    private fun openPeriodReprise(isWeek: Boolean, start: java.time.LocalDate, atCard: Boolean) {
+        if (recapStory != null || recapStoryOpening) return
+        recapStoryOpening = true
+        lifecycleScope.launch {
+            val dark = app.preferences.isDarkTheme
+            val opened = try {
+                val period = if (isWeek) com.minim.music.data.stats.RepriseScope.Period.WEEK
+                else com.minim.music.data.stats.RepriseScope.Period.MONTH
+                val (data, scope) = com.minim.music.data.local.RepriseLoader.scope(app.database, app.fermataBridge, period, start)
+                if (data.stats.totalMs <= 0L) null else Triple(data, scope, preparePeriodStory(data, dark))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                recapStoryOpening = false
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+            recapStoryOpening = false
+            if (isFinishing || isDestroyed || recapStory != null) return@launch
+            if (opened == null) {
+                showNote(if (isWeek) "Nothing to Reprise for that week yet" else "Nothing to Reprise for that month yet")
+                return@launch
+            }
+            val (data, scope, prep) = opened
+            // Opening it counts as seen: its popup won't come after
+            if (isWeek) app.preferences.reprisePopupWeek = scope.key else app.preferences.reprisePopupMonth = scope.key
+            showRecapStory(data.stats, prep, atCard, scope)
+        }
+    }
+
+    /** Like prepareRecapStory, for a whole week or month (its top song plays behind the story). */
+    private suspend fun preparePeriodStory(data: com.minim.music.data.local.PeriodData, dark: Boolean): RecapPrep {
+        val recap = data.stats
+        val artwork = app.artworkPipeline
+        val storyPal = try { RecapCard.palette(artwork, recap, dark) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { Pal.build(0, dark) }
+        val day = try {
+            withContext(Dispatchers.Default) { RecapDay.compute(recap, data.plays, data.listens, data.tapeListens) }
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { RecapDay.NONE }
+        val urls = LinkedHashSet<String>()
+        day.first?.thumbnailUrl?.let { urls.add(it) }
+        recap.topArtist?.name?.let { app.preferences.artistPhoto(it) }?.let { urls.add(it) }
+        recap.tapes.topChannel?.let { statsChannelPhotos[it.key] }?.let { urls.add(it) }
+        recap.tapes.topTape?.thumbnailUrl?.let { urls.add(it) }
+        val pals = HashMap<String, Pal>()
+        for (u in urls) {
+            if (u.isBlank()) continue
+            try {
+                val seed = artwork.extractAccentForUrl(u)
+                if (seed != 0) pals[u] = Pal.build(seed, dark)
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {}
+        }
+        val top = recap.topSong?.let { s ->
+            val saved = try { app.database.getTracksByIds(listOf(s.trackId)).firstOrNull() } catch (_: Exception) { null }
+            saved ?: Track(s.trackId, s.title, s.artist, 0L, s.thumbnailUrl, "https://music.youtube.com/watch?v=${s.trackId}")
+        }
+        return RecapPrep(storyPal, day, pals, top, com.minim.music.data.stats.RecapMore.NONE)
+    }
+
+    /** The monthly card's Save as playlist: "November 2026 · Reprise", its top songs, a Type cover. */
+    private suspend fun saveMonthPlaylist(scope: com.minim.music.data.stats.RepriseScope, recap: DayStats, day: RecapDay): String? {
+        val ids = ReprisePreview.monthPlaylistIds(day.ranked, recap.topSong?.trackId)
+        if (ids.isEmpty()) return null
+        return try {
+            val byId = app.database.getTracksByIds(ids).associateBy { it.id }
+            val tracks = ids.mapNotNull { byId[it] }
+            if (tracks.isEmpty()) return null
+            val ym = java.time.YearMonth.from(scope.start)
+            val base = RecapDay.monthPlaylistName(ym)
+            var name = base
+            var id = app.database.createPlaylist(name)
+            var n = 2
+            while (id == -1L && n <= 20) {
+                name = "$base $n"
+                id = app.database.createPlaylist(name)
+                n++
+            }
+            if (id == -1L) return null
+            app.database.addTracksToPlaylist(id, tracks)
+            val accents = tracks.take(4).mapNotNull { t ->
+                try { app.artworkPipeline.extractAccentForUrl(t.thumbnailUrl).takeIf { it != 0 } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+            }
+            try { app.playlistCovers.setCover(id, RecapDay.monthCover(ym, accents)) } catch (_: Exception) {}
+            refreshData()
+            name
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** The Weekly or Monthly popup that's due (or the hidden preview's), else null. */
+    private fun dueReprisePopup(): RecapPopupGate.RepriseDue? {
+        reprisePopupPreview?.let { return it }
+        val prefs = app.preferences
+        return RecapPopupGate.dueReprise(
+            System.currentTimeMillis(), repriseWeekMs, repriseLatestMonthMs, prefs.reprisePopupWeek, prefs.reprisePopupMonth
+        )
+    }
+
+    /** The Weekly / Monthly popup: the same Minim sheet as the daily one. Once each. */
+    private fun showReprisePopup(due: RecapPopupGate.RepriseDue) {
+        if (due.isWeek) app.preferences.reprisePopupWeek = due.key else app.preferences.reprisePopupMonth = due.key
+        reprisePopupPreview = null
+        val ym = java.time.YearMonth.from(due.start)
+        val title = if (due.isWeek) "Your weekly Reprise is here" else "Your ${RepriseClock.monthName(ym)} Reprise is here"
+        val sub = if (due.isWeek) RepriseClock.weekLabel(due.start) else "${RepriseClock.monthName(ym)} ${ym.year}"
+        openSheet { box ->
+            sheetHeading(box, title, sub)
+            val v = layoutInflater.inflate(R.layout.sheet_recap_popup, box, false)
+            v.findViewById<TextView>(R.id.recap_popup_line).apply {
+                text = if (due.totalMs > 0L) "${StatsFormat.duration(due.totalMs)} of listening, wrapped." else "Your ${if (due.isWeek) "week" else "month"}, wrapped."
+                visibility = View.VISIBLE
+            }
+            v.findViewById<View>(R.id.recap_popup_dive_in).setOnClickListener {
+                if (sheetClosing) return@setOnClickListener
+                haptic(it)
+                closeSheet { openPeriodReprise(due.isWeek, due.start, atCard = false) }
+            }
+            box.addView(v)
+        }
+    }
+
+    /** Hidden previews: a teaser state, by moving the teaser's clock into this month. */
+    private fun previewTeaser(kind: ReprisePreview.Teaser) {
+        val now = System.currentTimeMillis()
+        teaserClockShift = ReprisePreview.at(kind, now) - now
+        teaserPreviewUnlocked = ReprisePreview.unlocked(kind)
+        // the real clock comes back by itself after 2 minutes
+        lifecycleScope.launch {
+            kotlinx.coroutines.delay(REPRISE_PREVIEW_MS)
+            if (teaserClockShift != 0L || teaserPreviewUnlocked != null) {
+                teaserClockShift = 0L
+                teaserPreviewUnlocked = null
+                renderReprise()
+            }
+        }
+        if (::statsPeriodView.isInitialized) statsPeriodView.setTeaser(null, null)
+        renderReprise()
+    }
+
+    /** Hidden previews: the weekly or monthly popup, next time Home is quiet. */
+    private fun previewReprisePopup(isWeek: Boolean) {
+        val now = java.time.LocalDate.now()
+        reprisePopupPreview = if (isWeek) {
+            val w = RepriseClock.weekStart(now)
+            RecapPopupGate.RepriseDue(true, w, RecapPopupGate.weekKey(w), repriseWeekMs)
+        } else {
+            val ym = java.time.YearMonth.from(now)
+            RecapPopupGate.RepriseDue(false, ym.atDay(1), RecapPopupGate.monthKey(ym), teaserMonthMs)
+        }
+    }
+
     /** A bar or heatmap day: that day's Daily Reprise story. */
     private fun openDayReprise(day: Int) {
         lifecycleScope.launch {
@@ -7075,6 +7366,7 @@ class MainActivity : AppCompatActivity() {
         if (::statsPeriodView.isInitialized) {
             loadStatsPeriod(statsPeriodView.period)
             loadStatsHeat(statsPeriodView.shownHeatMonth)
+            refreshReprise()
         }
         statsJob?.cancel()
         statsJob = lifecycleScope.launch {
@@ -7619,7 +7911,47 @@ class MainActivity : AppCompatActivity() {
         if (versionTaps >= VERSION_TAPS) {
             versionTaps = 0
             haptic(findViewById(R.id.set_about))
-            app.toggleThemePreview { showPreviewToast(it) }
+            showHiddenPreviews()
+        }
+    }
+
+    /**
+     * 6.9.0 part B: the hidden previews. The festival preview as before, plus the Weekly and
+     * Monthly Reprise, each Monthly teaser state and both popups, without waiting for the day.
+     */
+    private fun showHiddenPreviews() {
+        openSheet { box ->
+            sheetHeading(box, "Previews", "Only you can see these")
+            sheetAction(box, R.drawable.ic_sparkle, "Festival theme preview") {
+                closeSheet { app.toggleThemePreview { showPreviewToast(it) } }
+            }
+            sheetAction(box, R.drawable.ic_play, "This week's Weekly Reprise") {
+                closeSheet { openPeriodReprise(true, RepriseClock.weekStart(java.time.LocalDate.now()), atCard = false) }
+            }
+            sheetAction(box, R.drawable.ic_play, "This month's Monthly Reprise") {
+                closeSheet { openPeriodReprise(false, java.time.LocalDate.now().withDayOfMonth(1), atCard = false) }
+            }
+            for (kind in ReprisePreview.Teaser.values()) {
+                sheetAction(box, R.drawable.ic_history, kind.label) {
+                    closeSheet {
+                        previewTeaser(kind)
+                        if (isSettingsOpen) closeSettings()
+                        showTab(Tab.STATS)
+                    }
+                }
+            }
+            sheetAction(box, R.drawable.ic_auto_cover, "Weekly popup") {
+                closeSheet {
+                    previewReprisePopup(true)
+                    showNote("Go back to Home to see it")
+                }
+            }
+            sheetAction(box, R.drawable.ic_auto_cover, "Monthly popup") {
+                closeSheet {
+                    previewReprisePopup(false)
+                    showNote("Go back to Home to see it")
+                }
+            }
         }
     }
 
@@ -8200,7 +8532,8 @@ class MainActivity : AppCompatActivity() {
         val busy = !isActivityResumed || isWelcomeOpen || !prefs.welcomeDone || sheetVisible ||
             recapStory != null || recapStoryOpening
         return recapGate.update(
-            eligible = RecapPopupGate.DAILY_POPUP && RecapPopupGate.eligible(recapStats, prefs.recapPopupDay, prefs.recapViewedDay),
+            eligible = (RecapPopupGate.DAILY_POPUP && RecapPopupGate.eligible(recapStats, prefs.recapPopupDay, prefs.recapViewedDay)) ||
+                dueReprisePopup() != null,
             onHome = onHome,
             nowPlayingOpen = isNowPlayingOpen,
             musicPlaying = st.currentTrack != null && (st.isPlaying || st.isBuffering),
@@ -8210,6 +8543,9 @@ class MainActivity : AppCompatActivity() {
 
     /** The popup: Minim sheet with the recap's date and day, a small numbers line and "dive in". */
     private fun showRecapPopup() {
+        // 6.9.0 part B: a Weekly or Monthly popup goes first (the daily one stays off)
+        dueReprisePopup()?.let { showReprisePopup(it); return }
+        if (!RecapPopupGate.DAILY_POPUP) return
         val recap = recapStats ?: return
         // Once per recap: marked as soon as it's on screen. Dismissing it keeps the Stats dot
         // (recapViewedDay only changes when the recap is actually looked at).
@@ -8854,13 +9190,15 @@ class MainActivity : AppCompatActivity() {
         return com.minim.music.data.stats.RecapMore(firstListens, hearted, session, compare, streak, allTime)
     }
 
-    private fun showRecapStory(recap: DayStats, prep: RecapPrep, atCard: Boolean) {
+    private fun showRecapStory(recap: DayStats, prep: RecapPrep, atCard: Boolean, scope: com.minim.music.data.stats.RepriseScope? = null) {
         val host = findViewById<ViewGroup>(android.R.id.content) ?: return
         if (::sheetRoot.isInitialized && sheetRoot.visibility == View.VISIBLE) closeSheet()
         hideKeyboard()
         val storyPal = prep.pal
         val photo = recap.topArtist?.name?.let { app.preferences.artistPhoto(it) }
-        val persona = RecapPersonality.pick(recap, prep.day)
+        // 6.9.0 part B: a Weekly/Monthly Reprise picks from the period's personalities
+        val persona = if (scope != null) RecapPersonality.pickPeriod(recap, prep.day, scope.days.size, scope.weekendMs, scope.weekdayMs, scope.word)
+        else RecapPersonality.pick(recap, prep.day)
         val top = prep.topTrack
         val soundOn = app.preferences.recapSound
         var saving = false
@@ -8893,7 +9231,8 @@ class MainActivity : AppCompatActivity() {
                 } else if (!saving) {
                     saving = true
                     lifecycleScope.launch {
-                        val name = saveRecapPlaylist(recap, prep.day)
+                        val name = if (scope != null && !scope.isWeek) saveMonthPlaylist(scope, recap, prep.day)
+                        else saveRecapPlaylist(recap, prep.day)
                         saving = false
                         if (name != null) savedPlaylist = name
                         recapStoryNote(if (name != null) getString(R.string.recap_playlist_saved, name) else getString(R.string.recap_playlist_failed))
@@ -8917,7 +9256,8 @@ class MainActivity : AppCompatActivity() {
                 app.preferences.recapSound = on
                 recapMusic?.setMuted(!on)
             },
-            onClosed = { onRecapStoryClosed() }
+            onClosed = { onRecapStoryClosed() },
+            scope = scope
         )
         recapStory = story
         // Above everything (root's screens, sheets and notes), right up behind the system bars
@@ -8929,7 +9269,8 @@ class MainActivity : AppCompatActivity() {
                 RecapCard.build(
                     this@MainActivity, app.artworkPipeline, recap, storyPal,
                     if (recap.topArtist == null) recap.tapes.topChannel?.let { statsChannelPhotos[it.key] } else photo,
-                    persona
+                    persona,
+                    scope?.let { it.label to it.cardTag }
                 )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -12772,6 +13113,8 @@ class MainActivity : AppCompatActivity() {
         private const val STATS_INSIGHTS_KEEP_MS = 60_000L
         /** v4.9.1: the popup waits this long (and re-checks) so it never lands mid-animation. */
         private const val RECAP_POPUP_DELAY_MS = 700L
+        private const val REPRISE_RELOAD_MS = 60_000L
+        private const val REPRISE_PREVIEW_MS = 120_000L
         // 5.0.0 part 3: an announcement opens a moment after Home settles
         private const val ANNOUNCEMENT_DELAY_MS = 1_200L
         private const val UPDATE_POPUP_DELAY_MS = 900L

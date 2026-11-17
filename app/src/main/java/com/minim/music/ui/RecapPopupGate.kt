@@ -2,6 +2,7 @@ package com.minim.music.ui
 
 import com.minim.music.data.stats.DayStats
 import com.minim.music.data.stats.RecapRules
+import com.minim.music.data.stats.RepriseClock
 
 /**
  * v4.9.1: when the recap popup may slide up. Pure, so it's unit-tested.
@@ -59,5 +60,44 @@ class RecapPopupGate {
 
         fun eligible(recap: DayStats?, popupShownDay: Int, viewedDay: Int): Boolean =
             RecapRules.shouldPopup(recap, popupShownDay, viewedDay)
+
+        /** 6.9.0 part B: how long after its drop a Weekly or Monthly popup may still show. */
+        const val REPRISE_POPUP_DAYS = 3L
+
+        /**
+         * 6.9.0 part B: the Weekly or Monthly Reprise popup that's due at [now], or null. Once each
+         * ([shownWeek] / [shownMonth] hold the keys already shown or opened), only for a period that
+         * met its minimum, and only in the first few days after it dropped. The month goes first.
+         */
+        fun dueReprise(
+            now: Long,
+            weekTotalMs: Long,
+            monthTotalMs: Long,
+            shownWeek: String,
+            shownMonth: String,
+            zone: java.time.ZoneId = java.time.ZoneId.systemDefault()
+        ): RepriseDue? {
+            val window = REPRISE_POPUP_DAYS * 86_400_000L
+            val ym = RepriseClock.latestMonth(now, zone)
+            val monthKey = monthKey(ym)
+            val monthAt = RepriseClock.monthDropAt(ym, zone)
+            if (now >= monthAt && now - monthAt < window && monthKey != shownMonth && RepriseClock.monthUnlocked(monthTotalMs)) {
+                return RepriseDue(false, ym.atDay(1), monthKey, monthTotalMs)
+            }
+            val week = RepriseClock.latestWeek(now, zone)
+            val weekKey = weekKey(week)
+            val weekAt = RepriseClock.weeklyReadyAt(week, zone)
+            if (now >= weekAt && now - weekAt < window && weekKey != shownWeek && RepriseClock.weekUnlocked(weekTotalMs)) {
+                return RepriseDue(true, week, weekKey, weekTotalMs)
+            }
+            return null
+        }
+
+        /** The same keys as RepriseScope.key. */
+        fun weekKey(start: java.time.LocalDate): String = "w${com.minim.music.data.stats.Days.key(start)}"
+        fun monthKey(ym: java.time.YearMonth): String = "m${ym.year * 100 + ym.monthValue}"
     }
+
+    /** 6.9.0 part B: a Weekly ([isWeek]) or Monthly Reprise popup to show. */
+    data class RepriseDue(val isWeek: Boolean, val start: java.time.LocalDate, val key: String, val totalMs: Long)
 }

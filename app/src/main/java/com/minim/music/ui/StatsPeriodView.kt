@@ -56,7 +56,11 @@ class StatsPeriodView(
         val onTeaserDive: () -> Unit,
         val onTeaserCard: () -> Unit,
         val tick: (View) -> Unit,
-        val softHaptic: (View) -> Unit
+        val softHaptic: (View) -> Unit,
+        /** 75: an artist's photo url (cached, else looked up like the Artist page); the reply may come later. */
+        val artistPhoto: (String, (String) -> Unit) -> Unit = { _, _ -> },
+        /** 75: a channel's photo url (followed channel's, else its page's). */
+        val channelPhoto: (ChannelItem, (String) -> Unit) -> Unit = { _, _ -> }
     )
 
     class Model(
@@ -93,6 +97,9 @@ class StatsPeriodView(
     private val teaserActions = LinearLayout(ctx)
     private var teaserPhase: RepriseClock.Phase? = null
     private val weeklyLine = text(12f, regular, "text:muted")
+    /** 75: "Open your weekly Reprise" on the Week pill, "Open your October Reprise" on Month. */
+    private val repriseLink = text(13f, semi, "text:fg")
+    private var repriseLinkAction: (() -> Unit)? = null
 
     private val hero = LinearLayout(ctx)
     private val heroTotal = text(34f, bold, "text:fg")
@@ -109,6 +116,8 @@ class StatsPeriodView(
     private var heatGrid: List<Int?> = emptyList()
     private var heatView: HeatGrid? = null
     private var model: Model? = null
+    /** 75: bumps when the Top 5 rows are rebuilt, so a late photo never lands on an old row. */
+    private var rowsGen = 0
 
     init {
         host.removeAllViews()
@@ -117,6 +126,14 @@ class StatsPeriodView(
         host.addView(teaserBox, lp(top = 14f))
         weeklyLine.visibility = View.GONE
         host.addView(weeklyLine, lp(top = 10f))
+        repriseLink.visibility = View.GONE
+        repriseLink.gravity = Gravity.CENTER_VERTICAL
+        repriseLink.setPadding(dp(14f), 0, dp(14f), 0)
+        repriseLink.isClickable = true
+        repriseLink.isFocusable = true
+        repriseLink.id = R.id.stats_reprise_link
+        repriseLink.setOnClickListener { v -> repriseLinkAction?.let { cb.tick(v); it() } }
+        host.addView(repriseLink, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34f)).apply { topMargin = dp(12f) })
         hero.orientation = LinearLayout.VERTICAL
         hero.addView(heroTotal)
         hero.addView(heroCompare, lp(top = 2f))
@@ -183,6 +200,7 @@ class StatsPeriodView(
         drawHeat()
         teaserRing.setColors(p.fg)
         styleTeaserFrame()
+        styleRepriseLink()
     }
 
     // ------------------------------------------------------------------ hero, lists, insights
@@ -207,6 +225,7 @@ class StatsPeriodView(
         renderNumbers(m.numbers)
         numbersBox.visibility = if (m.numbers.isEmpty()) View.GONE else View.VISIBLE
         listsBox.removeAllViews()
+        rowsGen++
         if (m.songs.isNotEmpty()) {
             listsBox.addView(section("Top songs"), lp(top = 16f))
             for ((i, s) in m.songs.withIndex()) {
@@ -218,7 +237,8 @@ class StatsPeriodView(
         if (m.artists.isNotEmpty()) {
             listsBox.addView(section("Top artists"), lp(top = 16f))
             for ((i, a) in m.artists.withIndex()) {
-                listsBox.addView(row(i + 1, a.name, StatsPeriods.long(a.ms), null, round = true) { v ->
+                listsBox.addView(row(i + 1, a.name, StatsPeriods.long(a.ms), null, round = true,
+                    photo = { put -> cb.artistPhoto(a.name, put) }) { v ->
                     cb.tick(v); cb.onArtist(a.name)
                 }, lp(top = 6f))
             }
@@ -227,7 +247,8 @@ class StatsPeriodView(
             listsBox.addView(section("Top channels"), lp(top = 16f))
             for ((i, c) in m.channels.withIndex()) {
                 val sub = if (c.tapes == 1) "1 tape · ${StatsPeriods.long(c.ms)}" else "${c.tapes} tapes · ${StatsPeriods.long(c.ms)}"
-                listsBox.addView(row(i + 1, c.name, sub, null, round = true) { v ->
+                listsBox.addView(row(i + 1, c.name, sub, null, round = true,
+                    photo = { put -> cb.channelPhoto(c, put) }) { v ->
                     cb.tick(v); cb.onChannel(c)
                 }, lp(top = 6f))
             }
@@ -293,9 +314,19 @@ class StatsPeriodView(
         }
     }
 
+    /** 75: shows a found photo in a Top 5 row (only while that row is still on screen). */
+    internal fun bindPhoto(iv: ImageView, url: String) {
+        if (url.isBlank()) return
+        artwork.loadInto(iv, url, dp(40f))
+    }
+
     private fun section(title: String) = text(15f, semi, "text:fg").apply { text = title }
 
-    private fun row(rank: Int, title: String, sub: String, art: String?, round: Boolean, onClick: (View) -> Unit): View {
+    private fun row(
+        rank: Int, title: String, sub: String, art: String?, round: Boolean,
+        photo: (((String) -> Unit) -> Unit)? = null,
+        onClick: (View) -> Unit
+    ): View {
         val row = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -324,7 +355,18 @@ class StatsPeriodView(
                 background = GradientDrawable().apply { shape = if (round) GradientDrawable.OVAL else GradientDrawable.RECTANGLE; setColor(0x33808080) }
                 tag = "fill:soft text:fg"
             }
-            row.addView(initial, LinearLayout.LayoutParams(dp(40f), dp(40f)).apply { marginStart = dp(6f) })
+            if (photo == null) {
+                row.addView(initial, LinearLayout.LayoutParams(dp(40f), dp(40f)).apply { marginStart = dp(6f) })
+            } else {
+                // 75: the letter shows while the photo loads (or when there is none); the round photo covers it
+                val frame = FrameLayout(ctx)
+                frame.addView(initial, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                val iv = ImageView(ctx).apply { RoundPhoto.apply(this); id = R.id.stats_period_row_photo }
+                frame.addView(iv, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                row.addView(frame, LinearLayout.LayoutParams(dp(40f), dp(40f)).apply { marginStart = dp(6f) })
+                val gen = rowsGen
+                photo { url -> if (gen == rowsGen) bindPhoto(iv, url) }
+            }
         }
         val col = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         col.addView(text(14f, semi, "text:fg").apply { text = title; maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
@@ -537,6 +579,22 @@ class StatsPeriodView(
     fun setTeaserArt(sharp: Bitmap?, blurred: Bitmap?) {
         teaserSharp.setImageBitmap(sharp)
         teaserBlur.setImageBitmap(blurred)
+    }
+
+    /** 75: the way back into the latest Weekly or Monthly Reprise (null hides it). */
+    fun setRepriseLink(label: String?, onOpen: (() -> Unit)?) {
+        repriseLinkAction = onOpen
+        repriseLink.text = label.orEmpty()
+        repriseLink.visibility = if (label.isNullOrEmpty() || onOpen == null) View.GONE else View.VISIBLE
+        styleRepriseLink()
+    }
+
+    private fun styleRepriseLink() {
+        repriseLink.background = GradientDrawable().apply {
+            cornerRadius = 17f * d
+            setColor(androidx.core.graphics.ColorUtils.setAlphaComponent(pal.fg, 0x1F))
+        }
+        repriseLink.setTextColor(pal.fg)
     }
 
     fun setWeeklyLine(line: String?) {

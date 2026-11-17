@@ -171,6 +171,15 @@ class AppPreferences(context: Context) {
         get() = prefs.getInt("recap_popup_day", 0)
         set(value) = prefs.edit().putInt("recap_popup_day", value).apply()
 
+    /** 6.9.0: the Weekly / Monthly Reprise (RepriseScope.key) whose popup already showed or that was opened. */
+    var reprisePopupWeek: String
+        get() = prefs.getString("reprise_popup_week", "") ?: ""
+        set(value) = prefs.edit().putString("reprise_popup_week", value).apply()
+
+    var reprisePopupMonth: String
+        get() = prefs.getString("reprise_popup_month", "") ?: ""
+        set(value) = prefs.edit().putString("reprise_popup_month", value).apply()
+
     /** Artist photo found for an artist name, cached so Stats doesn't search every time. */
     fun artistPhoto(name: String): String? =
         prefs.getString("artist_photo_" + name.lowercase().trim(), null)

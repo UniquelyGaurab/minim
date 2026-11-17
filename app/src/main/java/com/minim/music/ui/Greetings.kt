@@ -106,6 +106,20 @@ object Greetings {
     const val TIME_BASED = 0
     const val TIME_NAMED = 1
 
+    /** 6.9.0 part B: "Your November Reprise drops at 6." on the month's last day, before 6 PM. */
+    const val REPRISE_DROP = 2
+
+    /** The drop line while it applies (set from Home's greeting facts), else null. */
+    @Volatile
+    var repriseLine: String? = null
+
+    /** 6.9.0 part B: the drop line takes every third greeting slot (never twice in a row, not during a festival). */
+    fun repriseTurn(slot: Int, last: Int, line: String? = repriseLine, festival: Boolean = themeOn): Boolean =
+        !line.isNullOrBlank() && !festival && last != REPRISE_DROP && slot % 3 == 0
+
+    /** The drop line as greeting lines: a short opener and the line itself. */
+    fun repriseLines(line: String): Pair<String, String> = "Mark your calendar." to line
+
     /** The built-in greetings, as the regular bag hands them out. */
     val REGULAR_IDS: List<Int> = listOf(TIME_BASED, TIME_NAMED)
 

@@ -2,7 +2,9 @@
 
 Every Minim release, newest first. Download any of them from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page.
 
-## 6.9.0 (test build, part A, not released yet)
+## 6.9.0 (test build, not released yet)
+
+Build 75 finishes the revamp (part B): the Weekly Reprise (Sunday to Saturday, out Sunday at 8 AM) and the Monthly Reprise (out at 6 PM on the last day), with their own popups, the Monthly teaser card and its countdown in the last week of the month, the Saturday "lands tomorrow" line, a way back into the latest ones from the Week and Month pills, Save as playlist for the month, the "drops at 6" greeting, and hidden previews (tap the version 7 times). Top 5 artists and channels now show their real photos.
 
 Build 74 fixes the blank space under the Stats pills (the totals, bars, Top 5s and boxes now show) and adds day numbers to the heatmap, with today outlined and future days faint.
 
