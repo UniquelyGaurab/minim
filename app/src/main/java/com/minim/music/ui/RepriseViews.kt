@@ -87,6 +87,30 @@ class HeatGrid(
     var grow = 1f
         set(v) { field = v; invalidate() }
 
+    /** 6.9.0 (74): day of the month per slot (0 = blank), drawn inside each box. Null draws none. */
+    var dayNumbers: List<Int>? = null
+        set(v) { field = v; invalidate() }
+
+    /** 74: today's slot, outlined with a bolder number. -1 for none. */
+    var todayIndex = -1
+        set(v) { field = v; invalidate() }
+
+    /** 74: slots after today: drawn faint (they can't be tapped either). */
+    var future: List<Boolean> = emptyList()
+        set(v) { field = v; invalidate() }
+
+    var boldFace: Typeface? = null
+
+    private val num = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+
+    /** 74: the alpha a box of level [lv] is drawn with ([shown] false while growing in). */
+    internal fun boxAlpha(i: Int, lv: Int, shown: Boolean): Int = when {
+        future.getOrElse(i) { false } -> HeatInk.FUTURE_ALPHA
+        !shown -> 22
+        else -> when (lv) { 0 -> 22; 1 -> 70; 2 -> 120; 3 -> 180; else -> 255 }
+    }
+
     /** 6.9.0: the grid slot under ([x], [y]), or -1 (header, gaps, outside). Same geometry as onDraw. */
     fun indexAt(x: Float, y: Float): Int {
         val cols = 7
@@ -129,9 +153,48 @@ class HeatGrid(
             val x = left0 + (i % cols) * (cell + gap)
             val y = headH + (i / cols) * (cell + gap)
             rect.set(x, y, x + cell, y + cell)
-            val alpha = if (!shown) 22 else when (lv) { 0 -> 22; 1 -> 70; 2 -> 120; 3 -> 180; else -> 255 }
+            val alpha = boxAlpha(i, lv, shown)
             paint.color = ColorUtils.setAlphaComponent(fg, alpha)
             canvas.drawRoundRect(rect, cell * 0.28f, cell * 0.28f, paint)
+            val dn = dayNumbers?.getOrNull(i) ?: 0
+            if (dn <= 0) continue
+            val isToday = i == todayIndex
+            val isFuture = future.getOrElse(i) { false }
+            if (isToday) {
+                ring.strokeWidth = 1.5f * d
+                ring.color = ColorUtils.setAlphaComponent(fg, 230)
+                val inset = ring.strokeWidth / 2f
+                rect.inset(inset, inset)
+                canvas.drawRoundRect(rect, cell * 0.28f, cell * 0.28f, ring)
+            }
+            num.typeface = if (isToday) (boldFace ?: face) else face
+            num.textSize = (cell * 0.34f).coerceIn(8f * d, 12f * d)
+            val ink = HeatInk.ink(fg, alpha)
+            num.color = ColorUtils.setAlphaComponent(ink, if (isFuture) 0x66 else if (isToday) 0xFF else 0xD9)
+            val cy = y + cell / 2f - (num.descent() + num.ascent()) / 2f
+            canvas.drawText(dn.toString(), x + cell / 2f, cy, num)
         }
+    }
+}
+
+/**
+ * 6.9.0 (74): ink for a heatmap day number. A box is the text colour [fg] at some alpha over the
+ * screen; the screen is dark when [fg] is light (Dark, or Haze on a dark cover) and light when it's
+ * dark (Light, or Haze on a bright cover). The number is dark on a box that comes out bright and
+ * light on one that comes out dim, so it stays readable on full and empty days in every theme.
+ */
+object HeatInk {
+    const val FUTURE_ALPHA = 10
+    const val DARK = 0xFF111111.toInt()
+    const val LIGHT = 0xFFFFFFFF.toInt()
+
+    /** The screen behind the boxes, as far as contrast goes. */
+    fun backdrop(fg: Int): Int = if (ColorUtils.calculateLuminance(fg) > 0.5) 0xFF121212.toInt() else 0xFFF6F6F6.toInt()
+
+    fun box(fg: Int, alpha: Int): Int = ColorUtils.compositeColors(ColorUtils.setAlphaComponent(fg, alpha.coerceIn(0, 255)), backdrop(fg))
+
+    fun ink(fg: Int, alpha: Int): Int {
+        val b = box(fg, alpha)
+        return if (ColorUtils.calculateContrast(DARK, b) >= ColorUtils.calculateContrast(LIGHT, b)) DARK else LIGHT
     }
 }

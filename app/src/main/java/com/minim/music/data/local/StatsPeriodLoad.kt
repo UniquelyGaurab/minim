@@ -23,7 +23,29 @@ object StatsPeriodLoad {
 
     const val TOP = 5
 
+    /** One pill's rows, its compare total and the day streak: everything but the insights. */
+    class Loaded(
+        val period: StatsPeriods.Period,
+        val today: LocalDate,
+        val from: Int,
+        val to: Int,
+        val data: PeriodData,
+        val prevRange: Pair<Int, Int>?,
+        val prevMs: Long?,
+        val streak: Int
+    )
+
+    /**
+     * Everything at once (tests, one-off loads). The Stats tab itself uses [load] and [insights]
+     * separately, so the hero and Top 5s show before the slower insights are worked out.
+     */
     suspend fun model(db: LibraryDatabase, bridge: FermataBridge?, p: StatsPeriods.Period, today: LocalDate): StatsPeriodView.Model {
+        val l = load(db, p, today)
+        return assemble(l, insights(db, bridge, l))
+    }
+
+    /** The fast part: the period's rows, the previous stretch's total and the day streak. */
+    suspend fun load(db: LibraryDatabase, p: StatsPeriods.Period, today: LocalDate): Loaded {
         val first = if (p == StatsPeriods.Period.ALL) {
             try { RepriseQueries.firstDay(db)?.let { Days.date(it) } } catch (_: Exception) { null }
         } else null
@@ -32,29 +54,37 @@ object StatsPeriodLoad {
         val prevRange = StatsPeriods.previousRange(p, today)
         val prevMs = prevRange?.let { try { RepriseLoader.total(db, it.first, it.second) } catch (_: Exception) { null } }
         val streak = try { streak(db, today) } catch (_: Exception) { 0 }
-        val insights = try {
-            val fromMs = Days.startMs(from)
-            val toMs = Days.endMs(to)
-            val top = StatsEngine.rankSongs(data.plays, data.listens).take(TOP)
-            val all = p == StatsPeriods.Period.ALL
-            val artistsBefore = if (all) null else try { RepriseQueries.artistKeysBefore(db, fromMs) } catch (_: Exception) { null }
-            val songsBefore = if (all) null else try { db.getTracksPlayedBefore(top.map { it.trackId }, fromMs) } catch (_: Exception) { null }
-            val prevPlays = prevRange?.let { try { RepriseQueries.plays(db, it.first, it.second) } catch (_: Exception) { null } }
-            val prevListens = prevRange?.let { try { RepriseQueries.listens(db, it.first, it.second) } catch (_: Exception) { null } }
-            val log = withContext(Dispatchers.IO) { try { RepriseLog.rows(bridge, toMs) } catch (_: Exception) { emptyList() } }
-            withContext(Dispatchers.Default) {
-                StatsInsights.build(
-                    data.plays, data.listens, data.hours, data.stats.totalMs, log, fromMs, toMs,
-                    artistsBefore, songsBefore, prevPlays, prevListens
-                )
-            }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            emptyList()
-        }
-        return withContext(Dispatchers.Default) { assemble(p, today, data, prevMs, streak, insights) }
+        return Loaded(p, today, from, to, data, prevRange, prevMs, streak)
     }
+
+    /** The slow part: insight rows (reads Fermata's whole log). Empty when anything fails. */
+    suspend fun insights(db: LibraryDatabase, bridge: FermataBridge?, l: Loaded): List<StatsInsights.Row> = try {
+        val p = l.period
+        val data = l.data
+        val prevRange = l.prevRange
+        val fromMs = Days.startMs(l.from)
+        val toMs = Days.endMs(l.to)
+        val top = StatsEngine.rankSongs(data.plays, data.listens).take(TOP)
+        val all = p == StatsPeriods.Period.ALL
+        val artistsBefore = if (all) null else try { RepriseQueries.artistKeysBefore(db, fromMs) } catch (_: Exception) { null }
+        val songsBefore = if (all) null else try { db.getTracksPlayedBefore(top.map { it.trackId }, fromMs) } catch (_: Exception) { null }
+        val prevPlays = prevRange?.let { try { RepriseQueries.plays(db, it.first, it.second) } catch (_: Exception) { null } }
+        val prevListens = prevRange?.let { try { RepriseQueries.listens(db, it.first, it.second) } catch (_: Exception) { null } }
+        val log = withContext(Dispatchers.IO) { try { RepriseLog.rows(bridge, toMs) } catch (_: Exception) { emptyList() } }
+        withContext(Dispatchers.Default) {
+            StatsInsights.build(
+                data.plays, data.listens, data.hours, data.stats.totalMs, log, fromMs, toMs,
+                artistsBefore, songsBefore, prevPlays, prevListens
+            )
+        }
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    fun assemble(l: Loaded, insights: List<StatsInsights.Row>): StatsPeriodView.Model =
+        assemble(l.period, l.today, l.data, l.prevMs, l.streak, insights)
 
     /** The pill's model from its rows: total, compare line, bars, top 5s and number boxes. */
     fun assemble(

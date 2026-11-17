@@ -122,6 +122,9 @@ class StatsPeriodView(
         hero.addView(heroCompare, lp(top = 2f))
         hero.addView(barsBox, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(118f)).apply { topMargin = dp(12f) })
         host.addView(hero, lp(top = 16f))
+        // 74: nothing to show until the first model lands, so no blank gap
+        hero.visibility = View.GONE
+        numbersBox.visibility = View.GONE
         numbersBox.orientation = LinearLayout.VERTICAL
         host.addView(numbersBox, lp(top = 14f))
         listsBox.orientation = LinearLayout.VERTICAL
@@ -174,6 +177,7 @@ class StatsPeriodView(
     /** Called with the app's palette (Light, Dark or Haze): Painter covers the tags, this the rest. */
     fun restyle(p: Pal) {
         pal = p
+        Painter.paint(host, p)
         stylePills()
         model?.let { renderBars(it) }
         drawHeat()
@@ -183,14 +187,25 @@ class StatsPeriodView(
 
     // ------------------------------------------------------------------ hero, lists, insights
 
+    /** The month the heatmap shows (live refreshes reload this one, not the current month). */
+    val shownHeatMonth: YearMonth get() = heatMonth
+
+    private var modelSig: String? = null
+
     fun setModel(m: Model) {
+        // 74: live refreshes land every few seconds; rows only rebuild when something changed
+        val sig = signature(m)
+        if (sig == modelSig && model != null) return
+        modelSig = sig
         model = m
         if (m.period != period) select(m.period)
+        hero.visibility = View.VISIBLE
         heroTotal.text = m.total
         heroCompare.text = m.compare.orEmpty()
         heroCompare.visibility = if (m.compare == null) View.GONE else View.VISIBLE
         renderBars(m)
         renderNumbers(m.numbers)
+        numbersBox.visibility = if (m.numbers.isEmpty()) View.GONE else View.VISIBLE
         listsBox.removeAllViews()
         if (m.songs.isNotEmpty()) {
             listsBox.addView(section("Top songs"), lp(top = 16f))
@@ -222,14 +237,27 @@ class StatsPeriodView(
             insightsBox.addView(section("Insights"), lp(top = 10f))
             for (r in m.insights) insightsBox.addView(insightRow(r), lp(top = 6f))
         }
+        listsBox.visibility = if (listsBox.childCount == 0) View.GONE else View.VISIBLE
+        insightsBox.visibility = if (insightsBox.childCount == 0) View.GONE else View.VISIBLE
         Painter.paint(host, pal)
         stylePills()
+    }
+
+    private fun signature(m: Model): String = buildString {
+        append(m.period).append('|').append(m.total).append('|').append(m.compare)
+        for (b in m.bars) append('|').append(b.ms)
+        for (x in m.songs) append('|').append(x.trackId).append(x.plays).append(':').append(x.ms)
+        for (x in m.artists) append('|').append(x.name).append(x.ms)
+        for (x in m.channels) append('|').append(x.name).append(x.ms)
+        for (x in m.numbers) append('|').append(x.first).append(x.second)
+        for (x in m.insights) append('|').append(x.label).append(x.value)
     }
 
     @SuppressLint("ClickableViewAccessibility") // taps pick a bar or a day; the row has its own buttons
     private fun renderBars(m: Model) {
         bars = m.bars
         barsBox.removeAllViews()
+        barsBox.visibility = if (m.bars.isEmpty()) View.GONE else View.VISIBLE
         if (m.bars.isEmpty()) return
         val values = m.bars.map { it.ms }
         val busy = values.indices.maxByOrNull { values[it] }?.takeIf { values[it] > 0L } ?: -1
@@ -355,15 +383,19 @@ class StatsPeriodView(
     private fun drawHeat() {
         if (heatGrid.isEmpty()) return
         heatBox.removeAllViews()
+        val todayKey = todayKey()
         val max = heatTotals.values.maxOrNull() ?: 0L
         val levels = heatGrid.map { k -> if (k == null) -1 else StatsPeriods.heatLevel(heatTotals[k] ?: 0L, max) }
         val grid = HeatGrid(ctx, levels, pal.fg, pal.muted, regular)
+        // 74: day numbers, today's outline, and future days faint
+        grid.dayNumbers = HeatDays.numbers(heatGrid)
+        grid.todayIndex = heatGrid.indexOf(todayKey)
+        grid.future = heatGrid.map { k -> k != null && HeatDays.isFuture(k, todayKey) }
+        grid.boldFace = bold
         val gestures = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent) = true
             override fun onSingleTapUp(e: MotionEvent): Boolean {
-                val i = grid.indexAt(e.x, e.y)
-                val day = heatGrid.getOrNull(i) ?: return true
-                if ((heatTotals[day] ?: 0L) > 0L) { cb.tick(grid); cb.onDay(day) }
+                tapHeat(grid.indexAt(e.x, e.y), grid)
                 return true
             }
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
@@ -380,6 +412,32 @@ class StatsPeriodView(
         heatView = grid
         heatBox.addView(grid, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
+
+    /** A tap on heatmap slot [i]: opens that day's Reprise when it's not in the future and has listening. */
+    internal fun tapHeat(i: Int, v: View? = heatView): Boolean {
+        val day = heatGrid.getOrNull(i) ?: return false
+        if (!HeatDays.tappable(day, todayKey(), heatTotals)) return false
+        v?.let { cb.tick(it) }
+        cb.onDay(day)
+        return true
+    }
+
+    internal val heatGridView: HeatGrid? get() = heatView
+
+    /** 74: for tests: the sections a pill fills in. */
+    internal val heroSection: View get() = hero
+    internal val heroText: TextView get() = heroTotal
+    internal val barsSection: View get() = barsBox
+    internal val listsSection: ViewGroup get() = listsBox
+    internal val numbersSection: ViewGroup get() = numbersBox
+    internal val insightsSection: ViewGroup get() = insightsBox
+
+    internal val heatSlots: List<Int?> get() = heatGrid
+
+    /** Today's day key; tests pin it. */
+    internal var todayOverride: Int? = null
+
+    private fun todayKey(): Int = todayOverride ?: com.minim.music.data.stats.Days.keyOf(System.currentTimeMillis())
 
     // ------------------------------------------------------------------ the Monthly teaser
 
@@ -527,4 +585,16 @@ class StatsPeriodView(
             canvas.drawArc(rect, -90f, 360f * progress, false, arc)
         }
     }
+}
+
+/** 6.9.0 (74): the heatmap's day numbers and which days a tap opens. Keys are yyyymmdd. */
+object HeatDays {
+    /** Day of the month per slot, 0 for a blank slot. */
+    fun numbers(grid: List<Int?>): List<Int> = grid.map { k -> k?.rem(100) ?: 0 }
+
+    fun isFuture(key: Int, todayKey: Int): Boolean = key > todayKey
+
+    /** Only a day up to today with some listening opens its Reprise. */
+    fun tappable(key: Int?, todayKey: Int, totals: Map<Int, Long>): Boolean =
+        key != null && !isFuture(key, todayKey) && (totals[key] ?: 0L) > 0L
 }

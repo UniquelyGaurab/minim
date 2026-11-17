@@ -183,7 +183,12 @@ class MainActivity : AppCompatActivity() {
     private var statsJob: Job? = null
     // 6.9.0: the period Stats layout (pills, hero, top 5s, heatmap, insights)
     private lateinit var statsPeriodView: StatsPeriodView
-    private var statsPeriodJob: Job? = null
+    // 6.9.0 (74): one pill load at a time; live refreshes queue a pass instead of restarting it
+    private val statsPeriodLoads by lazy {
+        LatestLoad<StatsPeriods.Period>(lifecycleScope, { e -> android.util.Log.w("MinimStats", "period load failed", e) }) { p -> runStatsPeriodLoad(p) }
+    }
+    /** Insights per pill: (day, when, rows). They read Fermata's whole log, so they're kept a minute. */
+    private val statsPeriodInsights = HashMap<StatsPeriods.Period, Triple<Int, Long, List<com.minim.music.data.stats.StatsInsights.Row>>>()
     private var statsHeatJob: Job? = null
     private val artistPhotoTried = HashSet<String>()
     private lateinit var screenStories: View
@@ -7004,6 +7009,8 @@ class MainActivity : AppCompatActivity() {
         statsPeriodView.restyle(pal)
         applyStatsPeriodChrome(statsPeriodView.period)
         loadStatsHeat(java.time.YearMonth.now())
+        // 74: the first load no longer waits for (and can't be lost with) the daily refresh
+        loadStatsPeriod(statsPeriodView.period)
     }
 
     /** Today keeps its live pill, date and the daily Reprise box; the other periods hide them. */
@@ -7019,16 +7026,24 @@ class MainActivity : AppCompatActivity() {
     /** Loads one period's numbers into the period layout (read only). */
     private fun loadStatsPeriod(p: StatsPeriods.Period) {
         if (!::statsPeriodView.isInitialized) return
-        statsPeriodJob?.cancel()
-        statsPeriodJob = lifecycleScope.launch {
-            try {
-                val m = StatsPeriodLoad.model(app.database, app.fermataBridge, p, java.time.LocalDate.now())
-                if (statsPeriodView.period == p) statsPeriodView.setModel(m)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (_: Exception) {
-            }
-        }
+        statsPeriodLoads.request(p)
+    }
+
+    /** The hero, bars, Top 5s and boxes first; the insights after (kept for a minute per pill). */
+    private suspend fun runStatsPeriodLoad(p: StatsPeriods.Period) {
+        val today = java.time.LocalDate.now()
+        val dayKey = Days.key(today)
+        val l = StatsPeriodLoad.load(app.database, p, today)
+        val kept = statsPeriodInsights[p]?.takeIf { it.first == dayKey }
+        val fast = withContext(Dispatchers.Default) { StatsPeriodLoad.assemble(l, kept?.third ?: emptyList()) }
+        if (statsPeriodView.period != p) return
+        statsPeriodView.setModel(fast)
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (kept != null && now - kept.second < STATS_INSIGHTS_KEEP_MS) return
+        val rows = StatsPeriodLoad.insights(app.database, app.fermataBridge, l)
+        statsPeriodInsights[p] = Triple(dayKey, android.os.SystemClock.elapsedRealtime(), rows)
+        val full = withContext(Dispatchers.Default) { StatsPeriodLoad.assemble(l, rows) }
+        if (statsPeriodView.period == p) statsPeriodView.setModel(full)
     }
 
     private fun loadStatsHeat(ym: java.time.YearMonth) {
@@ -7056,6 +7071,11 @@ class MainActivity : AppCompatActivity() {
     /** Reloads today's live numbers and the recap (cheap: one day of rows each). */
     private fun refreshStats() {
         if (!::statsScreen.isInitialized) return
+        // 74: the pills load on their own, outside statsJob, which every live refresh cancels
+        if (::statsPeriodView.isInitialized) {
+            loadStatsPeriod(statsPeriodView.period)
+            loadStatsHeat(statsPeriodView.shownHeatMonth)
+        }
         statsJob?.cancel()
         statsJob = lifecycleScope.launch {
             try {
@@ -7089,10 +7109,6 @@ class MainActivity : AppCompatActivity() {
                 // Looking at the Stats tab counts as checking the recap
                 if (tab == Tab.STATS && recapS != null && !isWelcomeOpen) markRecapViewed(recapS)
                 updateStatsBadges()
-                if (::statsPeriodView.isInitialized) {
-                    loadStatsPeriod(statsPeriodView.period)
-                    loadStatsHeat(java.time.YearMonth.now())
-                }
                 onRecapLoaded()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -12752,6 +12768,8 @@ class MainActivity : AppCompatActivity() {
 
         /** v4.9: how many quiet past days the Stats tab looks through for a better recap. */
         private const val MAX_RECAP_LOOKBACK = 30
+        /** 6.9.0 (74): how long a pill's insights are reused before they're worked out again. */
+        private const val STATS_INSIGHTS_KEEP_MS = 60_000L
         /** v4.9.1: the popup waits this long (and re-checks) so it never lands mid-animation. */
         private const val RECAP_POPUP_DELAY_MS = 700L
         // 5.0.0 part 3: an announcement opens a moment after Home settles
