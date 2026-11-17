@@ -64,10 +64,16 @@ object RecapCard {
         /** 6.9.0: Weekly/Monthly Reprise header, e.g. "Nov 15–21" and "my week in music". */
         header: Pair<String, String>? = null
     ): Bitmap = withContext(Dispatchers.Default) {
-        val cover = coverUrl(s)
-            ?.let { runCatching { artwork.loadBitmap(MusicArt.big(it), 720) }.getOrNull() }
+        // 6.9.0 b76: the same images the story shows: the cover's URL, else the song's own video frame
+        val coverTries = s.topSong?.let { StoryArt.coverCandidates(it.thumbnailUrl, it.trackId, MusicArt::big) }?.takeIf { it.isNotEmpty() }
+            ?: s.tapes.topTape?.let { StoryArt.coverCandidates(it.thumbnailUrl, it.videoId, MusicArt::big) }.orEmpty()
+        var cover: Bitmap? = null
+        for (u in coverTries) {
+            cover = runCatching { artwork.loadBitmap(u, 720) }.getOrNull()
+            if (cover != null) break
+        }
         val photo = artistPhotoUrl?.takeIf { it.isNotBlank() }
-            ?.let { runCatching { artwork.loadBitmap(it, 160) }.getOrNull() }
+            ?.let { runCatching { artwork.loadBitmap(it, 320) }.getOrNull() }
         render(context, s, pal, cover, photo, persona, header)
     }
 

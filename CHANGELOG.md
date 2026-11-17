@@ -4,6 +4,8 @@ Every Minim release, newest first. Download any of them from the [Releases](http
 
 ## 6.9.0 (test build, not released yet)
 
+Build 76 fixes the Reprise story images: every song cover, artist photo and channel photo now loads through one path that fetches the next slides ahead, fills a slide in when its image arrives late, falls back to the song's own video frame when a cover link is broken, and only shows the letter when there's truly no photo. The top artist's and channel's photos are looked up when the story opens, so they're on their slides and the share card. Covers are no longer cut off when they grow (Guess) or on narrow screens, and they're decoded big enough to stay sharp.
+
 Build 75 finishes the revamp (part B): the Weekly Reprise (Sunday to Saturday, out Sunday at 8 AM) and the Monthly Reprise (out at 6 PM on the last day), with their own popups, the Monthly teaser card and its countdown in the last week of the month, the Saturday "lands tomorrow" line, a way back into the latest ones from the Week and Month pills, Save as playlist for the month, the "drops at 6" greeting, and hidden previews (tap the version 7 times). Top 5 artists and channels now show their real photos. Stats is smoother: its live refresh pauses while Now Playing or Settings covers it, updates the numbers in place instead of rebuilding the screen, and does its maths off the main thread.
 
 Build 74 fixes the blank space under the Stats pills (the totals, bars, Top 5s and boxes now show) and adds day numbers to the heatmap, with today outlined and future days faint.

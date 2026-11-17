@@ -7138,6 +7138,9 @@ class MainActivity : AppCompatActivity() {
                 )
                 repriseLoadedAt = android.os.SystemClock.elapsedRealtime()
                 if (teaserArtMonth != tm) loadTeaserArt(tm)
+                // 6.9.0 b76: a dropped Weekly / Monthly is built now, so opening it is instant
+                if (RepriseClock.weekUnlocked(repriseWeekMs)) prewarmPeriod(true, week)
+                if (RepriseClock.monthUnlocked(repriseLatestMonthMs)) prewarmPeriod(false, lm.atDay(1))
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -7207,43 +7210,138 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Opens the Weekly ([isWeek], week starting [start]) or Monthly (month of [start]) Reprise story. */
+    /** 6.9.0 b76: a Weekly or Monthly Reprise, worked out and ready to open. */
+    private class PeriodOpen(
+        val data: com.minim.music.data.local.PeriodData,
+        val scope: com.minim.music.data.stats.RepriseScope,
+        val prep: RecapPrep,
+        val dark: Boolean
+    )
+
+    /** 6.9.0 b76: the Weekly and Monthly Reprise built ahead, so a tap opens them at once. */
+    private val periodCache = RepriseOpenCache<PeriodOpen>()
+
+    private fun periodKey(isWeek: Boolean, start: java.time.LocalDate) =
+        if (isWeek) RepriseOpenCache.weekKey(RepriseClock.weekStart(start)) else RepriseOpenCache.monthKey(java.time.YearMonth.from(start))
+
+    /** Whether that week or month has ended (so what's built for it won't change). */
+    private fun periodDone(isWeek: Boolean, start: java.time.LocalDate): Boolean {
+        val today = java.time.LocalDate.now()
+        return if (isWeek) today.isAfter(RepriseClock.weekStart(start).plusDays(6))
+        else today.isAfter(java.time.YearMonth.from(start).atEndOfMonth())
+    }
+
+    /** Starts (or joins) building one in the background. */
+    private fun obtainPeriod(isWeek: Boolean, start: java.time.LocalDate, photoWaitMs: Long): kotlinx.coroutines.Deferred<PeriodOpen?> {
+        val dark = app.preferences.isDarkTheme
+        val key = periodKey(isWeek, start)
+        periodCache.get(key)?.let { if (it.dark != dark) periodCache.clear() }
+        return periodCache.obtain(lifecycleScope, key, periodDone(isWeek, start)) {
+            val period = if (isWeek) com.minim.music.data.stats.RepriseScope.Period.WEEK
+            else com.minim.music.data.stats.RepriseScope.Period.MONTH
+            val (data, scope) = com.minim.music.data.local.RepriseLoader.scope(app.database, app.fermataBridge, period, start)
+            if (data.stats.totalMs <= 0L) null
+            else PeriodOpen(data, scope, preparePeriodStory(data, dark, photoWaitMs), dark).also { warmPeriodArt(it) }
+        }
+    }
+
+    /** 6.9.0 b76: builds a dropped (or previewed) Weekly/Monthly Reprise ahead of the tap. */
+    private fun prewarmPeriod(isWeek: Boolean, start: java.time.LocalDate) {
+        if (recapStory != null) return
+        obtainPeriod(isWeek, start, photoWaitMs = 6_000L)
+    }
+
+    /** Fetches the story's covers and photos ahead (into the artwork caches), off the tap. */
+    private fun warmPeriodArt(o: PeriodOpen) {
+        val urls = LinkedHashSet<String>()
+        o.data.stats.topSong?.let { StoryArt.coverCandidates(it.thumbnailUrl, it.trackId, MusicArt::big).firstOrNull()?.let(urls::add) }
+        for (s in o.prep.day.top.take(10)) StoryArt.coverCandidates(s.thumbnailUrl, s.trackId, MusicArt::big).firstOrNull()?.let(urls::add)
+        o.scope.weekTops.forEach { StoryArt.coverCandidates(it.second.thumbnailUrl, it.second.trackId, MusicArt::big).firstOrNull()?.let(urls::add) }
+        o.scope.dayTops.filterNotNull().forEach { StoryArt.coverCandidates(it.thumbnailUrl, it.trackId, MusicArt::big).firstOrNull()?.let(urls::add) }
+        o.data.stats.topArtist?.name?.let { app.preferences.artistPhoto(it) }?.let(urls::add)
+        o.data.stats.tapes.topChannel?.let { statsChannelPhotos[it.key] }?.let(urls::add)
+        lifecycleScope.launch {
+            for (u in urls.take(24)) {
+                if (u.isBlank()) continue
+                try { app.artworkPipeline.loadBitmap(u, StoryArt.decodePx(dpPx(250f))) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {}
+            }
+        }
+    }
+
+    private fun dpPx(v: Float): Int = (v * resources.displayMetrics.density).toInt()
+
+    /** 6.9.0 b76: the loading state while a Reprise isn't ready yet (never a spinner). */
+    private fun showRepriseLoading(isWeek: Boolean): RepriseLoadingView? {
+        val host = findViewById<ViewGroup>(android.R.id.content) ?: return null
+        val haze = if (HazeBackdrop.active) hazeLook else null
+        val (base, ink) = RepriseLoadingView.colors(app.preferences.isDarkTheme, haze)
+        val url = app.playbackController.uiState.value.currentTrack?.thumbnailUrl
+        val cover = url?.let { app.artworkPipeline.cachedBitmap(it, 160) ?: app.artworkPipeline.cachedBitmap(MusicArt.big(it), 720) }
+        val v = RepriseLoadingView(this, isWeek, cover, base, ink)
+        host.addView(v, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        v.appear()
+        return v
+    }
+
+    /** Opens the Weekly ([isWeek], week starting [start]) or Monthly (month of [start]) Reprise story. */
     private fun openPeriodReprise(isWeek: Boolean, start: java.time.LocalDate, atCard: Boolean) {
         if (recapStory != null || recapStoryOpening) return
         recapStoryOpening = true
+        // 6.9.0 b76: built ahead, it opens at once; otherwise the loading state shows while it builds
+        val ready = periodCache.get(periodKey(isWeek, start))?.takeIf { it.dark == app.preferences.isDarkTheme }
+        if (ready != null) {
+            recapStoryOpening = false
+            openBuiltPeriod(isWeek, ready, atCard)
+            return
+        }
+        val loading = showRepriseLoading(isWeek)
         lifecycleScope.launch {
-            val dark = app.preferences.isDarkTheme
             val opened = try {
-                val period = if (isWeek) com.minim.music.data.stats.RepriseScope.Period.WEEK
-                else com.minim.music.data.stats.RepriseScope.Period.MONTH
-                val (data, scope) = com.minim.music.data.local.RepriseLoader.scope(app.database, app.fermataBridge, period, start)
-                if (data.stats.totalMs <= 0L) null else Triple(data, scope, preparePeriodStory(data, dark))
+                obtainPeriod(isWeek, start, photoWaitMs = 800L).await()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 recapStoryOpening = false
+                loading?.dismiss()
                 throw e
             } catch (_: Exception) {
                 null
             }
             recapStoryOpening = false
-            if (isFinishing || isDestroyed || recapStory != null) return@launch
+            if (isFinishing || isDestroyed || recapStory != null) {
+                loading?.dismiss()
+                return@launch
+            }
             if (opened == null) {
+                loading?.dismiss()
                 showNote(if (isWeek) "Nothing to Reprise for that week yet" else "Nothing to Reprise for that month yet")
                 return@launch
             }
-            val (data, scope, prep) = opened
-            // Opening it counts as seen: its popup won't come after
-            if (isWeek) app.preferences.reprisePopupWeek = scope.key else app.preferences.reprisePopupMonth = scope.key
-            showRecapStory(data.stats, prep, atCard, scope)
+            openBuiltPeriod(isWeek, opened, atCard)
+            loading?.dismiss()
         }
     }
 
+    private fun openBuiltPeriod(isWeek: Boolean, o: PeriodOpen, atCard: Boolean) {
+        // Opening it counts as seen: its popup won't come after
+        if (isWeek) app.preferences.reprisePopupWeek = o.scope.key else app.preferences.reprisePopupMonth = o.scope.key
+        lastPeriodOpenedFromCache = periodCache.get(periodKey(isWeek, o.scope.start)) === o
+        showRecapStory(o.data.stats, o.prep, atCard, o.scope)
+    }
+
+    /** For the tests: whether the last Weekly/Monthly opened from what was built ahead. */
+    @androidx.annotation.VisibleForTesting
+    internal var lastPeriodOpenedFromCache = false
+
     /** Like prepareRecapStory, for a whole week or month (its top song plays behind the story). */
-    private suspend fun preparePeriodStory(data: com.minim.music.data.local.PeriodData, dark: Boolean): RecapPrep {
+    private suspend fun preparePeriodStory(data: com.minim.music.data.local.PeriodData, dark: Boolean, photoWaitMs: Long = 2_500L): RecapPrep {
         val recap = data.stats
         val artwork = app.artworkPipeline
         val storyPal = try { RecapCard.palette(artwork, recap, dark) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { Pal.build(0, dark) }
         val day = try {
             withContext(Dispatchers.Default) { RecapDay.compute(recap, data.plays, data.listens, data.tapeListens) }
         } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { RecapDay.NONE }
+        // 6.9.0 b76: the top artist's and channel's photos are looked up now (a short wait at most),
+        // not only taken from what was cached, so their slides and the card have them from the start
+        resolveRecapPhotos(recap, photoWaitMs)
         val urls = LinkedHashSet<String>()
         day.first?.thumbnailUrl?.let { urls.add(it) }
         recap.topArtist?.name?.let { app.preferences.artistPhoto(it) }?.let { urls.add(it) }
@@ -7310,6 +7408,7 @@ class MainActivity : AppCompatActivity() {
     private fun showReprisePopup(due: RecapPopupGate.RepriseDue) {
         if (due.isWeek) app.preferences.reprisePopupWeek = due.key else app.preferences.reprisePopupMonth = due.key
         reprisePopupPreview = null
+        prewarmPeriod(due.isWeek, due.start)
         val ym = java.time.YearMonth.from(due.start)
         val title = if (due.isWeek) "Your weekly Reprise is here" else "Your ${RepriseClock.monthName(ym)} Reprise is here"
         val sub = if (due.isWeek) RepriseClock.weekLabel(due.start) else "${RepriseClock.monthName(ym)} ${ym.year}"
@@ -7949,6 +8048,9 @@ class MainActivity : AppCompatActivity() {
      * Monthly Reprise, each Monthly teaser state and both popups, without waiting for the day.
      */
     private fun showHiddenPreviews() {
+        // 6.9.0 b76: this week's and month's Reprise start building while you pick
+        prewarmPeriod(true, RepriseClock.weekStart(java.time.LocalDate.now()))
+        prewarmPeriod(false, java.time.LocalDate.now().withDayOfMonth(1))
         openSheet { box ->
             sheetHeading(box, "Previews", "Only you can see these")
             sheetAction(box, R.drawable.ic_sparkle, "Festival theme preview") {
@@ -8471,6 +8573,30 @@ class MainActivity : AppCompatActivity() {
                 icon.animate().alpha(1f).setDuration(com.minim.music.util.ArtworkFade.FADE_MS)
                     .setInterpolator(DecelerateInterpolator(1.5f)).start()
             }
+        }
+    }
+
+    /** 6.9.0 b76: a channel's photo for a Reprise story: known, else looked up on its page (cached for Stats too). */
+    private suspend fun recapChannelPhoto(key: String, name: String, channelId: String): String? {
+        statsChannelPhotos[key]?.let { return it }
+        val ch = com.minim.music.data.stories.ChannelVideos.channelFor(name, channelId, app.storiesStore.channels) ?: return null
+        ch.avatarUrl.takeIf { it.isNotBlank() }?.let { statsChannelPhotos[key] = it; return it }
+        val data = try { app.sourceAdapter.fetchChannelPage(ch) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+        val url = data?.channel?.avatarUrl?.takeIf { it.isNotBlank() } ?: return null
+        statsChannelPhotos[key] = url
+        return url
+    }
+
+    /** 6.9.0 b76: looks up a story's top artist and channel photos, waiting [waitMs] at most for each. */
+    private suspend fun resolveRecapPhotos(recap: DayStats, waitMs: Long = 2_500L) {
+        kotlinx.coroutines.coroutineScope {
+            val a = recap.topArtist?.name?.let { name ->
+                async { try { kotlinx.coroutines.withTimeoutOrNull(waitMs) { artistPhotoUrl(name) } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null } }
+            }
+            val c = recap.tapes.topChannel?.let { ch ->
+                async { try { kotlinx.coroutines.withTimeoutOrNull(waitMs) { recapChannelPhoto(ch.key, ch.name, ch.channelId) } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null } }
+            }
+            a?.await(); c?.await()
         }
     }
 
@@ -9162,6 +9288,9 @@ class MainActivity : AppCompatActivity() {
         } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { RecapDay.NONE }
         val more = try { recapMore(recap) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { com.minim.music.data.stats.RecapMore.NONE }
         // Each slide's own colours: from its cover or photo
+        // 6.9.0 b76: the top artist's and channel's photos are looked up now (a short wait at most),
+        // not only taken from what was cached, so their slides and the card have them from the start
+        resolveRecapPhotos(recap)
         val urls = LinkedHashSet<String>()
         day.first?.thumbnailUrl?.let { urls.add(it) }
         more.firstListens.firstOrNull()?.thumbnailUrl?.let { urls.add(it) }
@@ -9294,10 +9423,20 @@ class MainActivity : AppCompatActivity() {
         startRecapMusic(top, soundOn)
         recapCardJob?.cancel()
         recapCardJob = lifecycleScope.launch {
+            // 6.9.0 b76: a photo the opening wait missed is looked up again (longer), shown on its
+            // slide when it lands, and used on the card
+            val lateArtist = recap.topArtist?.name?.let { name ->
+                photo ?: try { kotlinx.coroutines.withTimeoutOrNull(8_000L) { artistPhotoUrl(name) } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+            }
+            if (lateArtist != null && recapStory === story) story.setArtistPhoto(lateArtist)
+            val lateChannel = recap.tapes.topChannel?.let { ch ->
+                try { kotlinx.coroutines.withTimeoutOrNull(8_000L) { recapChannelPhoto(ch.key, ch.name, ch.channelId) } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+            }
+            if (lateChannel != null && recapStory === story) story.setChannelPhoto(lateChannel)
             val bmp = try {
                 RecapCard.build(
                     this@MainActivity, app.artworkPipeline, recap, storyPal,
-                    if (recap.topArtist == null) recap.tapes.topChannel?.let { statsChannelPhotos[it.key] } else photo,
+                    if (recap.topArtist == null) lateChannel else lateArtist,
                     persona,
                     scope?.let { it.label to it.cardTag }
                 )

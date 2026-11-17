@@ -65,9 +65,9 @@ class RecapStory(
     /** 5.8.3 u55: first listens, hearted today, longest session, yesterday, streak, all-time plays. */
     private val more: RecapMore = RecapMore.NONE,
     private val artwork: ArtworkPipeline,
-    private val artistPhotoUrl: String?,
+    private var artistPhotoUrl: String?,
     /** 5.7.0 u51: the top channel's photo, for the tapes slide (null: its first letter). */
-    private val channelPhotoUrl: String?,
+    private var channelPhotoUrl: String?,
     private val roast: Pair<String, String>?,
     private val persona: RecapPersonality.Result?,
     startAtCard: Boolean,
@@ -139,7 +139,7 @@ class RecapStory(
         }
     }
 
-    private val slideHost = FrameLayout(context)
+    private val slideHost = FrameLayout(context).apply { clipChildren = false; clipToPadding = false }
     private val progress = ProgressBars(context, slides.size)
     private val dateLabel = TextView(context)
     private val soundButton = ImageView(context)
@@ -150,6 +150,12 @@ class RecapStory(
     private var closing = false
     private var cardBitmap: Bitmap? = null
     private var cardImage: ImageView? = null
+    /** 6.9.0 b76: the photo views on the slide showing now, so a photo that lands late can fill them. */
+    private var artistImage: ImageView? = null
+    private var channelImage: ImageView? = null
+    /** 6.9.0 b76: the story's image loads; cancelled when the story leaves the screen. */
+    private val storyScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
+    private val art = StoryArt(storyScope, { u, px -> artwork.loadBitmap(u, px) }, { u, px -> artwork.cachedBitmap(u, px) })
     private var cardPills: View? = null
     private var currentLook: Look? = null
     private val noteView = TextView(context)
@@ -312,6 +318,7 @@ class RecapStory(
     override fun onDetachedFromWindow() {
         animator?.cancel()
         animator = null
+        storyScope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
         stopMotion()
         removeCallbacks(holdRunnable)
         removeCallbacks(noteHide)
@@ -354,8 +361,12 @@ class RecapStory(
         slideHost.removeAllViews()
         cardImage = null
         cardPills = null
+        artistImage = null
+        channelImage = null
         val kind = slides[i]
         val v = build(kind, look)
+        StoryArt.noClip(v)
+        prefetchAfter(i)
         slideHost.addView(v, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         v.alpha = 0f
         v.translationX = if (forward) dp(18f).toFloat() else -dp(18f).toFloat()
@@ -523,9 +534,69 @@ class RecapStory(
             layoutParams = LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp)).apply { topMargin = dp(top) }
         }
 
-    private fun cover(img: ImageView, url: String?, sizeDp: Float) {
-        if (!url.isNullOrBlank()) artwork.loadInto(img, MusicArt.big(url), dp(sizeDp))
+    /** 6.9.0 b76: a song's cover, through [art]: its URL, else its own video frame; updates when it lands. */
+    private fun cover(img: ImageView, url: String?, sizeDp: Float, trackId: String?) {
+        art.bind(img, StoryArt.coverCandidates(url, trackId, MusicArt::big), StoryArt.decodePx(dp(sizeDp)))
     }
+
+    /** 6.9.0 b76: a round artist or channel photo; the letter while it loads and when there's none. */
+    private fun photo(img: ImageView, url: String?, sizeDp: Float, name: String, look: Look) {
+        val letter = { InitialDrawable(name.trim().take(1).uppercase(), look.fg, look.bg, bold) }
+        art.bind(img, StoryArt.photoCandidates(url), StoryArt.decodePx(dp(sizeDp)), fallback = letter, placeholder = letter)
+    }
+
+    /** 6.9.0 b76: the top artist's photo arrived after the story opened: shows it on its slide. */
+    fun setArtistPhoto(url: String?) {
+        if (url.isNullOrBlank() || url == artistPhotoUrl) return
+        artistPhotoUrl = url
+        val a = stats.topArtist ?: return
+        val img = artistImage ?: run { art.prefetch(StoryArt.photoCandidates(url), StoryArt.decodePx(dp(220f))); return }
+        currentLook?.let { photo(img, url, 220f, a.name, it) }
+    }
+
+    /** 6.9.0 b76: the top channel's photo arrived after the story opened. */
+    fun setChannelPhoto(url: String?) {
+        if (url.isNullOrBlank() || url == channelPhotoUrl) return
+        channelPhotoUrl = url
+        val ch = stats.tapes.topChannel ?: return
+        val img = channelImage ?: run { art.prefetch(StoryArt.photoCandidates(url), StoryArt.decodePx(dp(150f))); return }
+        currentLook?.let { photo(img, url, 150f, ch.name, it) }
+    }
+
+    /** 6.9.0 b76: fetches the images of the next two slides while this one plays. */
+    private fun prefetchAfter(i: Int) {
+        for (j in (i + 1)..(i + 2)) {
+            val kind = slides.getOrNull(j) ?: break
+            for ((c, sizeDp) in artFor(kind)) art.prefetch(c, StoryArt.decodePx(dp(sizeDp)))
+        }
+    }
+
+    /** The images a slide shows, with the size it shows them at (matches its builder). */
+    private fun artFor(kind: Kind): List<Pair<List<String>, Float>> {
+        fun c(url: String?, id: String?, size: Float) = StoryArt.coverCandidates(url, id, MusicArt::big) to size
+        val sc = scope
+        return when (kind) {
+            Kind.FIRST_LAST -> listOfNotNull(day.first?.let { c(it.thumbnailUrl, it.trackId, if (day.sameFirstLast) 220f else 104f) },
+                day.last?.let { c(it.thumbnailUrl, it.trackId, 104f) })
+            Kind.GUESS -> (RecapGuess.options(day, stats.day) ?: emptyList()).map { c(it.thumbnailUrl, it.trackId, guessTileDp()) }
+            Kind.TOP5 -> day.top.mapIndexed { i, s -> c(s.thumbnailUrl, s.trackId, if (i == 0) 250f else if (day.top.size > 5) 40f else 54f) }
+            Kind.ARTIST -> listOf(StoryArt.photoCandidates(artistPhotoUrl) to 220f)
+            Kind.TAPES -> listOf(StoryArt.photoCandidates(channelPhotoUrl) to 150f)
+            Kind.FIRST_LISTENS -> more.firstListens.take(10).map { c(it.thumbnailUrl, it.trackId, 60f) }
+            Kind.HEARTED -> more.hearted.take(RecapMoreMath.LIST_MAX).map { c(it.thumbnailUrl, it.trackId, 50f) }
+            Kind.SOUNDTRACK -> sc?.dayTops?.filterNotNull()?.map { c(it.thumbnailUrl, it.trackId, 40f) }.orEmpty()
+            Kind.ANTHEMS -> sc?.weekTops?.map { c(it.second.thumbnailUrl, it.second.trackId, 60f) }.orEmpty()
+            Kind.ON_REPEAT -> listOfNotNull(sc?.onRepeat?.first?.let { c(it.thumbnailUrl, it.trackId, 200f) })
+            Kind.SKIPPED -> listOfNotNull(sc?.skipped?.let { c(it.thumbnailUrl, it.trackId, 170f) })
+            Kind.BEST_DAY -> listOfNotNull(sc?.bestDayTop?.let { c(it.thumbnailUrl, it.trackId, 150f) })
+            Kind.OBSESSION -> listOfNotNull(sc?.obsession?.let { c(it.thumbnailUrl, it.trackId, 220f) })
+            Kind.FERMATA_HITS -> sc?.fermataHits?.map { c(it.thumbnailUrl, it.trackId, 48f) }.orEmpty()
+            else -> emptyList()
+        }.filter { it.first.isNotEmpty() }
+    }
+
+    /** The Guess covers: as big as 96dp, but three always fit across the slide with room to grow. */
+    private fun guessTileDp(): Float = StoryArt.guessTileDp(resources.displayMetrics.widthPixels / density)
 
     /**
      * 5.8.3 u55: a solid round shape of [color], centred behind a slide's words, [sizeDp] across.
@@ -672,7 +743,7 @@ class RecapStory(
         }
         val img = image(sizeDp, round = false, look = look, radius = 14f)
         row.addView(img)
-        cover(img, p.thumbnailUrl, sizeDp)
+        cover(img, p.thumbnailUrl, sizeDp, p.trackId)
         val text = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         text.addView(label(p.title, 18f, bold, look.fg, lines = 2).apply { gravity = Gravity.START })
         text.addView(label(p.artist, 14f, regular, look.muted, top = 2f, lines = 1).apply { gravity = Gravity.START })
@@ -689,7 +760,7 @@ class RecapStory(
             col.addView(label("You started and ended the day with", 18f, regular, look.muted))
             val img = image(220f, round = false, look = look, top = 20f)
             col.addView(img)
-            cover(img, first.thumbnailUrl, 220f)
+            cover(img, first.thumbnailUrl, 220f, first.trackId)
             scaleIn(img, 200L)
             val t = label(first.title, 24f, bold, look.fg, top = 20f)
             col.addView(t)
@@ -728,10 +799,13 @@ class RecapStory(
         val reply = label(" ", 18f, semi, look.fg, top = 26f)
         val title = label(" ", 15f, regular, look.muted, top = 6f)
         val tiles = ArrayList<ImageView>()
+        // 6.9.0 b76: 3 x 96dp didn't fit a 360dp-wide screen, so the third cover was cut off, and the
+        // picked cover's 1.12x grow was clipped by its row. The size now fits, and nothing clips.
+        val tileDp = guessTileDp()
         for ((i, s) in options.withIndex()) {
-            val img = image(96f, round = false, look = look, radius = 16f)
+            val img = image(tileDp, round = false, look = look, radius = 16f)
             img.contentDescription = s.title
-            cover(img, s.thumbnailUrl, 96f)
+            cover(img, s.thumbnailUrl, tileDp, s.trackId)
             img.isClickable = true
             img.isFocusable = true
             img.setOnClickListener {
@@ -753,7 +827,7 @@ class RecapStory(
                 startBar(Kind.GUESS)
             }
             tiles.add(img)
-            row.addView(img, LinearLayout.LayoutParams(dp(96f), dp(96f)).apply {
+            row.addView(img, LinearLayout.LayoutParams(dp(tileDp), dp(tileDp)).apply {
                 if (i > 0) leftMargin = dp(12f)
             })
             scaleIn(img, 250L + i * 140L)
@@ -774,7 +848,7 @@ class RecapStory(
             LinearLayout.LayoutParams(dp(30f), LinearLayout.LayoutParams.WRAP_CONTENT))
         val img = image(size, round = false, look = look, radius = if (compact) 10f else 12f)
         row.addView(img)
-        if (s != null) cover(img, s.thumbnailUrl, size) else img.setImageDrawable(null)
+        if (s != null) cover(img, s.thumbnailUrl, size, s.trackId) else img.setImageDrawable(null)
         val text = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         text.addView(label(s?.title ?: "· · ·", if (compact) 14f else 16f, semi, look.fg, lines = 1).apply { gravity = Gravity.START })
         val sub = if (s == null) "coming up" else {
@@ -819,7 +893,7 @@ class RecapStory(
         val img = image(250f, round = false, look = look, top = 18f, radius = 26f)
         img.elevation = dp(12f).toFloat()
         img.contentDescription = "Play ${s.title}"
-        cover(img, s.thumbnailUrl, 250f)
+        cover(img, s.thumbnailUrl, 250f, s.trackId)
         img.isClickable = true
         img.isFocusable = true
         img.setOnClickListener { tick(it); onPlayTop() }
@@ -863,8 +937,8 @@ class RecapStory(
         val img = image(220f, round = true, look = look, top = 22f)
         img.contentDescription = "Open ${a.name}"
         col.addView(img)
-        if (!artistPhotoUrl.isNullOrBlank()) artwork.loadInto(img, artistPhotoUrl, dp(220f))
-        else img.setImageDrawable(InitialDrawable(a.name.trim().take(1).uppercase(), look.fg, look.bg, bold))
+        artistImage = img
+        photo(img, artistPhotoUrl, 220f, a.name, look)
         img.isClickable = true
         img.isFocusable = true
         img.setOnClickListener { tick(it); onOpenArtist() }
@@ -898,8 +972,8 @@ class RecapStory(
         col.addView(label("with", 18f, regular, look.muted, top = 10f))
         val img = image(150f, round = true, look = look, top = 18f)
         col.addView(img)
-        if (!channelPhotoUrl.isNullOrBlank()) artwork.loadInto(img, channelPhotoUrl, dp(150f))
-        else img.setImageDrawable(InitialDrawable(ch.name.trim().take(1).uppercase(), look.fg, look.bg, bold))
+        channelImage = img
+        photo(img, channelPhotoUrl, 150f, ch.name, look)
         scaleIn(img, 700L)
         val name = label(ch.name, 28f, bold, look.fg, top = 18f)
         col.addView(name)
@@ -915,16 +989,16 @@ class RecapStory(
     // ---- 6.9.0: Weekly and Monthly Reprise slides -------------------------------------------
 
     /** A small rounded cover with a caption under it, for the cover strips. */
-    private fun coverTile(look: Look, url: String?, sizeDp: Float, caption: String, desc: String): LinearLayout {
+    private fun coverTile(look: Look, url: String?, sizeDp: Float, caption: String, desc: String, trackId: String? = null): LinearLayout {
         val box = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
         }
         val img = image(sizeDp, round = false, look = look, radius = 10f)
         img.contentDescription = desc
-        if (url.isNullOrBlank()) img.setImageDrawable(android.graphics.drawable.GradientDrawable().apply {
+        if (url.isNullOrBlank() && trackId.isNullOrBlank()) img.setImageDrawable(android.graphics.drawable.GradientDrawable().apply {
             cornerRadius = dp(10f).toFloat(); setColor(look.soft)
-        }) else cover(img, url, sizeDp)
+        }) else cover(img, url, sizeDp, trackId)
         box.addView(img, LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp)))
         box.addView(label(caption, 11f, semi, look.muted, top = 6f, lines = 1))
         return box
@@ -962,13 +1036,15 @@ class RecapStory(
         val items: List<Triple<String?, String, String>> = if (week) {
             sc.days.mapIndexed { i, k -> Triple(sc.dayTops[i]?.thumbnailUrl, weekday(k, true).take(1), sc.dayTops[i]?.title ?: "Nothing") }
         } else sc.weekTops.map { Triple(it.second.thumbnailUrl, it.first, it.second.title) }
+        val ids: List<String?> = if (week) sc.days.indices.map { sc.dayTops[it]?.trackId } else sc.weekTops.map { it.second.trackId }
         val n = items.size
         // 7 covers fit one row; up to 6 anthems get bigger ones
-        val avail = (resources.displayMetrics.widthPixels / density) - 56f
+        // 6.9.0 b76: the slide's own side padding is 36dp each side (was 28 here, so 7 covers ran 16dp over)
+        val avail = (resources.displayMetrics.widthPixels / density) - 72f
         val size = ((avail - (n - 1) * 6f) / n).coerceIn(36f, 96f)
         val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         for ((i, it) in items.withIndex()) {
-            val tile = coverTile(look, it.first, size, it.second, it.third)
+            val tile = coverTile(look, it.first, size, it.second, it.third, ids.getOrNull(i))
             row.addView(tile, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { if (i > 0) leftMargin = dp(6f) })
             tile.alpha = 0f
             at(400L + i * 280L) { riseIn(tile, 0L, dist = 18f) }
@@ -1016,7 +1092,7 @@ class RecapStory(
         val col = column()
         col.addView(label("On repeat", 18f, regular, look.muted))
         val img = image(200f, round = false, look = look, top = 20f, radius = 22f)
-        cover(img, c.thumbnailUrl, 200f)
+        cover(img, c.thumbnailUrl, 200f, c.trackId)
         img.contentDescription = c.title
         col.addView(img)
         scaleIn(img, 150L)
@@ -1035,7 +1111,7 @@ class RecapStory(
         val col = column()
         col.addView(label("It's complicated", 18f, regular, look.muted))
         val img = image(170f, round = false, look = look, top = 20f, radius = 20f)
-        cover(img, c.thumbnailUrl, 170f)
+        cover(img, c.thumbnailUrl, 170f, c.trackId)
         img.contentDescription = c.title
         col.addView(img)
         scaleIn(img, 150L)
@@ -1083,7 +1159,7 @@ class RecapStory(
         col.addView(t)
         riseIn(t, 900L)
         val img = image(150f, round = false, look = look, top = 26f, radius = 18f)
-        cover(img, top.thumbnailUrl, 150f)
+        cover(img, top.thumbnailUrl, 150f, top.trackId)
         img.contentDescription = top.title
         col.addView(img)
         scaleIn(img, 1_400L)
@@ -1099,7 +1175,7 @@ class RecapStory(
         val col = column()
         col.addView(label("Biggest new obsession", 18f, regular, look.muted))
         val img = image(220f, round = false, look = look, top = 20f, radius = 24f)
-        cover(img, s.thumbnailUrl, 220f)
+        cover(img, s.thumbnailUrl, 220f, s.trackId)
         img.contentDescription = s.title
         col.addView(img)
         scaleIn(img, 200L, from = 0.6f)
@@ -1161,7 +1237,7 @@ class RecapStory(
         for ((i, c) in sc.fermataHits.withIndex()) {
             val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             val img = image(48f, round = false, look = look, radius = 10f)
-            cover(img, c.thumbnailUrl, 48f)
+            cover(img, c.thumbnailUrl, 48f, c.trackId)
             row.addView(img)
             val text = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
             text.addView(label(c.title, 15f, semi, look.fg, lines = 1).apply { gravity = Gravity.START })
@@ -1320,7 +1396,7 @@ class RecapStory(
                     isClickable = true
                     isFocusable = true
                 }
-                if (song.thumbnailUrl.isNotBlank()) artwork.loadInto(img, MusicArt.big(song.thumbnailUrl), cell)
+                art.bind(img, StoryArt.coverCandidates(song.thumbnailUrl, song.trackId, MusicArt::big), StoryArt.decodePx(cell))
                 img.setOnClickListener {
                     tick(it)
                     pill.text = if (song.artist.isBlank()) song.title else "${song.title}  ·  ${song.artist}"
@@ -1377,7 +1453,7 @@ class RecapStory(
             }
             val img = image(coverDp, round = false, look = look, radius = 10f)
             row.addView(img)
-            cover(img, song.thumbnailUrl, coverDp)
+            cover(img, song.thumbnailUrl, coverDp, song.trackId)
             val text = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
             text.addView(label(song.title, if (compact) 14f else 16f, semi, look.fg, lines = 1).apply { gravity = Gravity.START })
             text.addView(label(song.artist, 12f, regular, look.muted, top = 2f, lines = 1).apply { gravity = Gravity.START })

@@ -13,6 +13,8 @@ import com.minim.music.data.stats.TapeListenRow
 import com.minim.music.data.stats.TapePlayRow
 import com.minim.music.data.stats.TapeStats
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.YearMonth
@@ -85,23 +87,34 @@ object RepriseLoader {
         val ym = YearMonth.from(start)
         val (from, to, cut) = if (isWeek) weekRange(RepriseClock.weekStart(start)) else monthRange(ym)
         val (pFrom, pTo, pCut) = if (isWeek) weekRange(RepriseClock.weekStart(start).minusDays(7)) else monthRange(ym.minusMonths(1))
-        val data = period(db, from, to, cut)
+        // 6.9.0 b76: the independent reads run side by side (they used to run one after another,
+        // with Fermata's whole history last), which was most of the wait when a Reprise opened
+        return coroutineScope {
+        val dataD = async { period(db, from, to, cut) }
+        val prevMsD = async { total(db, pFrom, pTo, pCut) }
+        val prevPlaysD = async { if (isWeek) emptyList() else try { RepriseQueries.plays(db, pFrom, pTo, pCut) } catch (_: Exception) { emptyList() } }
+        val prevListensD = async { if (isWeek) emptyList() else try { RepriseQueries.listens(db, pFrom, pTo, pCut) } catch (_: Exception) { emptyList() } }
         val fromMs = Days.startMs(from)
         val toMs = if (isWeek) Days.endMs(to) else RepriseClock.monthDropAt(ym)
-        val prevMs = total(db, pFrom, pTo, pCut)
-        val prevPlays = if (isWeek) emptyList() else try { RepriseQueries.plays(db, pFrom, pTo, pCut) } catch (_: Exception) { emptyList() }
-        val prevListens = if (isWeek) emptyList() else try { RepriseQueries.listens(db, pFrom, pTo, pCut) } catch (_: Exception) { emptyList() }
-        val artistsBefore = try { RepriseQueries.artistKeysBefore(db, fromMs) } catch (_: Exception) { emptySet() }
-        val ranked = StatsEngine.rankSongs(data.plays, data.listens)
+        val artistsBeforeD = async { try { RepriseQueries.artistKeysBefore(db, fromMs) } catch (_: Exception) { emptySet() } }
+        val logD = async(Dispatchers.IO) { RepriseLog.rows(bridge, toMs) }
+        val keptD = async { try { RepriseQueries.keptIds(db) } catch (_: Exception) { emptySet() } }
+        val data = dataD.await()
+        val ranked = withContext(Dispatchers.Default) { StatsEngine.rankSongs(data.plays, data.listens) }
         val songsBefore = try { db.getTracksPlayedBefore(ranked.take(5).map { it.trackId }, fromMs) } catch (_: Exception) { emptySet() }
-        val log = withContext(Dispatchers.IO) { RepriseLog.rows(bridge, toMs) }
-        val kept = try { RepriseQueries.keptIds(db) } catch (_: Exception) { emptySet() }
+        val prevMs = prevMsD.await()
+        val prevPlays = prevPlaysD.await()
+        val prevListens = prevListensD.await()
+        val artistsBefore = artistsBeforeD.await()
+        val log = logD.await()
+        val kept = keptD.await()
         val sc = withContext(Dispatchers.Default) {
             RepriseScope.build(
                 period, if (isWeek) RepriseClock.weekStart(start) else ym.atDay(1), data.stats, data.plays, data.listens,
                 data.dayTotals, prevMs, prevPlays, prevListens, artistsBefore, songsBefore, log, kept, fromMs, toMs, data.hours
             )
         }
-        return data to sc
+        data to sc
+        }
     }
 }
