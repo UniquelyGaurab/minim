@@ -54,6 +54,9 @@ class RecapPopupGate {
     }
 
     companion object {
+        /** 6.9.0: the daily popup is gone. The Weekly and Monthly popups replace it (part B). */
+        const val DAILY_POPUP = false
+
         fun eligible(recap: DayStats?, popupShownDay: Int, viewedDay: Int): Boolean =
             RecapRules.shouldPopup(recap, popupShownDay, viewedDay)
     }

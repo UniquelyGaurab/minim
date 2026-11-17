@@ -17,7 +17,10 @@ object RecapSlides {
 
     enum class Kind {
         INTRO, TIME, VS_YESTERDAY, HOURS, SESSION, FIRST_LAST, FIRST_LISTENS, GUESS, TOP5, ARTIST,
-        HEARTED, TAPES, STREAK, ROAST, PERSONA, CARD
+        HEARTED, TAPES, STREAK, ROAST, PERSONA, CARD,
+        // 6.9.0: Weekly and Monthly Reprise only (see RepriseSlides)
+        WEEK_DAYS, SOUNDTRACK, NEW_ARTISTS, ON_REPEAT, SKIPPED,
+        HEATMAP, ANTHEMS, BEST_DAY, OBSESSION, RISING, FERMATA_HITS
     }
 
     /**
@@ -66,10 +69,24 @@ object RecapSlides {
         Kind.ROAST -> 5_200L
         Kind.PERSONA -> 6_000L
         Kind.CARD -> 7_000L
+        Kind.WEEK_DAYS -> 6_200L
+        Kind.SOUNDTRACK -> 6_500L
+        Kind.NEW_ARTISTS -> 6_000L
+        Kind.ON_REPEAT -> 5_600L
+        Kind.SKIPPED -> 5_600L
+        Kind.HEATMAP -> 6_800L
+        Kind.ANTHEMS -> 6_500L
+        Kind.BEST_DAY -> 6_000L
+        Kind.OBSESSION -> 6_000L
+        Kind.RISING -> 7_000L
+        Kind.FERMATA_HITS -> 7_000L
     }
 
     /** When the top-5 countdown hands the screen to #1, in ms from the slide's start. */
-    fun top5RevealAt(rows: Int): Long = if (rows <= 0) 0L else 700L + rows * 750L + 500L
+    fun top5RevealAt(rows: Int): Long = if (rows <= 0) 0L else 700L + rows * rowStep(rows) + 500L
+
+    /** 6.9.0: a top 10 counts down faster, so it fits the same slide. */
+    fun rowStep(rows: Int): Long = if (rows > 4) 450L else 750L
 
     /**
      * 5.8.2: the streak as one line on the top artist slide. "6 in a row at one point" when the

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- v4.9: Stats tab (replaces Recents). Today's live numbers on top, then the recap of the most
      recent past day with listening, and its story ("dive in"). All colours from the palette. -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:tools="http://schemas.android.com/tools"
+    xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/screen_stats"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -43,6 +44,7 @@
                     style="@style/MinimText.Bold"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:id="@+id/stats_period_title"
                     android:tag="text:fg"
                     android:text="@string/stats_today"
                     android:textSize="22sp" />
@@ -57,6 +59,7 @@
                     android:paddingTop="2dp"
                     android:paddingEnd="8dp"
                     android:paddingBottom="2dp"
+                    android:id="@+id/stats_live_pill"
                     android:tag="fill:soft text:fg"
                     android:text="@string/stats_live"
                     android:textSize="10sp" />
@@ -71,9 +74,21 @@
                 android:tag="text:muted"
                 android:textSize="12sp" />
 
+            <!-- 6.9.0: period pills, the Monthly teaser, hero, top 5s, heatmap and insights (StatsPeriodView) -->
+            <LinearLayout
+                android:id="@+id/stats_v2"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
             <!-- 5.7.0 u51: three rows of pairs. With tapes: songs | tapes, artists | channels,
                  listened | day streak. Without: songs | listened, artists | day streak (StatsScreen
                  moves the boxes between the rows). -->
+            <LinearLayout
+                android:id="@+id/stats_legacy_today"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" android:visibility="gone">
             <LinearLayout
                 android:id="@+id/stats_today_row1"
                 android:layout_width="match_parent"
@@ -499,9 +514,15 @@
                         android:textSize="12sp" />
                 </LinearLayout>
             </LinearLayout>
+            </LinearLayout>
 
 
             <!-- v4.9: the most recent day when it was quiet (it doesn't replace a better recap) -->
+            <LinearLayout
+                android:id="@+id/stats_today_recap"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
             <TextView
                 android:id="@+id/stats_quiet_line"
                 style="@style/MinimText"
@@ -548,6 +569,7 @@
 
             <LinearLayout
                 android:id="@+id/stats_recap_box"
+                tools:ignore="UselessParent"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
@@ -653,7 +675,13 @@
                             android:visibility="gone" />
                     </LinearLayout>
                 </LinearLayout>
+            </LinearLayout>
 
+            <LinearLayout
+                android:id="@+id/stats_legacy_recap"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" android:visibility="gone">
             <LinearLayout
                 android:id="@+id/stats_recap_row1"
                 android:layout_width="match_parent"
@@ -1100,6 +1128,7 @@
                     android:layout_marginTop="4dp"
                     android:tag="text:fg"
                     android:textSize="15sp" />
+            </LinearLayout>
             </LinearLayout>
 
             </LinearLayout>

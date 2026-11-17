@@ -2,6 +2,10 @@
 
 Every Minim release, newest first. Download any of them from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page.
 
+## 6.9.0 (test build, part A, not released yet)
+
+Part A of the Stats revamp: Today, Week, Month and All time pills with a hero total, bars, Top 5 songs, artists and channels, a month heatmap you can swipe, and insights. Tapping a day opens its Daily Reprise. "Recap" is now "Reprise", and the daily popup is gone. The Weekly and Monthly Reprise come in part B.
+
 ## 6.8.0 (test build, not released yet)
 
 Playlists get a cover, Play and Shuffle buttons, search, sorting and your own covers.

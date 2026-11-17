@@ -60,13 +60,15 @@ object RecapCard {
         s: DayStats,
         pal: Pal,
         artistPhotoUrl: String?,
-        persona: RecapPersonality.Result? = null
+        persona: RecapPersonality.Result? = null,
+        /** 6.9.0: Weekly/Monthly Reprise header, e.g. "Nov 15–21" and "my week in music". */
+        header: Pair<String, String>? = null
     ): Bitmap = withContext(Dispatchers.Default) {
         val cover = coverUrl(s)
             ?.let { runCatching { artwork.loadBitmap(MusicArt.big(it), 720) }.getOrNull() }
         val photo = artistPhotoUrl?.takeIf { it.isNotBlank() }
             ?.let { runCatching { artwork.loadBitmap(it, 160) }.getOrNull() }
-        render(context, s, pal, cover, photo, persona)
+        render(context, s, pal, cover, photo, persona, header)
     }
 
     fun render(
@@ -75,7 +77,8 @@ object RecapCard {
         pal: Pal,
         cover: Bitmap?,
         artistPhoto: Bitmap?,
-        persona: RecapPersonality.Result? = null
+        persona: RecapPersonality.Result? = null,
+        header: Pair<String, String>? = null
     ): Bitmap {
         val bmp = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
@@ -98,8 +101,8 @@ object RecapCard {
         c.drawRect(0f, 0f, W.toFloat(), BAND_BOTTOM, Paint().apply { color = band })
 
         // Header: the day on the left, "my day in music" on the right
-        textStart(c, Days.label(s.day), M, 150f, 38f, medium, fg, 640)
-        textEnd(c, "my day in music", right, 150f, 32f, regular, muted, 360)
+        textStart(c, header?.first ?: Days.label(s.day), M, 150f, 38f, medium, fg, 640)
+        textEnd(c, header?.second ?: "my day in music", right, 150f, 32f, regular, muted, 360)
 
         // The big cover, with a soft shadow
         val rect = RectF(M, 222f, right, 222f + (W - 2 * M))

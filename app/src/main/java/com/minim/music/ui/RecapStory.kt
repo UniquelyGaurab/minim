@@ -81,7 +81,9 @@ class RecapStory(
     private val onPlayTop: () -> Unit,
     private val onOpenArtist: () -> Unit,
     private val onSound: (Boolean) -> Unit,
-    private val onClosed: () -> Unit
+    private val onClosed: () -> Unit,
+    /** 6.9.0: a Weekly or Monthly Reprise (null: the Daily one). */
+    private val scope: com.minim.music.data.stats.RepriseScope? = null
 ) : FrameLayout(context) {
 
     /**
@@ -104,7 +106,8 @@ class RecapStory(
     private val semi: Typeface = font(R.font.poppins_semibold, Typeface.DEFAULT_BOLD)
     private val regular: Typeface = font(R.font.poppins_regular, Typeface.DEFAULT)
 
-    private val slides: List<Kind> = RecapSlides.plan(stats, day, roast != null, more)
+    private val slides: List<Kind> = scope?.let { RepriseSlides.plan(it, stats, day, roast != null, persona != null) }
+        ?: RecapSlides.plan(stats, day, roast != null, more)
 
     private fun lookA(p: Pal) = Look(p.bg, p.fg, p.muted)
     private fun lookB(p: Pal) = Look(p.fg, p.bg, ColorUtils.blendARGB(p.fg, p.bg, 0.6f))
@@ -124,6 +127,14 @@ class RecapStory(
             Kind.HOURS, Kind.PERSONA -> lookC(pal)
             Kind.FIRST_LAST -> palOf(day.first?.thumbnailUrl)?.let { lookA(it) } ?: lookC(pal)
             Kind.ARTIST -> palOf(artistPhotoUrl)?.let { lookA(it) } ?: lookC(pal)
+            Kind.WEEK_DAYS, Kind.HEATMAP, Kind.NEW_ARTISTS -> lookC(pal)
+            Kind.SOUNDTRACK, Kind.ANTHEMS -> lookB(pal)
+            Kind.ON_REPEAT -> palOf(scope?.onRepeat?.first?.thumbnailUrl)?.let { lookA(it) } ?: lookA(pal)
+            Kind.SKIPPED -> palOf(scope?.skipped?.thumbnailUrl)?.let { lookB(it) } ?: lookB(pal)
+            Kind.BEST_DAY -> palOf(scope?.bestDayTop?.thumbnailUrl)?.let { lookA(it) } ?: lookC(pal)
+            Kind.OBSESSION -> palOf(scope?.obsession?.thumbnailUrl)?.let { lookA(it) } ?: lookA(pal)
+            Kind.RISING -> lookA(pal)
+            Kind.FERMATA_HITS -> palOf(scope?.fermataHits?.firstOrNull()?.thumbnailUrl)?.let { lookC(it) } ?: lookC(pal)
             Kind.TAPES -> (palOf(channelPhotoUrl) ?: palOf(stats.tapes.topTape?.thumbnailUrl))?.let { lookA(it) } ?: lookB(pal)
         }
     }
@@ -177,7 +188,7 @@ class RecapStory(
             typeface = semi
             textSize = 12f
             gravity = Gravity.CENTER
-            text = Days.label(stats.day)
+            text = scope?.label ?: Days.label(stats.day)
         }
         addView(dateLabel, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         soundButton.apply {
@@ -548,6 +559,17 @@ class RecapStory(
         Kind.ROAST -> buildRoast(look)
         Kind.PERSONA -> buildPersona(look)
         Kind.CARD -> buildCard(look)
+        Kind.WEEK_DAYS -> buildWeekDays(look)
+        Kind.SOUNDTRACK -> buildCoverStrip(look, true)
+        Kind.ANTHEMS -> buildCoverStrip(look, false)
+        Kind.NEW_ARTISTS -> buildNewArtists(look)
+        Kind.ON_REPEAT -> buildOnRepeat(look)
+        Kind.SKIPPED -> buildSkipped(look)
+        Kind.HEATMAP -> buildHeatmap(look)
+        Kind.BEST_DAY -> buildBestDay(look)
+        Kind.OBSESSION -> buildObsession(look)
+        Kind.RISING -> buildRising(look)
+        Kind.FERMATA_HITS -> buildFermataHits(look)
     }
 
     private fun buildIntro(look: Look): View {
@@ -567,8 +589,14 @@ class RecapStory(
             start()
         })
         val col = column()
-        val line = label(RecapDay.introLine(stats.day), 34f, bold, look.fg, lines = 3)
+        val big = scope != null && !scope.isWeek
+        val line = label(scope?.title ?: RecapDay.introLine(stats.day), if (big) 56f else 34f, bold, look.fg, lines = 3)
         col.addView(line)
+        if (scope != null) {
+            val sub = label(if (scope.isWeek) "Your weekly Reprise" else "Your monthly Reprise", 16f, regular, look.muted, top = 12f)
+            col.addView(sub)
+            riseIn(sub, 1_200L)
+        }
         wordsIn(line, line.text.toString(), 200L, perWord = 160L)
         root.addView(col, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         return root
@@ -593,6 +621,19 @@ class RecapStory(
             val l2 = label("$tapes  ·  $channels", 16f, semi, look.fg, top = 6f)
             col.addView(l2)
             riseIn(l2, 1_450L)
+        }
+        if (scope != null) {
+            scope.compareLine?.let {
+                val l4 = label(it, 15f, semi, look.fg, top = 18f)
+                col.addView(l4)
+                riseIn(l4, 1_800L)
+            }
+            scope.funLine?.let {
+                val l5 = label(it.replaceFirstChar { c -> c.uppercase() } + ".", 22f, bold, look.fg, top = 18f)
+                col.addView(l5)
+                riseIn(l5, 2_400L)
+            }
+            return col
         }
         com.minim.music.data.stats.TapeStats.savedLine(t)?.let {
             val l3 = label(it.replaceFirstChar { c -> c.uppercase() } + ".", 13f, regular, look.muted, top = 14f)
@@ -678,7 +719,7 @@ class RecapStory(
         val col = column()
         val options = RecapGuess.options(day, stats.day)!!
         val answer = day.top[0].trackId
-        col.addView(label("Guess your top song", 26f, bold, look.fg))
+        col.addView(label(if (scope?.isWeek == true) "Guess your song of the week" else "Guess your top song", 26f, bold, look.fg))
         col.addView(label("Tap the one you played most.", 15f, regular, look.muted, top = 8f))
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -723,18 +764,19 @@ class RecapStory(
         return col
     }
 
-    private fun rankRow(look: Look, rank: Int, s: TopSong?): LinearLayout {
+    private fun rankRow(look: Look, rank: Int, s: TopSong?, compact: Boolean = false): LinearLayout {
+        val size = if (compact) 40f else 54f
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         row.addView(label("$rank", 22f, bold, look.fg, lines = 1).apply { gravity = Gravity.START },
             LinearLayout.LayoutParams(dp(30f), LinearLayout.LayoutParams.WRAP_CONTENT))
-        val img = image(54f, round = false, look = look, radius = 12f)
+        val img = image(size, round = false, look = look, radius = if (compact) 10f else 12f)
         row.addView(img)
-        if (s != null) cover(img, s.thumbnailUrl, 54f) else img.setImageDrawable(null)
+        if (s != null) cover(img, s.thumbnailUrl, size) else img.setImageDrawable(null)
         val text = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-        text.addView(label(s?.title ?: "· · ·", 16f, semi, look.fg, lines = 1).apply { gravity = Gravity.START })
+        text.addView(label(s?.title ?: "· · ·", if (compact) 14f else 16f, semi, look.fg, lines = 1).apply { gravity = Gravity.START })
         val sub = if (s == null) "coming up" else {
             val plays = if (s.plays == 1) "1 play" else "${s.plays} plays"
             "${s.artist}  ·  $plays"
@@ -751,16 +793,18 @@ class RecapStory(
         val list = column().apply { gravity = Gravity.CENTER_VERTICAL }
         if (rest.isNotEmpty()) {
             list.addView(label("Your top ${top.size}", 26f, bold, look.fg).apply { gravity = Gravity.START })
-            val hold = rankRow(look, 1, null)
-            list.addView(hold, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(22f) })
+            val compact = rest.size > 4
+            val hold = rankRow(look, 1, null, compact)
+            list.addView(hold, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(if (compact) 14f else 22f) })
             hold.alpha = 0.45f
-            val rows = rest.mapIndexed { i, s -> rankRow(look, i + 2, s) }
+            val rows = rest.mapIndexed { i, s -> rankRow(look, i + 2, s, compact) }
             for (r in rows) {
                 r.alpha = 0f
-                list.addView(r, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(16f) })
+                list.addView(r, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(if (compact) 8f else 16f) })
             }
-            // #5 comes in first, then #4 ... #2
-            for ((n, r) in rows.reversed().withIndex()) at(700L + n * 750L) { riseIn(r, 0L, dist = 22f) }
+            // #5 comes in first, then #4 ... #2 (6.9.0: a top 10 from #10, a bit faster)
+            val step = RecapSlides.rowStep(rows.size)
+            for ((n, r) in rows.reversed().withIndex()) at(700L + n * step) { riseIn(r, 0L, dist = 22f) }
             root.addView(list, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         }
 
@@ -785,7 +829,8 @@ class RecapStory(
         col.addView(title)
         col.addView(label(s.artist, 15f, regular, look.muted, top = 4f, lines = 1))
         // 5.8.3 u55: the day's plays next to all-time plays, "16 today, 54 all time"
-        val playsText = if (more.topAllTime > 0) RecapMoreMath.allTimeLine(s.plays, more.topAllTime)
+        val playsText = if (scope != null) "Played ${s.plays} ${if (s.plays == 1) "time" else "times"} this ${scope.word}"
+            else if (more.topAllTime > 0) RecapMoreMath.allTimeLine(s.plays, more.topAllTime)
             else if (s.plays == 1) "Played once" else "Played ${s.plays} times"
         val plays = label(playsText, 16f, semi, look.fg, top = 14f)
         col.addView(plays)
@@ -814,7 +859,7 @@ class RecapStory(
     private fun buildArtist(look: Look): View {
         val col = column()
         val a = stats.topArtist!!
-        col.addView(label("Your top artist", 18f, regular, look.muted))
+        col.addView(label(if (scope?.isWeek == true) "Artist of the week" else if (scope != null) "Artist of the month" else "Your top artist", 18f, regular, look.muted))
         val img = image(220f, round = true, look = look, top = 22f)
         img.contentDescription = "Open ${a.name}"
         col.addView(img)
@@ -831,7 +876,7 @@ class RecapStory(
         val time = label("${StatsFormat.duration(a.ms)} listened", 16f, semi, look.fg, top = 8f)
         col.addView(time)
         riseIn(time, 1_100L)
-        RecapSlides.streakLine(stats)?.let {
+        (if (scope != null) "One of ${scope.artistsTotal} artists this ${scope.word}" else RecapSlides.streakLine(stats))?.let {
             val st = label(it, 14f, regular, look.muted, top = 6f)
             col.addView(st)
             riseIn(st, 1_600L)
@@ -859,13 +904,299 @@ class RecapStory(
         val name = label(ch.name, 28f, bold, look.fg, top = 18f)
         col.addView(name)
         wordsIn(name, ch.name, 1_000L)
-        val line = label(RecapSlides.tapesLine(stats), 16f, semi, look.muted, top = 8f)
+        val line = label(if (scope != null) "${if (scope.isWeek) "Channel of the week" else "Channel of the month"}  ·  ${StatsFormat.duration(stats.tapes.ms)} of tapes" else RecapSlides.tapesLine(stats), 16f, semi, look.muted, top = 8f)
         col.addView(line)
         riseIn(line, 1_600L)
         return col
     }
 
     // ---- 5.8.3 u55: the new slides ---------------------------------------------------------
+
+    // ---- 6.9.0: Weekly and Monthly Reprise slides -------------------------------------------
+
+    /** A small rounded cover with a caption under it, for the cover strips. */
+    private fun coverTile(look: Look, url: String?, sizeDp: Float, caption: String, desc: String): LinearLayout {
+        val box = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+        val img = image(sizeDp, round = false, look = look, radius = 10f)
+        img.contentDescription = desc
+        if (url.isNullOrBlank()) img.setImageDrawable(android.graphics.drawable.GradientDrawable().apply {
+            cornerRadius = dp(10f).toFloat(); setColor(look.soft)
+        }) else cover(img, url, sizeDp)
+        box.addView(img, LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp)))
+        box.addView(label(caption, 11f, semi, look.muted, top = 6f, lines = 1))
+        return box
+    }
+
+    private fun buildWeekDays(look: Look): View {
+        val sc = scope!!
+        val col = column()
+        col.addView(label("The week in days", 26f, bold, look.fg))
+        val labels = sc.days.map { weekday(it, true).take(1) }
+        val values = sc.days.map { sc.dayTotals[it] ?: 0L }
+        val (busy, quiet) = sc.busiestQuietest
+        val chart = RepriseBars(context, labels, values, sc.days.indexOf(busy ?: -1), sc.days.indexOf(quiet ?: -1), look.fg, look.muted, semi, regular)
+        col.addView(chart, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(200f)).apply { topMargin = dp(30f) })
+        grow(300L, 1_400L) { chart.grow = it }
+        RepriseSlides.weekDaysLine(sc)?.let {
+            val l = label(it, 17f, semi, look.fg, top = 26f, lines = 3)
+            col.addView(l)
+            riseIn(l, 1_900L)
+        }
+        busy?.let {
+            val l = label("${weekday(it, false)}: ${StatsFormat.duration(sc.dayTotals[it] ?: 0L)}", 14f, regular, look.muted, top = 8f)
+            col.addView(l)
+            riseIn(l, 2_300L)
+        }
+        return col
+    }
+
+    /** The week's soundtrack (each day's top song, Sun to Sat) or the month's weekly anthems. */
+    private fun buildCoverStrip(look: Look, week: Boolean): View {
+        val sc = scope!!
+        val col = column()
+        col.addView(label(if (week) "The week's soundtrack" else "Weekly anthems", 26f, bold, look.fg))
+        col.addView(label(if (week) "Each day's top song, Sunday to Saturday." else "The top song of each week.", 15f, regular, look.muted, top = 8f))
+        val items: List<Triple<String?, String, String>> = if (week) {
+            sc.days.mapIndexed { i, k -> Triple(sc.dayTops[i]?.thumbnailUrl, weekday(k, true).take(1), sc.dayTops[i]?.title ?: "Nothing") }
+        } else sc.weekTops.map { Triple(it.second.thumbnailUrl, it.first, it.second.title) }
+        val n = items.size
+        // 7 covers fit one row; up to 6 anthems get bigger ones
+        val avail = (resources.displayMetrics.widthPixels / density) - 56f
+        val size = ((avail - (n - 1) * 6f) / n).coerceIn(36f, 96f)
+        val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        for ((i, it) in items.withIndex()) {
+            val tile = coverTile(look, it.first, size, it.second, it.third)
+            row.addView(tile, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { if (i > 0) leftMargin = dp(6f) })
+            tile.alpha = 0f
+            at(400L + i * 280L) { riseIn(tile, 0L, dist = 18f) }
+        }
+        col.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(30f) })
+        if (!week) {
+            val titles = column().apply { setPadding(0, 0, 0, 0) }
+            for ((i, w) in sc.weekTops.withIndex()) {
+                val l = label("${w.first}  ·  ${w.second.title}", 13f, regular, look.muted, top = if (i == 0) 24f else 4f, lines = 1)
+                titles.addView(l)
+                riseIn(l, 2_200L + i * 150L)
+            }
+            col.addView(titles, matchWrap())
+        }
+        return col
+    }
+
+    private fun buildNewArtists(look: Look): View {
+        val sc = scope!!
+        val col = column()
+        col.addView(label(if (sc.isWeek) "New this week" else "New finds", 18f, regular, look.muted))
+        val n = sc.newArtists.size
+        val big = label("0", 88f, bold, look.fg, top = 4f, lines = 1)
+        col.addView(big)
+        grow(200L, 1_100L) { f -> big.text = (n * f + 0.5f).toInt().coerceIn(0, n).toString() }
+        col.addView(label(if (n == 1) "artist you'd never played before" else "artists you'd never played before", 17f, semi, look.fg, top = 2f))
+        if (!sc.isWeek) {
+            val share = Math.round(sc.newShare * 100f)
+            if (share > 0) {
+                val l = label("$share% of your listening", 15f, regular, look.muted, top = 10f)
+                col.addView(l)
+                riseIn(l, 1_300L)
+            }
+        }
+        val names = sc.newArtists.take(4).joinToString("  ·  ")
+        val l = label(names, 15f, semi, look.fg, top = 24f, lines = 3)
+        col.addView(l)
+        riseIn(l, 1_700L)
+        return col
+    }
+
+    private fun buildOnRepeat(look: Look): View {
+        val sc = scope!!
+        val (c, dayKey) = sc.onRepeat!!
+        val col = column()
+        col.addView(label("On repeat", 18f, regular, look.muted))
+        val img = image(200f, round = false, look = look, top = 20f, radius = 22f)
+        cover(img, c.thumbnailUrl, 200f)
+        img.contentDescription = c.title
+        col.addView(img)
+        scaleIn(img, 150L)
+        val big = label("${c.count} times", 44f, bold, look.fg, top = 20f, lines = 1)
+        col.addView(big)
+        riseIn(big, 700L)
+        val l = label("${c.title} in one day, on ${weekday(dayKey, false)}.", 16f, semi, look.fg, top = 8f, lines = 3)
+        col.addView(l)
+        riseIn(l, 1_200L)
+        return col
+    }
+
+    private fun buildSkipped(look: Look): View {
+        val sc = scope!!
+        val c = sc.skipped!!
+        val col = column()
+        col.addView(label("It's complicated", 18f, regular, look.muted))
+        val img = image(170f, round = false, look = look, top = 20f, radius = 20f)
+        cover(img, c.thumbnailUrl, 170f)
+        img.contentDescription = c.title
+        col.addView(img)
+        scaleIn(img, 150L)
+        val t = label(c.title, 24f, bold, look.fg, top = 20f)
+        col.addView(t)
+        wordsIn(t, c.title, 500L)
+        val l = label("Skipped ${c.count} times this ${sc.word}. Still in your library.", 16f, semi, look.fg, top = 10f, lines = 3)
+        col.addView(l)
+        riseIn(l, 1_300L)
+        val l2 = label("Fermata noticed.", 14f, regular, look.muted, top = 10f)
+        col.addView(l2)
+        riseIn(l2, 2_000L)
+        return col
+    }
+
+    /** The month's calendar, filling in day by day as the slide opens. */
+    private fun buildHeatmap(look: Look): View {
+        val sc = scope!!
+        val col = column()
+        col.addView(label("Your ${sc.monthName}, day by day", 24f, bold, look.fg))
+        val ym = java.time.YearMonth.from(sc.start)
+        val grid = com.minim.music.data.stats.StatsPeriods.monthGrid(ym)
+        val levels = grid.map { k -> if (k == null) -1 else com.minim.music.data.stats.StatsPeriods.heatLevel(sc.dayTotals[k] ?: 0L, sc.heatMax) }
+        val heat = HeatGrid(context, levels, look.fg, look.muted, semi)
+        col.addView(heat, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(46f * (grid.size / 7) + 24f)).apply { topMargin = dp(26f) })
+        grow(300L, 2_600L) { heat.grow = it }
+        val heard = sc.days.count { (sc.dayTotals[it] ?: 0L) > 0L }
+        val l = label("Music on $heard of ${sc.days.size} days.", 16f, semi, look.fg, top = 20f)
+        col.addView(l)
+        riseIn(l, 3_000L)
+        return col
+    }
+
+    private fun buildBestDay(look: Look): View {
+        val sc = scope!!
+        val k = sc.bestDay!!
+        val top = sc.bestDayTop!!
+        val col = column()
+        col.addView(label("Your best day", 18f, regular, look.muted))
+        val d = Days.date(k)
+        val big = label("${weekday(k, false)}, ${d.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)} ${d.dayOfMonth}", 32f, bold, look.fg, top = 8f)
+        col.addView(big)
+        wordsIn(big, big.text.toString(), 200L)
+        val t = label(StatsFormat.duration(sc.dayTotals[k] ?: 0L) + " of music", 18f, semi, look.fg, top = 8f)
+        col.addView(t)
+        riseIn(t, 900L)
+        val img = image(150f, round = false, look = look, top = 26f, radius = 18f)
+        cover(img, top.thumbnailUrl, 150f)
+        img.contentDescription = top.title
+        col.addView(img)
+        scaleIn(img, 1_400L)
+        val l = label("On repeat that day: ${top.title}", 15f, regular, look.muted, top = 14f, lines = 2)
+        col.addView(l)
+        riseIn(l, 1_900L)
+        return col
+    }
+
+    private fun buildObsession(look: Look): View {
+        val sc = scope!!
+        val s = sc.obsession!!
+        val col = column()
+        col.addView(label("Biggest new obsession", 18f, regular, look.muted))
+        val img = image(220f, round = false, look = look, top = 20f, radius = 24f)
+        cover(img, s.thumbnailUrl, 220f)
+        img.contentDescription = s.title
+        col.addView(img)
+        scaleIn(img, 200L, from = 0.6f)
+        val t = label(s.title, 26f, bold, look.fg, top = 20f)
+        col.addView(t)
+        wordsIn(t, s.title, 700L)
+        col.addView(label(s.artist, 15f, regular, look.muted, top = 4f, lines = 1))
+        val l = label("Never played before ${sc.monthName}. Now ${s.plays} plays and top 5.", 16f, semi, look.fg, top = 14f, lines = 3)
+        col.addView(l)
+        riseIn(l, 1_500L)
+        return col
+    }
+
+    private fun moveRow(look: Look, m: com.minim.music.data.stats.ArtistMove, up: Boolean): LinearLayout {
+        val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        row.addView(label(if (up) "↑" else "↓", 20f, bold, if (up) look.fg else look.muted, lines = 1),
+            LinearLayout.LayoutParams(dp(28f), LinearLayout.LayoutParams.WRAP_CONTENT))
+        row.addView(label(m.name, 17f, semi, look.fg, lines = 1).apply { gravity = Gravity.START },
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(label("${StatsFormat.duration(m.beforeMs)} → ${StatsFormat.duration(m.nowMs)}", 13f, regular, look.muted, lines = 1))
+        return row
+    }
+
+    private fun buildRising(look: Look): View {
+        val sc = scope!!
+        val col = column().apply { gravity = Gravity.CENTER_VERTICAL }
+        var delay = 300L
+        if (sc.rising.isNotEmpty()) {
+            col.addView(label("Rising", 26f, bold, look.fg).apply { gravity = Gravity.START }, matchWrap())
+            for (m in sc.rising) {
+                val r = moveRow(look, m, true)
+                col.addView(r, matchWrap(12f))
+                r.alpha = 0f
+                at(delay) { riseIn(r, 0L) }
+                delay += 350L
+            }
+        }
+        if (sc.fading.isNotEmpty()) {
+            col.addView(label("Fading", 26f, bold, look.fg).apply { gravity = Gravity.START }, matchWrap(if (sc.rising.isEmpty()) 0f else 34f))
+            delay += 400L
+            for (m in sc.fading) {
+                val r = moveRow(look, m, false)
+                col.addView(r, matchWrap(12f))
+                r.alpha = 0f
+                at(delay) { riseIn(r, 0L) }
+                delay += 350L
+            }
+        }
+        val l = label("Compared with last month.", 13f, regular, look.muted, top = 26f)
+        col.addView(l, matchWrap(26f))
+        return col
+    }
+
+    private fun buildFermataHits(look: Look): View {
+        val sc = scope!!
+        val col = column().apply { gravity = Gravity.CENTER_VERTICAL }
+        col.addView(label("Fermata's hits", 26f, bold, look.fg).apply { gravity = Gravity.START }, matchWrap())
+        col.addView(label("Found through radio and Discover, and played again since.", 14f, regular, look.muted, top = 6f, lines = 3).apply { gravity = Gravity.START }, matchWrap(6f))
+        for ((i, c) in sc.fermataHits.withIndex()) {
+            val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            val img = image(48f, round = false, look = look, radius = 10f)
+            cover(img, c.thumbnailUrl, 48f)
+            row.addView(img)
+            val text = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+            text.addView(label(c.title, 15f, semi, look.fg, lines = 1).apply { gravity = Gravity.START })
+            text.addView(label("${c.artist}  ·  ${c.count} plays", 12f, regular, look.muted, top = 2f, lines = 1).apply { gravity = Gravity.START })
+            row.addView(text, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(12f) })
+            col.addView(row, matchWrap(if (i == 0) 22f else 12f))
+            row.alpha = 0f
+            at(500L + i * 380L) { riseIn(row, 0L) }
+        }
+        return col
+    }
+
+    /** The period's streak: its longest run, plus the favourite hour for a month. */
+    private fun buildPeriodStreak(look: Look, sc: com.minim.music.data.stats.RepriseScope): View {
+        val n = sc.longestStreak
+        val col = column()
+        if (n >= RecapMoreMath.STREAK_MIN) {
+            col.addView(label("Longest streak", 18f, regular, look.muted))
+            val big = label("0", 96f, bold, look.fg, top = 2f, lines = 1)
+            col.addView(big)
+            grow(200L, 1_200L) { f -> big.text = String.format(java.util.Locale.US, "%d", (n * f + 0.5f).toInt().coerceIn(0, n)) }
+            val line = label(if (n == 1) "day in a row" else "days in a row", 24f, bold, look.fg, top = 4f, lines = 1)
+            col.addView(line)
+            wordsIn(line, line.text.toString(), 1_000L, perWord = 160L)
+        }
+        RepriseSlides.favouriteHourLine(sc)?.takeIf { !sc.isWeek }?.let {
+            val l = label(it, if (n >= RecapMoreMath.STREAK_MIN) 18f else 30f, semi, look.fg, top = 28f)
+            col.addView(l)
+            riseIn(l, 1_800L)
+        }
+        val rule = label("10 minutes or more of listening every day", 13f, regular, look.muted, top = 18f)
+        col.addView(rule)
+        riseIn(rule, 2_400L)
+        return col
+    }
 
     private fun matchWrap(top: Float = 0f) = LinearLayout.LayoutParams(
         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
@@ -1093,12 +1424,13 @@ class RecapStory(
 
     /** "Day 12 in a row": the Stats day streak, with the last week's days filling in. */
     private fun buildStreak(look: Look): View {
+        if (scope != null) return buildPeriodStreak(look, scope)
         val n = more.streakDays
         val col = column()
         col.addView(label("Day streak", 18f, regular, look.muted))
         val big = label("0", 96f, bold, look.fg, top = 2f, lines = 1)
         col.addView(big)
-        grow(200L, 1_200L) { f -> big.text = "${(n * f + 0.5f).toInt().coerceIn(0, n)}" }
+        grow(200L, 1_200L) { f -> big.text = String.format(java.util.Locale.US, "%d", (n * f + 0.5f).toInt().coerceIn(0, n)) }
         val line = label(RecapMoreMath.streakLine(n), 24f, bold, look.fg, top = 4f, lines = 1)
         col.addView(line)
         wordsIn(line, line.text.toString(), 1_000L, perWord = 160L)
@@ -1204,7 +1536,7 @@ class RecapStory(
         row.addView(share, LinearLayout.LayoutParams(0, dp(48f), 1f).apply { rightMargin = dp(5f) })
         row.addView(save, LinearLayout.LayoutParams(0, dp(48f), 1f).apply { leftMargin = dp(5f) })
         pills.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        if (day.ranked.isNotEmpty()) {
+        if (day.ranked.isNotEmpty() && scope?.isWeek != true) {
             val playlist = pill("save as playlist", filled = false, look = look) { onSavePlaylist() }
             pills.addView(playlist, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48f)).apply { topMargin = dp(10f) })
         }

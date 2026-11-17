@@ -299,7 +299,7 @@
     <string name="stats_new_tag">new</string>
     <string name="stats_today">today</string>
     <string name="stats_live">live</string>
-    <string name="stats_recap">recap</string>
+    <string name="stats_recap">reprise</string>
     <string name="stats_songs">songs</string>
     <string name="stats_song_one">song</string>
     <string name="stats_artists">artists</string>
@@ -311,7 +311,7 @@
     <string name="stats_longest_streak">longest streak</string>
     <string name="stats_you_listened">you listened for</string>
     <string name="stats_quiet_day">A quiet day.</string>
-    <string name="stats_recap_empty">Your first recap shows up the day after you listen. Play a few songs or tapes today.</string>
+    <string name="stats_recap_empty">Your first Reprise shows up the day after you listen. Play a few songs or tapes today.</string>
     <string name="stats_none">—</string>
     <string name="stats_plays">%1$d plays</string>
     <string name="stats_play_one">1 play</string>
@@ -334,7 +334,7 @@
     <string name="recap_playlist_failed">Couldn\'t save the playlist</string>
     <string name="recap_save_needs_permission">Saving needs storage access</string>
     <string name="recap_share_failed">Couldn\'t share the card</string>
-    <string name="recap_popup_title">Your recap is ready</string>
+    <string name="recap_popup_title">Your Reprise is ready</string>
     <string name="recap_popup_line">%1$s listened · %2$s</string>
 
     <!-- 5.7.0 u51: tapes in stats -->

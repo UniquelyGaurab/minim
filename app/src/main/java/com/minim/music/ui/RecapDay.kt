@@ -58,7 +58,10 @@ class RecapDay(
             plays: List<PlayRow>,
             listens: List<ListenRow>,
             tapeListens: List<TapeListenRow>,
-            zone: ZoneId = ZoneId.systemDefault()
+            zone: ZoneId = ZoneId.systemDefault(),
+            /** 6.9.0: the Monthly Reprise counts down a top 10. */
+            topN: Int = TOP,
+            playlistMax: Int = PLAYLIST_MAX
         ): RecapDay {
             val music = StatsEngine.hourMs(plays, listens, zone)
             val tapes = TapeStats.hourMs(tapeListens)
@@ -69,13 +72,13 @@ class RecapDay(
             val top = ArrayList<TopSong>()
             stats.topSong?.let { top.add(it) }
             for (s in ranked) {
-                if (top.size >= TOP) break
+                if (top.size >= topN) break
                 if (top.none { it.trackId == s.trackId }) top.add(s)
             }
             val ids = ArrayList<String>()
             for (s in top) ids.add(s.trackId)
             for (s in ranked) if (s.trackId !in ids) ids.add(s.trackId)
-            return RecapDay(hours, sorted.firstOrNull(), sorted.lastOrNull(), top, ids.take(PLAYLIST_MAX), stats.peakHour)
+            return RecapDay(hours, sorted.firstOrNull(), sorted.lastOrNull(), top, ids.take(playlistMax), stats.peakHour)
         }
 
         /** "8:12 AM" for a play's start. */
@@ -95,6 +98,17 @@ class RecapDay(
 
         /** The playlist "save as playlist" makes: "Sunday, 8 Nov · top songs". */
         fun playlistName(day: Int): String = "${Days.label(day)} · top songs"
+
+        /** 6.9.0: the Monthly Reprise's playlist: "November 2026 · Reprise". */
+        fun monthPlaylistName(ym: java.time.YearMonth): String =
+            "${ym.month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.ENGLISH)} ${ym.year} · Reprise"
+
+        /** 6.9.0: its Type cover: the month's name, on a colour from its top covers. */
+        fun monthCover(ym: java.time.YearMonth, accents: List<Int>): PlaylistLook.Cover = PlaylistLook.Cover(
+            mode = PlaylistLook.Mode.TYPE,
+            text = PlaylistLook.typeText(ym.month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.ENGLISH)),
+            color = PlaylistLook.typeColors(accents).first()
+        )
     }
 }
 
@@ -132,7 +146,10 @@ object RecapPersonality {
         EARLY_BIRD("Early bird"),
         MARATHONER("Marathoner"),
         SNACKER("Snacker"),
-        MOOD_MIXER("Mood mixer")
+        MOOD_MIXER("Mood mixer"),
+        /** 6.9.0: Weekly and Monthly Reprise only. */
+        WEEKEND_WARRIOR("Weekend warrior"),
+        WEEKDAY_GRINDER("Weekday grinder")
     }
 
     class Result(val type: Type, val line: String, val also: List<Type>) {
@@ -185,6 +202,43 @@ object RecapPersonality {
         if (s.totalMs in 1 until 20 * MIN) {
             add(Type.SNACKER to "A quick bite of music.")
         }
+    }
+
+    /**
+     * 6.9.0: a week's or a month's personality. The two new types come first (weekend listening
+     * at least half of it, or weekdays 85% or more), then the daily types with thresholds per day
+     * and the period's word in the line. [days] is how many days the period covers.
+     */
+    fun matchesPeriod(s: DayStats, d: RecapDay, days: Int, weekendMs: Long, weekdayMs: Long, word: String): List<Pair<Type, String>> = buildList {
+        val total = weekendMs + weekdayMs
+        val n = days.coerceAtLeast(1)
+        if (total >= 60 * MIN && weekendMs * 2 >= total) {
+            add(Type.WEEKEND_WARRIOR to "Saturday and Sunday did the heavy lifting.")
+        } else if (total >= 60 * MIN && weekdayMs * 100 >= total * 85) {
+            add(Type.WEEKDAY_GRINDER to "Music to get through the $word. Weekends off.")
+        }
+        val song = s.topSong
+        val artist = s.topArtist
+        if (s.tapes.ms > 0L && s.tapes.ms > s.timeMs) add(Type.STORY_MODE to "More tapes than tunes this $word.")
+        if (song != null && song.plays >= 3 * n.coerceAtMost(7) && song.plays * 100 >= s.songs * 15) {
+            val title = Greetings.shortTitle(song.title, song.artist, 22)
+            add(Type.ON_REPEAT to "$title, ${song.plays} times. You know what you like.")
+        }
+        if (artist != null && artist.name.isNotBlank() && s.timeMs > 0L && artist.ms * 100 >= s.timeMs * 40) {
+            add(Type.LOYALIST to "This $word mostly belonged to ${Greetings.shortArtist(artist.name, 20)}.")
+        }
+        if (s.artists >= (if (n > 7) 40 else 15)) add(Type.EXPLORER to "${s.artists} artists. Always after the next one.")
+        if (s.totalMs >= 20 * MIN && share(d.hours, 23, 4) >= 0.5f) add(Type.NIGHT_OWL to "Most of it happened after dark.")
+        if (s.totalMs >= 20 * MIN && share(d.hours, 5, 9) >= 0.5f) add(Type.EARLY_BIRD to "Your days started with music.")
+        if (s.totalMs >= n * 2L * 60L * MIN) add(Type.MARATHONER to "${StatsFormat.duration(s.totalMs)} of listening. Big $word.")
+        if (s.totalMs in 1 until n * 15L * MIN) add(Type.SNACKER to "Little bites of music, all $word.")
+    }
+
+    fun pickPeriod(s: DayStats, d: RecapDay, days: Int, weekendMs: Long, weekdayMs: Long, word: String): Result? {
+        if (!s.hasHistory) return null
+        val all = matchesPeriod(s, d, days, weekendMs, weekdayMs, word)
+        if (all.isEmpty()) return Result(Type.MOOD_MIXER, "A bit of everything.", emptyList())
+        return Result(all[0].first, all[0].second, all.drop(1).map { it.first }.take(2))
     }
 
     /** Null only when nothing was played. */

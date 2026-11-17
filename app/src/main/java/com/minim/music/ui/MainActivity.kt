@@ -61,6 +61,8 @@ import com.minim.music.data.stats.DayStreak
 import com.minim.music.data.stats.TodayLists
 import com.minim.music.data.stats.RecapRules
 import com.minim.music.data.stats.StatsFormat
+import com.minim.music.data.stats.StatsPeriods
+import com.minim.music.data.local.StatsPeriodLoad
 import com.minim.music.data.local.AppPreferences
 import com.minim.music.data.model.Album
 import com.minim.music.data.model.ArtistPage
@@ -179,6 +181,10 @@ class MainActivity : AppCompatActivity() {
     private var recapStats: DayStats? = null
     private var statsDay = 0
     private var statsJob: Job? = null
+    // 6.9.0: the period Stats layout (pills, hero, top 5s, heatmap, insights)
+    private lateinit var statsPeriodView: StatsPeriodView
+    private var statsPeriodJob: Job? = null
+    private var statsHeatJob: Job? = null
     private val artistPhotoTried = HashSet<String>()
     private lateinit var screenStories: View
     private lateinit var screenShelf: View
@@ -6871,6 +6877,7 @@ class MainActivity : AppCompatActivity() {
     // ==========================================================================================
 
     private fun setupStats() {
+        setupStatsPeriods()
         statsScreen.diveIn.setOnClickListener {
             haptic(it)
             openRecapStory(atCard = false)
@@ -6967,6 +6974,85 @@ class MainActivity : AppCompatActivity() {
         updateStatsBadges()
     }
 
+    /** 6.9.0: builds the period layout into stats_v2 and wires its taps. */
+    private fun setupStatsPeriods() {
+        val host = screenStats.findViewById<android.widget.LinearLayout>(R.id.stats_v2)
+        statsPeriodView = StatsPeriodView(host, app.artworkPipeline, StatsPeriodView.Callbacks(
+            onPeriod = { p ->
+                applyStatsPeriodChrome(p)
+                loadStatsPeriod(p)
+            },
+            onPlaySong = { songs, i ->
+                val song = songs.getOrNull(i)
+                if (song != null) lifecycleScope.launch {
+                    val track = try { app.database.getTracksByIds(listOf(song.trackId)).firstOrNull() } catch (_: Exception) { null }
+                        ?: return@launch
+                    app.playbackController.playRadio(track, listOf(track))
+                }
+            },
+            onArtist = { name -> openArtistByName(name) },
+            onChannel = { c -> openStatsChannel(c.name, c.channelId) },
+            onDay = { day -> openDayReprise(day) },
+            onHeatMonth = { ym -> loadStatsHeat(ym) },
+            // Part B opens the Monthly Reprise from the teaser; the teaser stays hidden till then
+            onTeaserDive = {},
+            onTeaserCard = {},
+            tick = { v -> haptic(v) },
+            softHaptic = { v -> haptic(v, HapticFeedbackConstants.LONG_PRESS) }
+        ))
+        statsPeriodView.setTeaser(null, null)
+        statsPeriodView.restyle(pal)
+        applyStatsPeriodChrome(statsPeriodView.period)
+        loadStatsHeat(java.time.YearMonth.now())
+    }
+
+    /** Today keeps its live pill, date and the daily Reprise box; the other periods hide them. */
+    private fun applyStatsPeriodChrome(p: StatsPeriods.Period) {
+        val today = p == StatsPeriods.Period.TODAY
+        screenStats.findViewById<TextView>(R.id.stats_period_title)?.text =
+            if (today) getString(R.string.stats_today) else p.label
+        screenStats.findViewById<View>(R.id.stats_live_pill)?.visibility = if (today) View.VISIBLE else View.GONE
+        screenStats.findViewById<View>(R.id.stats_today_date)?.visibility = if (today) View.VISIBLE else View.GONE
+        screenStats.findViewById<View>(R.id.stats_today_recap)?.visibility = if (today) View.VISIBLE else View.GONE
+    }
+
+    /** Loads one period's numbers into the period layout (read only). */
+    private fun loadStatsPeriod(p: StatsPeriods.Period) {
+        if (!::statsPeriodView.isInitialized) return
+        statsPeriodJob?.cancel()
+        statsPeriodJob = lifecycleScope.launch {
+            try {
+                val m = StatsPeriodLoad.model(app.database, app.fermataBridge, p, java.time.LocalDate.now())
+                if (statsPeriodView.period == p) statsPeriodView.setModel(m)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun loadStatsHeat(ym: java.time.YearMonth) {
+        if (!::statsPeriodView.isInitialized) return
+        statsHeatJob?.cancel()
+        statsHeatJob = lifecycleScope.launch {
+            try {
+                statsPeriodView.setHeat(ym, StatsPeriodLoad.heat(app.database, ym))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    /** A bar or heatmap day: that day's Daily Reprise story. */
+    private fun openDayReprise(day: Int) {
+        lifecycleScope.launch {
+            val s = try { app.database.getDayStats(day) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+            if (s == null || s.totalMs <= 0L) return@launch
+            openRecapStory(atCard = false, day = s)
+        }
+    }
+
     /** Reloads today's live numbers and the recap (cheap: one day of rows each). */
     private fun refreshStats() {
         if (!::statsScreen.isInitialized) return
@@ -7003,6 +7089,10 @@ class MainActivity : AppCompatActivity() {
                 // Looking at the Stats tab counts as checking the recap
                 if (tab == Tab.STATS && recapS != null && !isWelcomeOpen) markRecapViewed(recapS)
                 updateStatsBadges()
+                if (::statsPeriodView.isInitialized) {
+                    loadStatsPeriod(statsPeriodView.period)
+                    loadStatsHeat(java.time.YearMonth.now())
+                }
                 onRecapLoaded()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -8094,7 +8184,7 @@ class MainActivity : AppCompatActivity() {
         val busy = !isActivityResumed || isWelcomeOpen || !prefs.welcomeDone || sheetVisible ||
             recapStory != null || recapStoryOpening
         return recapGate.update(
-            eligible = RecapPopupGate.eligible(recapStats, prefs.recapPopupDay, prefs.recapViewedDay),
+            eligible = RecapPopupGate.DAILY_POPUP && RecapPopupGate.eligible(recapStats, prefs.recapPopupDay, prefs.recapViewedDay),
             onHome = onHome,
             nowPlayingOpen = isNowPlayingOpen,
             musicPlaying = st.currentTrack != null && (st.isPlaying || st.isBuffering),
@@ -8648,10 +8738,10 @@ class MainActivity : AppCompatActivity() {
      * 5.8.2 (update 54): also works out the story's extra data (the day in hours, first and last
      * song, the top five, the personality) and each slide's colours from its own cover or photo.
      */
-    private fun openRecapStory(atCard: Boolean) {
+    private fun openRecapStory(atCard: Boolean, day: DayStats? = null) {
         if (recapStory != null || recapStoryOpening) return
-        val recap = recapStats ?: return
-        markRecapViewed(recap)
+        val recap = day ?: recapStats ?: return
+        if (day == null || day.day == recapStats?.day) markRecapViewed(recap)
         recapStoryOpening = true
         lifecycleScope.launch {
             val dark = app.preferences.isDarkTheme
@@ -9109,6 +9199,7 @@ class MainActivity : AppCompatActivity() {
         // v4.9.9: a tab sliding in keeps its see-through background until the switch ends
         tabIn?.setBackgroundColor(android.graphics.Color.TRANSPARENT)
         paintArtistHeader(p)
+        if (::statsPeriodView.isInitialized) statsPeriodView.restyle(p)
         // v4.6.1: the status bar is see-through; the root's background (p.bg) shows behind it,
         // so it looks the same as before everywhere except on the Artist page
         window.statusBarColor = android.graphics.Color.TRANSPARENT

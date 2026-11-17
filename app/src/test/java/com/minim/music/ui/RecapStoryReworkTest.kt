@@ -110,13 +110,14 @@ class RecapStoryReworkTest {
             listOf(Kind.INTRO, Kind.TIME, Kind.HOURS, Kind.FIRST_LAST, Kind.GUESS, Kind.TOP5, Kind.ARTIST, Kind.ROAST, Kind.PERSONA, Kind.CARD),
             RecapSlides.plan(s, d, hasRoast = true)
         )
-        // the old peak-hour and streak slides are gone for good
+        // the old peak-hour and streak slides are gone for good (6.9.0 adds the Weekly and
+        // Monthly Reprise slides after the daily ones)
         assertEquals(
             listOf(
                 "INTRO", "TIME", "VS_YESTERDAY", "HOURS", "SESSION", "FIRST_LAST", "FIRST_LISTENS", "GUESS", "TOP5",
                 "ARTIST", "HEARTED", "TAPES", "STREAK", "ROAST", "PERSONA", "CARD"
             ),
-            Kind.values().map { it.name }
+            Kind.values().map { it.name }.take(16)
         )
     }
 
