@@ -58,7 +58,11 @@ object StatsPeriodLoad {
     }
 
     /** The slow part: insight rows (reads Fermata's whole log). Empty when anything fails. */
-    suspend fun insights(db: LibraryDatabase, bridge: FermataBridge?, l: Loaded): List<StatsInsights.Row> = try {
+    suspend fun insights(db: LibraryDatabase, bridge: FermataBridge?, l: Loaded): List<StatsInsights.Row> =
+        // 6.9.0 (75): all of it off the main thread (ranking a whole period's plays included)
+        withContext(Dispatchers.Default) { insightsOff(db, bridge, l) }
+
+    private suspend fun insightsOff(db: LibraryDatabase, bridge: FermataBridge?, l: Loaded): List<StatsInsights.Row> = try {
         val p = l.period
         val data = l.data
         val prevRange = l.prevRange

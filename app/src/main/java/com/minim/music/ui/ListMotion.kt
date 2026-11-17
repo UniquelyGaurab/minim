@@ -357,6 +357,14 @@ class CountingText(
 
     private fun show(value: Long) {
         shown = value
-        view.text = format(value, value, 1f)
+        view.setTextIfChanged(format(value, value, 1f))
     }
+}
+
+/**
+ * 6.9.0 (75): sets a TextView's words only when they changed. A same-text setText still asks
+ * the whole Stats screen for a new layout pass, which the 5-second live refresh did every time.
+ */
+fun android.widget.TextView.setTextIfChanged(value: CharSequence) {
+    if (!android.text.TextUtils.equals(text, value)) text = value
 }

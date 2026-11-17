@@ -215,6 +215,14 @@ class StatsPeriodView(
         val sig = signature(m)
         if (sig == modelSig && model != null) return
         modelSig = sig
+        // 75: a live refresh with the same rows (same songs, artists, channels and boxes) only
+        // changes the words and the bars in place. No views are rebuilt, nothing re-lays out.
+        val shape = shape(m)
+        if (shape == modelShape && model != null && m.period == period && updateInPlace(m)) {
+            model = m
+            return
+        }
+        modelShape = shape
         model = m
         if (m.period != period) select(m.period)
         hero.visibility = View.VISIBLE
@@ -226,6 +234,7 @@ class StatsPeriodView(
         numbersBox.visibility = if (m.numbers.isEmpty()) View.GONE else View.VISIBLE
         listsBox.removeAllViews()
         rowsGen++
+        rowSubs.clear()
         if (m.songs.isNotEmpty()) {
             listsBox.addView(section("Top songs"), lp(top = 16f))
             for ((i, s) in m.songs.withIndex()) {
@@ -262,6 +271,68 @@ class StatsPeriodView(
         insightsBox.visibility = if (insightsBox.childCount == 0) View.GONE else View.VISIBLE
         Painter.paint(host, pal)
         stylePills()
+        rebuilds++
+    }
+
+    /** 75: what decides the rows themselves; anything else is updated in place. */
+    private fun shape(m: Model): String = buildString {
+        append(m.period).append('|').append(m.compare == null).append('|').append(m.bars.size)
+        for (b in m.bars) append('|').append(b.label)
+        for (x in m.songs) append('|').append(x.trackId)
+        for (x in m.artists) append('|').append(x.name)
+        for (x in m.channels) append('|').append(x.name)
+        for (x in m.numbers) append('|').append(x.first)
+        for (x in m.insights) append('|').append(x.label).append(x.value)
+    }
+
+    private var modelShape: String? = null
+    /** 75: each Top 5 row's second line, in order (songs, artists, channels). */
+    private val rowSubs = ArrayList<TextView>()
+    /** 75: counts in-place updates and full rebuilds (tests read these). */
+    internal var inPlaceUpdates = 0
+    internal var rebuilds = 0
+
+    private fun subsOf(m: Model): List<String> =
+        m.songs.map { "${it.artist} · ${plays(it.plays)}" } +
+            m.artists.map { StatsPeriods.long(it.ms) } +
+            m.channels.map { c -> if (c.tapes == 1) "1 tape · ${StatsPeriods.long(c.ms)}" else "${c.tapes} tapes · ${StatsPeriods.long(c.ms)}" }
+
+    private fun updateInPlace(m: Model): Boolean {
+        val subs = subsOf(m)
+        if (subs.size != rowSubs.size) return false
+        val bv = barsBox.getChildAt(0) as? RepriseBars
+        if (m.bars.isNotEmpty() && bv == null) return false
+        val numberViews = numberValueViews()
+        if (numberViews.size != m.numbers.size) return false
+        setIfChanged(heroTotal, m.total)
+        setIfChanged(heroCompare, m.compare.orEmpty())
+        if (bv != null) {
+            bars = m.bars
+            val values = m.bars.map { it.ms }
+            val busy = values.indices.maxByOrNull { values[it] }?.takeIf { values[it] > 0L } ?: -1
+            bv.update(values, busy)
+        }
+        for ((i, tv) in numberViews.withIndex()) setIfChanged(tv, m.numbers[i].second)
+        for ((i, tv) in rowSubs.withIndex()) setIfChanged(tv, subs[i])
+        inPlaceUpdates++
+        return true
+    }
+
+    /** Only touches a TextView whose words really changed (a same-text setText still re-lays out). */
+    private fun setIfChanged(tv: TextView, value: String) {
+        if (tv.text.toString() != value) tv.text = value
+    }
+
+    private fun numberValueViews(): List<TextView> {
+        val out = ArrayList<TextView>()
+        for (r in 0 until numbersBox.childCount) {
+            val row = numbersBox.getChildAt(r) as? ViewGroup ?: continue
+            for (b in 0 until row.childCount) {
+                val box = row.getChildAt(b) as? ViewGroup ?: continue
+                (box.getChildAt(1) as? TextView)?.let { out.add(it) }
+            }
+        }
+        return out
     }
 
     private fun signature(m: Model): String = buildString {
@@ -370,7 +441,9 @@ class StatsPeriodView(
         }
         val col = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         col.addView(text(14f, semi, "text:fg").apply { text = title; maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
-        col.addView(text(12f, regular, "text:muted").apply { text = sub; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }, lp(top = 1f))
+        val subView = text(12f, regular, "text:muted").apply { text = sub; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
+        rowSubs.add(subView)
+        col.addView(subView, lp(top = 1f))
         row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(12f) })
         return row
     }
@@ -411,7 +484,13 @@ class StatsPeriodView(
     private var heatTotals: Map<Int, Long> = emptyMap()
 
     /** One month of day totals for the heatmap (songs and tapes). */
+    private var heatShownMonth: YearMonth? = null
+    private var heatShownToday = 0
+    private var heatShownPal = 0
+    internal var heatInPlace = 0
+
     fun setHeat(ym: YearMonth, totals: Map<Int, Long>) {
+        if (ym == heatMonth && totals == heatTotals && heatBox.childCount > 0 && heatShownToday == todayKey()) return
         heatMonth = ym
         heatTotals = totals
         heatGrid = StatsPeriods.monthGrid(ym)
@@ -424,10 +503,19 @@ class StatsPeriodView(
     @SuppressLint("ClickableViewAccessibility") // taps pick a bar or a day; the row has its own buttons
     private fun drawHeat() {
         if (heatGrid.isEmpty()) return
-        heatBox.removeAllViews()
         val todayKey = todayKey()
         val max = heatTotals.values.maxOrNull() ?: 0L
         val levels = heatGrid.map { k -> if (k == null) -1 else StatsPeriods.heatLevel(heatTotals[k] ?: 0L, max) }
+        // 75: the same month refreshed live: new levels redraw the one grid view, nothing is rebuilt
+        val shown = heatBox.getChildAt(0) as? HeatGrid
+        if (shown != null && heatShownMonth == heatMonth && heatShownToday == todayKey && heatShownPal == pal.fg && shown.setLevels(levels)) {
+            heatInPlace++
+            return
+        }
+        heatShownMonth = heatMonth
+        heatShownToday = todayKey
+        heatShownPal = pal.fg
+        heatBox.removeAllViews()
         val grid = HeatGrid(ctx, levels, pal.fg, pal.muted, regular)
         // 74: day numbers, today's outline, and future days faint
         grid.dayNumbers = HeatDays.numbers(heatGrid)

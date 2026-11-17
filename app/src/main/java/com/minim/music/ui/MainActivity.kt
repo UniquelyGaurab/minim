@@ -865,7 +865,7 @@ class MainActivity : AppCompatActivity() {
         if (target != Tab.LIBRARY && libraryFilterOpen) closeLibrarySearch(animate = false)
         tab = target
         // 6.2.0: listening time is saved every 5 s only while Stats is on screen (else every minute)
-        app.playbackController.liveStats = target == Tab.STATS && !wasStopped
+        app.playbackController.liveStats = target == Tab.STATS && !wasStopped && !isNowPlayingOpen
         // v4.9.9: the old screen stays up while it slides out (see animateTabChange)
         val slide = animate && from != target && animationsOn() && root.isShown
         val leaving = if (slide) screenOf(from) else null
@@ -5692,6 +5692,8 @@ class MainActivity : AppCompatActivity() {
         if (app.playbackController.uiState.value.currentTrack == null) return
         hideKeyboard()
         screenNowPlaying.visibility = View.VISIBLE
+        // 75: Stats stops its live refreshes (and the faster listen saves) while Now Playing covers it
+        app.playbackController.liveStats = false
         updateChrome()
         // v4.9.8: blur the cover now, so the full screen lyrics open without a wait
         fsLyrics.prefetch()
@@ -5715,6 +5717,7 @@ class MainActivity : AppCompatActivity() {
         fsLyrics.close(animate = false)
         screenNowPlaying.visibility = View.GONE
         updateChrome()
+        resumeStatsLive()
     }
 
     // ---- 5.5.0: mini player <-> Now Playing morph ---------------------------------------------
@@ -6509,6 +6512,7 @@ class MainActivity : AppCompatActivity() {
         if (animate && animationsOn() && settingsReveal.close {
                 screenSettings.visibility = View.GONE
                 updateChrome()
+                resumeStatsLive()
             }
         ) {
             renderGreeting(animate = false)
@@ -6519,6 +6523,7 @@ class MainActivity : AppCompatActivity() {
         screenSettings.visibility = View.GONE
         renderGreeting(animate = false)
         updateChrome()
+        resumeStatsLive()
     }
 
     private fun saveName() {
@@ -6597,7 +6602,11 @@ class MainActivity : AppCompatActivity() {
                 // v4.9: live Stats while listening (saved every few seconds), and a new day at midnight
                 launch {
                     app.playbackController.listenVersion.collect {
-                        if (it > 0 && tab == Tab.STATS) refreshStats()
+                        // 75: only while Stats is really on screen; behind Now Playing or Settings it waits
+                        if (it > 0 && tab == Tab.STATS) {
+                            if (StatsLive.visible(tab == Tab.STATS, isNowPlayingOpen, isSettingsOpen, wasStopped)) refreshStats(live = true)
+                            else statsLiveDirty = true
+                        }
                     }
                 }
                 launch {
@@ -7360,14 +7369,34 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Reloads today's live numbers and the recap (cheap: one day of rows each). */
-    private fun refreshStats() {
+    /** 75: Stats missed a live refresh while it was covered; it catches up once when it shows again. */
+    private var statsLiveDirty = false
+    private val statsLive = StatsLive()
+
+    /** Called when Now Playing or Settings closes: Stats catches up once if it missed refreshes. */
+    private fun resumeStatsLive() {
+        app.playbackController.liveStats = tab == Tab.STATS && !wasStopped && !isNowPlayingOpen
+        if (statsLiveDirty && tab == Tab.STATS && !isNowPlayingOpen && !isSettingsOpen) {
+            statsLiveDirty = false
+            refreshStats(live = true)
+        }
+    }
+
+    private fun refreshStats(live: Boolean = false) {
         if (!::statsScreen.isInitialized) return
         // 74: the pills load on their own, outside statsJob, which every live refresh cancels
         if (::statsPeriodView.isInitialized) {
-            loadStatsPeriod(statsPeriodView.period)
-            loadStatsHeat(statsPeriodView.shownHeatMonth)
+            // 75: a live tick (every few seconds while playing) reloads Today each time, the other
+            // pills every 30 s and the calendar every minute; a real change reloads everything
+            val now = android.os.SystemClock.elapsedRealtime()
+            val p = statsPeriodView.period
+            if (statsLive.periodDue(live, p == StatsPeriods.Period.TODAY, now)) loadStatsPeriod(p)
+            if (statsLive.heatDue(live, now)) loadStatsHeat(statsPeriodView.shownHeatMonth)
             refreshReprise()
         }
+        // 75: only live ticks reuse past days; any other refresh (opening Stats, a restore,
+        // clearing history) reads them again
+        if (!live) app.database.forgetPastDayStats()
         statsJob?.cancel()
         statsJob = lifecycleScope.launch {
             try {
@@ -7377,7 +7406,7 @@ class MainActivity : AppCompatActivity() {
                 // recap, but the most recent day's stats still show when it was quiet
                 val past = ArrayList<DayStats>()
                 for (d in app.database.pastHistoryDays(today)) {
-                    val s = app.database.getDayStats(d)
+                    val s = app.database.getPastDayStats(d, today)
                     past.add(s)
                     if (!s.isQuiet || past.size >= MAX_RECAP_LOOKBACK) break
                 }

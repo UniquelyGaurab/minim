@@ -287,7 +287,7 @@ class LaunchSmokeTest {
     // ---- 5.7.0 u51: one Stats page for songs and tapes ----
 
     private fun waitFor(what: String, check: () -> Boolean) {
-        repeat(80) {
+        repeat(200) {
             if (check()) return
             Thread.sleep(50)
             idle()

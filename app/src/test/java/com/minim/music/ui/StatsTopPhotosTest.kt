@@ -106,4 +106,38 @@ class StatsTopPhotosTest {
         v.setRepriseLink(null, null)
         assertEquals(View.GONE, link.visibility)
     }
+
+    @Test fun liveRefreshUpdatesInPlaceWithoutRebuilding() {
+        val host = LinearLayout(ctx)
+        val v = view(host) { "https://lh3/x" }
+        val names = listOf("Alan Walker", "JEET")
+        v.setModel(model(names))
+        assertEquals(1, v.rebuilds)
+        val rowsBefore = photos(host)
+        // same rows, a bit more listening: words change in place, no views are rebuilt
+        val more = model(names).let { m ->
+            StatsPeriodView.Model(m.period, "1h 3m", m.compare, m.bars, m.songs,
+                m.artists.map { TopArtist(it.name, it.ms + 120_000L, it.plays) }, m.channels, m.numbers, m.insights)
+        }
+        v.setModel(more)
+        assertEquals(1, v.rebuilds)
+        assertEquals(1, v.inPlaceUpdates)
+        assertTrue(rowsBefore.zip(photos(host)).all { (a, b) -> a === b })
+        // the same model again does nothing at all
+        v.setModel(more)
+        assertEquals(1, v.inPlaceUpdates)
+        // a new artist in the Top 5 rebuilds the rows
+        v.setModel(model(listOf("JEET", "Alan Walker")))
+        assertEquals(2, v.rebuilds)
+    }
+
+    @Test fun calendarRefreshRedrawsTheSameGrid() {
+        val host = LinearLayout(ctx)
+        val v = view(host) { null }
+        val ym = java.time.YearMonth.now()
+        val k = com.minim.music.data.stats.Days.key(ym.atDay(1))
+        v.setHeat(ym, mapOf(k to 60_000L))
+        v.setHeat(ym, mapOf(k to 60_000L, k + 1 to 600_000L))
+        assertEquals(1, v.heatInPlace)
+    }
 }

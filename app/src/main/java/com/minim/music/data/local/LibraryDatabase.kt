@@ -755,16 +755,31 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
     suspend fun getDayStats(day: Int): com.minim.music.data.stats.DayStats {
         val plays = getDayPlays(day)
         val listens = getDayListens(day)
-        val music = com.minim.music.data.stats.StatsEngine.compute(day, plays, listens)
         val tapePlays = try { getDayTapePlays(day) } catch (_: Exception) { emptyList() }
         val tapeListens = try { getDayTapeListens(day) } catch (_: Exception) { emptyList() }
-        val tapes = com.minim.music.data.stats.TapeStats.compute(tapePlays, tapeListens)
-        return com.minim.music.data.stats.TapeStats.combine(
-            music, tapes,
-            com.minim.music.data.stats.StatsEngine.hourMs(plays, listens),
-            com.minim.music.data.stats.TapeStats.hourMs(tapeListens)
-        )
+        // 6.9.0 (75): the maths runs off the main thread (Stats called this every few seconds)
+        return withContext(Dispatchers.Default) {
+            val music = com.minim.music.data.stats.StatsEngine.compute(day, plays, listens)
+            val tapes = com.minim.music.data.stats.TapeStats.compute(tapePlays, tapeListens)
+            com.minim.music.data.stats.TapeStats.combine(
+                music, tapes,
+                com.minim.music.data.stats.StatsEngine.hourMs(plays, listens),
+                com.minim.music.data.stats.TapeStats.hourMs(tapeListens)
+            )
+        }
     }
+
+    /** 6.9.0 (75): a past day's stats don't change, so Stats' live refresh reads them once. */
+    private val pastDayStats = android.util.LruCache<Int, com.minim.music.data.stats.DayStats>(16)
+
+    suspend fun getPastDayStats(day: Int, today: Int): com.minim.music.data.stats.DayStats {
+        if (day >= today) return getDayStats(day)
+        pastDayStats.get(day)?.let { return it }
+        return getDayStats(day).also { pastDayStats.put(day, it) }
+    }
+
+    /** Clears the past days (history cleared or restored). */
+    fun forgetPastDayStats() = pastDayStats.evictAll()
 
     // ------------------------------------------------------------------------------------------
     // 5.8.3 u55: recap extras (first listens, hearted today, all-time plays)

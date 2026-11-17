@@ -80,6 +80,8 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        // 6.9.0 (75): the Robolectric Stats tests need more than Gradle's default 512 MB test heap
+        unitTests.all { it.maxHeapSize = "1536m" }
     }
 
     packaging {

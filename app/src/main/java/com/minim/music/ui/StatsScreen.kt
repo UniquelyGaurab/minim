@@ -208,27 +208,27 @@ class StatsScreen(root: View, private val artwork: ArtworkPipeline) {
     fun renderToday(s: DayStats) {
         val t = s.tapes
         arrangeToday(t.shows)
-        todayDate.text = Days.label(s.day)
+        todayDate.setTextIfChanged(Days.label(s.day))
         todaySongsCount.set(s.songs.toLong())
-        todaySongsLabel.setText(if (s.songs == 1) R.string.stats_song_one else R.string.stats_songs)
+        todaySongsLabel.setTextIfChanged(res.getString(if (s.songs == 1) R.string.stats_song_one else R.string.stats_songs))
         // 5.7.0 u51: listened is songs and tapes together
         todayTimeCount.set(s.totalMs)
         val saved = TapeStats.savedLine(t)
-        todaySaved.text = saved.orEmpty()
+        todaySaved.setTextIfChanged(saved.orEmpty())
         todaySaved.visibility = if (saved != null) View.VISIBLE else View.GONE
         todayArtistsCount.set(s.artists.toLong())
-        todayArtistsLabel.setText(if (s.artists == 1) R.string.stats_artist_one else R.string.stats_artists)
+        todayArtistsLabel.setTextIfChanged(res.getString(if (s.artists == 1) R.string.stats_artist_one else R.string.stats_artists))
         todayTapesCount.set(t.tapes.toLong())
-        todayTapesLabel.setText(if (t.tapes == 1) R.string.stats_tape_one else R.string.stats_tapes)
+        todayTapesLabel.setTextIfChanged(res.getString(if (t.tapes == 1) R.string.stats_tape_one else R.string.stats_tapes))
         todayChannelsCount.set(t.channels.toLong())
-        todayChannelsLabel.setText(if (t.channels == 1) R.string.stats_channel_one else R.string.stats_channels)
+        todayChannelsLabel.setTextIfChanged(res.getString(if (t.channels == 1) R.string.stats_channel_one else R.string.stats_channels))
         // v4.9.2: top artist moved to its own full-width card (photo, name on one line)
         val artist = s.topArtist
         todayTopArtistName = artist?.name
         todayArtistCard.visibility = if (artist != null) View.VISIBLE else View.GONE
         if (artist != null) {
-            todayTopArtist.text = artist.name
-            todayTopArtistSub.text = res.getString(R.string.stats_artist_time, StatsFormat.duration(artist.ms))
+            todayTopArtist.setTextIfChanged(artist.name)
+            todayTopArtistSub.setTextIfChanged(res.getString(R.string.stats_artist_time, StatsFormat.duration(artist.ms)))
             todayArtistCard.contentDescription = "${res.getString(R.string.stats_top_artist)}, ${artist.name}"
             if (todayPhotoArtist != artist.name) {
                 todayPhotoArtist = artist.name
@@ -241,14 +241,14 @@ class StatsScreen(root: View, private val artwork: ArtworkPipeline) {
         todayTopChannelItem = channel
         todayChannelCard.visibility = if (channel != null) View.VISIBLE else View.GONE
         if (channel != null) {
-            todayTopChannel.text = channel.name
-            todayTopChannelSub.text = channelSub(channel)
+            todayTopChannel.setTextIfChanged(channel.name)
+            todayTopChannelSub.setTextIfChanged(channelSub(channel))
             todayChannelCard.contentDescription = "${res.getString(R.string.stats_top_channel)}, ${channel.name}"
             if (todayChannelKey != channel.key) {
                 todayChannelKey = channel.key
                 todayChannelUrl = null
                 todayChannelPhoto.setImageDrawable(null)
-                todayChannelInitial.text = initialOf(channel.name)
+                todayChannelInitial.setTextIfChanged(initialOf(channel.name))
                 todayChannelInitial.visibility = View.VISIBLE
             }
         }
@@ -277,9 +277,9 @@ class StatsScreen(root: View, private val artwork: ArtworkPipeline) {
             parts += if (s.tapes.tapes == 1) "1 ${res.getString(R.string.stats_tape_one)}"
             else "${s.tapes.tapes} ${res.getString(R.string.stats_tapes)}"
         }
-        quietLine.text = res.getString(
+        quietLine.setTextIfChanged(res.getString(
             R.string.stats_quiet_day_line, Days.label(s.day), StatsFormat.duration(s.totalMs), parts.joinToString(", ")
-        )
+        ))
         quietLine.visibility = View.VISIBLE
     }
 
@@ -296,32 +296,32 @@ class StatsScreen(root: View, private val artwork: ArtworkPipeline) {
         }
         val t = s.tapes
         recapDate.visibility = View.VISIBLE
-        recapDate.text = Days.label(s.day)
+        recapDate.setTextIfChanged(Days.label(s.day))
         recapEmpty.visibility = View.GONE
         recapBox.visibility = View.VISIBLE
         recapTimeCount.set(s.totalMs)
         recapQuiet.visibility = if (s.isQuiet) View.VISIBLE else View.GONE
         // 5.7.0 u51: songs and tapes time apart, and the time speed saved
         if (t.shows && t.ms > 0L) {
-            recapSplit.text = res.getString(
+            recapSplit.setTextIfChanged(res.getString(
                 R.string.stats_split_line, StatsFormat.duration(s.timeMs), StatsFormat.duration(t.ms)
-            )
+            ))
             recapSplit.visibility = View.VISIBLE
         } else {
             recapSplit.visibility = View.GONE
         }
         val saved = TapeStats.savedLine(t)
-        recapSaved.text = saved.orEmpty()
+        recapSaved.setTextIfChanged(saved.orEmpty())
         recapSaved.visibility = if (saved != null) View.VISIBLE else View.GONE
         recapSongsCount.set(s.songs.toLong())
-        recapSongsLabel.setText(if (s.songs == 1) R.string.stats_song_one else R.string.stats_songs)
+        recapSongsLabel.setTextIfChanged(res.getString(if (s.songs == 1) R.string.stats_song_one else R.string.stats_songs))
         recapArtistsCount.set(s.artists.toLong())
-        recapArtistsLabel.setText(if (s.artists == 1) R.string.stats_artist_one else R.string.stats_artists)
+        recapArtistsLabel.setTextIfChanged(res.getString(if (s.artists == 1) R.string.stats_artist_one else R.string.stats_artists))
         recapRow2.visibility = if (t.shows) View.VISIBLE else View.GONE
         recapTapesCount.set(t.tapes.toLong())
-        recapTapesLabel.setText(if (t.tapes == 1) R.string.stats_tape_one else R.string.stats_tapes)
+        recapTapesLabel.setTextIfChanged(res.getString(if (t.tapes == 1) R.string.stats_tape_one else R.string.stats_tapes))
         recapChannelsCount.set(t.channels.toLong())
-        recapChannelsLabel.setText(if (t.channels == 1) R.string.stats_channel_one else R.string.stats_channels)
+        recapChannelsLabel.setTextIfChanged(res.getString(if (t.channels == 1) R.string.stats_channel_one else R.string.stats_channels))
         recapSongsBox.isClickable = s.songs > 0
         recapArtistsBox.isClickable = s.artists > 0
         recapTapesBox.isClickable = t.tapes > 0
@@ -331,8 +331,8 @@ class StatsScreen(root: View, private val artwork: ArtworkPipeline) {
         recapTopSong = song
         topSongCard.visibility = if (song != null) View.VISIBLE else View.GONE
         if (song != null) {
-            topSongTitle.text = song.title
-            topSongSub.text = res.getString(R.string.stats_plays_by, playsText(song.plays), song.artist)
+            topSongTitle.setTextIfChanged(song.title)
+            topSongSub.setTextIfChanged(res.getString(R.string.stats_plays_by, playsText(song.plays), song.artist))
             topSongCard.contentDescription = "${res.getString(R.string.stats_top_song)}, ${song.title}, ${song.artist}"
             if (shownArtUrl != song.thumbnailUrl) {
                 shownArtUrl = song.thumbnailUrl
@@ -344,8 +344,8 @@ class StatsScreen(root: View, private val artwork: ArtworkPipeline) {
         recapTopArtistName = artist?.name
         topArtistCard.visibility = if (artist != null) View.VISIBLE else View.GONE
         if (artist != null) {
-            topArtistName.text = artist.name
-            topArtistSub.text = res.getString(R.string.stats_artist_time, StatsFormat.duration(artist.ms))
+            topArtistName.setTextIfChanged(artist.name)
+            topArtistSub.setTextIfChanged(res.getString(R.string.stats_artist_time, StatsFormat.duration(artist.ms)))
             topArtistCard.contentDescription = "${res.getString(R.string.stats_top_artist)}, ${artist.name}"
             if (shownPhotoArtist != artist.name) {
                 shownPhotoArtist = artist.name
@@ -358,14 +358,14 @@ class StatsScreen(root: View, private val artwork: ArtworkPipeline) {
         recapTopChannelItem = channel
         recapTopChannelCard.visibility = if (channel != null) View.VISIBLE else View.GONE
         if (channel != null) {
-            topChannelName.text = channel.name
-            topChannelSub.text = channelSub(channel)
+            topChannelName.setTextIfChanged(channel.name)
+            topChannelSub.setTextIfChanged(channelSub(channel))
             recapTopChannelCard.contentDescription = "${res.getString(R.string.stats_top_channel)}, ${channel.name}"
             if (recapChannelKey != channel.key) {
                 recapChannelKey = channel.key
                 recapChannelUrl = null
                 topChannelPhoto.setImageDrawable(null)
-                topChannelInitial.text = initialOf(channel.name)
+                topChannelInitial.setTextIfChanged(initialOf(channel.name))
                 topChannelInitial.visibility = View.VISIBLE
             }
         }

@@ -15,8 +15,8 @@ import com.minim.music.data.stats.StatsFormat
 class RepriseBars(
     context: Context,
     private val labels: List<String>,
-    private val values: List<Long>,
-    private val busy: Int,
+    private var values: List<Long>,
+    private var busy: Int,
     private val quiet: Int,
     private val fg: Int,
     private val muted: Int,
@@ -25,6 +25,14 @@ class RepriseBars(
 ) : View(context) {
     private val d = resources.displayMetrics.density
     private val bar = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    /** 75: a live refresh updates the bars in place: a redraw, no new view and no layout pass. */
+    fun update(newValues: List<Long>, newBusy: Int) {
+        if (newValues == values && newBusy == busy) return
+        values = newValues
+        busy = newBusy
+        invalidate()
+    }
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
     private val rect = RectF()
     var grow = 1f
@@ -75,7 +83,7 @@ class RepriseBars(
 @SuppressLint("ViewConstructor")
 class HeatGrid(
     context: Context,
-    private val levels: List<Int>,
+    private var levels: List<Int>,
     private val fg: Int,
     private val muted: Int,
     private val face: Typeface
@@ -86,6 +94,13 @@ class HeatGrid(
     private val rect = RectF()
     var grow = 1f
         set(v) { field = v; invalidate() }
+
+    /** 75: same month, new levels (a live refresh): a redraw, no new view and no layout pass. */
+    fun setLevels(l: List<Int>): Boolean {
+        if (l.size != levels.size) return false
+        if (l != levels) { levels = l; invalidate() }
+        return true
+    }
 
     /** 6.9.0 (74): day of the month per slot (0 = blank), drawn inside each box. Null draws none. */
     var dayNumbers: List<Int>? = null
