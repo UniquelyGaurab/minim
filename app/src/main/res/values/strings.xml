@@ -210,7 +210,11 @@
     <string name="fold_closed">Closed</string>
     <string name="about_version">Minim %1$s</string>
     <string name="about_build">Build %1$d. Search by NewPipeExtractor, lyrics from LrcLib.</string>
-    <string name="about_credits">Designed by Gaurab\nBuilt by Charlie (Sesame AI)</string>
+    <!-- 7.0.0: the layout's fallback; Settings builds the line with the Instagram glyph (InstagramCredit) -->
+    <string name="about_credits">Designed by @uniquely.gaurab\nBuilt by Charlie (Sesame AI)</string>
+    <string name="about_credits_designed">Designed by</string>
+    <string name="about_credits_built">Built by Charlie (Sesame AI)</string>
+    <string name="about_credits_instagram">Instagram @uniquely.gaurab</string>
     <!-- v4.3 Discover -->
     <string name="tab_stories">tapes</string>
     <string name="shelf_top_artists">Your top artists</string>

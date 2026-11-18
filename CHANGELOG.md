@@ -2,9 +2,52 @@
 
 Every Minim release, newest first. Download any of them from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page.
 
-## 6.9.0 (test build, not released yet)
+## 7.0.0 (2026-11-18)
 
-Build 78 makes Reprise and Stats fast. Every Reprise now opens without waiting on pictures: it no longer fetches each picture's colours one after another from the network before showing the first slide (a slow or stuck one kept the story on its loading screen for good); it waits a quarter of a second at most and fills them in as they arrive, and the loading screen now gives up after 4 seconds with a clear message instead of sitting there. Fermata's history is no longer decoded in full (10k+ events) on every pill and every Reprise, and no longer waits on Fermata's lock while it builds recommendations: only new events are read. The days before today are read once and kept, so a pill or a Reprise only reads today from the database, and the other pills load in the background when Stats opens, so switching pills shows them at once. The Monthly teaser stops ticking while Stats is off screen, and Stats catches up after Now Playing has finished closing instead of during it. Stats times now read "45 min", "2 hr 15 min" and "142 hrs"; Reprise shows minutes only ("4,380 minutes"), with long numbers shrinking to fit. Share cards keep the slides' rounded covers and round photos, and the share button sits higher, at thumb height. A hidden Performance screen (tap the version 7 times) shows load times and the Stats tab's dropped frames.
+Minim V7: a new Stats tab, Reprise stories for your day, week and month, the Haze theme, redesigned playlists, search filters and animated lyrics cards. This covers everything since 6.6.0, including the 6.7.0, 6.8.0 and 6.9.0 test builds (their notes are below).
+
+**Stats, all new**
+- **Today, Week, Month and All time pills,** each with a hero total, bars, Top 5 songs, artists (with real photos) and channels, and insights. Switching pills is instant
+- **A month heatmap** you can swipe, with day numbers, today outlined and future days faint. Tap a day to open its Daily Reprise
+- **Readable times:** "45 min", "2 hr 15 min", "142 hrs"
+
+**Reprise (Recap is now Reprise)**
+- **Daily, Weekly and Monthly stories** with your top song playing behind them. The Weekly Reprise covers Sunday to Saturday and is out Sunday at 8 AM; the Monthly one is out at 6 PM on the last day, with a teaser counting down in the last week. Each has its own pop-up, and the Week and Month pills take you back to the latest ones
+- **Share any slide:** a share button at thumb height turns the slide into a clean 9:16 card in its finished state, with the day, week or month on top and "Shared by" and minim at the bottom. Share it or save it, and the story carries on
+- **Save the month as a playlist**
+- **Opens straight away:** pictures fill in as they arrive instead of holding up the first slide, and a Reprise that's slow to put together says so after 4 seconds instead of sitting on its loading screen
+- Minutes only in Reprise ("4,380 minutes"), and "1 play" and "once" instead of "1 plays" and "1 times"
+
+**Haze theme**
+- **Settings > Theme is now Light, Dark or Haze.** Haze puts the playing song's cover, blurred, behind every screen, Now Playing, Up Next and the sheets included, and crossfades when the song changes
+- **Text and icons go white or near-black** depending on the cover, and Dynamic/Default colours step aside while Haze is on
+
+**Playlists, redesigned**
+- **A cover header** with total time, Play, Shuffle, search inside the list and ⋯
+- **Your own covers:** Auto, Mosaic, Type, Blur or a gallery photo cropped square, also on the Library tile
+- **Hold and drag to reorder,** and sort by Custom, Recently added, Title or Artist without losing your own order
+- Albums and Liked Songs get the cover header too
+
+**Search filters**
+- **All · Songs · Artists · Albums · Tapes** under the search bar once you type. Tapes searches regular YouTube, and a new search starts back on All
+
+**Lyrics cards**
+- **Animated cards:** the words fill in with the song, optionally with its sound, as Fit, 30s, 45s or 60s
+- **One 4:5 card shape** with a tidy footer and minim in the bottom-right corner; only the line being sung is lit
+- **A new share sheet** with a live preview, Static or Animated, Sound, Length, Lyrics and Background, plus Save to gallery
+
+**Smoother**
+- **The mini player slides up from the bottom and back down** when Settings opens and closes and when playback starts. Now Playing keeps its morph
+- **Stats stays smooth:** past days are read once and kept, Fermata's history is read only for what's new, and Stats no longer works while it's hidden or while Now Playing closes
+
+**Credits**
+- **Settings > About** now reads "Designed by" with an Instagram logo and @uniquely.gaurab. Tap it to open the profile. "Built by Charlie (Sesame AI)" is unchanged
+
+**Installs as an update** over 6.6.0 and older and keeps your library, likes, playlists, stats and settings. Minim Fermata is unchanged, and backups work as before.
+
+## 6.9.0 (test builds, released as 7.0.0)
+
+Build 78 makes Reprise and Stats fast. Every Reprise now opens without waiting on pictures: it no longer fetches each picture's colours one after another from the network before showing the first slide (a slow or stuck one kept the story on its loading screen for good); it waits a quarter of a second at most and fills them in as they arrive, and the loading screen now gives up after 4 seconds with a clear message instead of sitting there. Fermata's history is no longer decoded in full (10k+ events) on every pill and every Reprise, and no longer waits on Fermata's lock while it builds recommendations: only new events are read. The days before today are read once and kept, so a pill or a Reprise only reads today from the database, and the other pills load in the background when Stats opens, so switching pills shows them at once. The Monthly teaser stops ticking while Stats is off screen, and Stats catches up after Now Playing has finished closing instead of during it. Stats times now read "45 min", "2 hr 15 min" and "142 hrs"; Reprise shows minutes only ("4,380 minutes"), with long numbers shrinking to fit. Share cards keep the slides' rounded covers and round photos, and the share button sits higher, at thumb height. A hidden Performance screen (tap the version 7 times) showed load times and the Stats tab's dropped frames in the test build; it's switched off in 7.0.0.
 
 Build 77 lets you share any Reprise slide. Every slide in the Daily, Weekly and Monthly stories has a small share button at the bottom: tap it and the story pauses while that slide becomes a clean 9:16 card, shown in its finished state (Guess with its answer, everything faded in), with the day, the week's dates or the month on top, and "Shared by" and "minim" at the bottom. Share it or save it to your gallery, then carry on with the story. The Weekly "Receipt" and Monthly "Calendar" cards are gone; Weekly and Monthly now end on a simple slide with "share this slide" (and Save as playlist for the month). The floating mini player now slides up from the bottom of the screen and back down off it, instead of popping in and out, when Settings or Now Playing opens and closes and when playback first starts. The Home pill is unchanged.
 
@@ -16,7 +59,7 @@ Build 74 fixes the blank space under the Stats pills (the totals, bars, Top 5s a
 
 Part A of the Stats revamp: Today, Week, Month and All time pills with a hero total, bars, Top 5 songs, artists and channels, a month heatmap you can swipe, and insights. Tapping a day opens its Daily Reprise. "Recap" is now "Reprise", and the daily popup is gone. The Weekly and Monthly Reprise come in part B.
 
-## 6.8.0 (test build, not released yet)
+## 6.8.0 (test builds, released as 7.0.0)
 
 Playlists get a cover, Play and Shuffle buttons, search, sorting and your own covers.
 
@@ -51,7 +94,7 @@ Playlists get a cover, Play and Shuffle buttons, search, sorting and your own co
 - **Filter pills under the search bar:** All · Songs · Artists · Albums · Tapes. All is the usual results; Songs, Artists and Albums search only that on YouTube Music, and Tapes searches YouTube videos. Switching pills is instant once each has loaded, and a new search starts back on All
 - **Up Next on Haze:** the queue now sits on the blurred cover too, with frosted rows, instead of a flat colour
 
-## 6.7.0 (test build, not released yet)
+## 6.7.0 (test builds, released as 7.0.0)
 
 Lyrics cards can now move, with the song playing under them.
 

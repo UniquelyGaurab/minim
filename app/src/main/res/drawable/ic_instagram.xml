@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 7.0.0: one-colour Instagram glyph for the credits (rounded square, circle, dot). Drawn white and
+     tinted in code with the credit text's own colour, so it follows Light, Dark, Haze and the
+     Dynamic/Default colours. Never the multicolour gradient. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M8,3h8a5,5 0,0 1,5 5v8a5,5 0,0 1,-5 5H8a5,5 0,0 1,-5 -5V8a5,5 0,0 1,5 -5z"
+        android:strokeWidth="2"
+        android:strokeColor="#FFFFFFFF" />
+    <path
+        android:pathData="M12,8a4,4 0,1 1,0 8a4,4 0,1 1,0 -8z"
+        android:strokeWidth="2"
+        android:strokeColor="#FFFFFFFF" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M17.25,5.6a1.25,1.25 0,1 1,0 2.5a1.25,1.25 0,1 1,0 -2.5z" />
+</vector>

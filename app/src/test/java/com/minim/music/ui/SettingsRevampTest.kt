@@ -126,7 +126,8 @@ class SettingsRevampTest {
         assertTrue(xml.indexOf("@+id/set_check_updates\"") > order[7])
         assertTrue(xml.indexOf("@+id/set_credits") > order[7])
         val strings = file("src/main/res/values/strings.xml")
-        assertTrue(strings.contains("<string name=\"about_credits\">Designed by Gaurab\\nBuilt by Charlie (Sesame AI)</string>"))
+        assertTrue(strings.contains("<string name=\"about_credits_designed\">Designed by</string>"))
+        assertTrue(strings.contains("<string name=\"about_credits_built\">Built by Charlie (Sesame AI)</string>"))
         assertFalse(strings.contains("Early code by Google Gemini"))
     }
 
@@ -142,10 +143,10 @@ class SettingsRevampTest {
     }
 
     @Test
-    fun versionIs690Build74() {
+    fun versionIs700Build79() {
         val gradle = file("build.gradle.kts")
-        assertTrue(gradle.contains("versionCode = 78"))
-        assertTrue(gradle.contains("versionName = \"6.9.0\""))
+        assertTrue(gradle.contains("versionCode = 79"))
+        assertTrue(gradle.contains("versionName = \"7.0.0\""))
     }
 
     @Test
@@ -215,8 +216,8 @@ class SettingsRevampTest {
     @Test
     fun aboutShowsTheVersion_andTheModelRowOpensThePicker() {
         val a = openSettings()
-        assertEquals("Minim 6.9.0", a.findViewById<TextView>(R.id.set_about).text.toString())
-        assertTrue(a.findViewById<TextView>(R.id.set_about_build).text.startsWith("Build 78"))
+        assertEquals("Minim 7.0.0", a.findViewById<TextView>(R.id.set_about).text.toString())
+        assertTrue(a.findViewById<TextView>(R.id.set_about_build).text.startsWith("Build 79"))
         assertFalse(a.findViewById<TextView>(R.id.set_gemini_model_pick).text.contains("▾"))
         assertTrue(a.findViewById<View>(R.id.set_gemini_model_row).contentDescription.startsWith("Gemini model: "))
         a.findViewById<View>(R.id.set_gemini_model_row).performClick()
@@ -401,5 +402,71 @@ class SettingsRevampTest {
         val again = Robolectric.buildActivity(MainActivity::class.java).create(state)
         idle(2)
         assertEquals(shot, f.get(again.get()))
+    }
+
+    /** 7.0.0: "Designed by [Instagram] @uniquely.gaurab", tappable, opening the profile; Built by unchanged. */
+    @Test
+    fun creditsShowTheInstagramHandle_andItOpensTheProfile() {
+        val a = openSettings()
+        val credits = a.findViewById<TextView>(R.id.set_credits)
+        assertEquals("Designed by\uFFFC@uniquely.gaurab\nBuilt by Charlie (Sesame AI)", credits.text.toString())
+        val text = credits.text as android.text.Spanned
+        val glyphs = text.getSpans(0, text.length, InstagramCredit.GlyphSpan::class.java)
+        assertEquals(1, glyphs.size)
+        assertEquals(text.indexOf('\uFFFC'), text.getSpanStart(glyphs[0]))
+        val links = text.getSpans(0, text.length, android.text.style.ClickableSpan::class.java)
+        assertEquals(1, links.size)
+        // the link covers the glyph and the handle, and nothing else
+        assertEquals("\uFFFC@uniquely.gaurab", text.subSequence(text.getSpanStart(links[0]), text.getSpanEnd(links[0])).toString())
+        assertTrue(credits.movementMethod is android.text.method.LinkMovementMethod)
+        assertTrue(credits.contentDescription.contains("Instagram @uniquely.gaurab"))
+        assertTrue(credits.contentDescription.contains("Built by Charlie (Sesame AI)"))
+        // still the muted credit colour, painted by the palette
+        assertEquals("text:muted", credits.tag)
+
+        links[0].onClick(credits)
+        val started = Shadows.shadowOf(a).nextStartedActivity
+        assertEquals(android.content.Intent.ACTION_VIEW, started.action)
+        assertEquals("https://www.instagram.com/uniquely.gaurab/", started.dataString)
+        assertEquals("com.instagram.android", started.`package`)
+        // without the Instagram app, the same link goes to the browser
+        val web = InstagramCredit.webIntent()
+        assertEquals("https://www.instagram.com/uniquely.gaurab/", web.dataString)
+        assertEquals(null, web.`package`)
+    }
+
+    /** 7.0.0: the glyph is painted in the text's own colour and sized from the text (scales with font size). */
+    @Test
+    fun instagramGlyphTakesTheTextColour_andScalesWithTheText() {
+        val d = androidx.core.content.ContextCompat.getDrawable(app, R.drawable.ic_instagram)!!.mutate()
+        val span = InstagramCredit.GlyphSpan(d)
+        for ((size, colour) in listOf(30f to 0xFF123456.toInt(), 60f to 0xFFF0F0F0.toInt(), 45f to 0xFF000000.toInt())) {
+            val paint = android.text.TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = size; color = colour }
+            val fm = android.graphics.Paint.FontMetricsInt()
+            val w = span.getSize(paint, "x", 0, 1, fm)
+            assertEquals(Math.round(size * 1.1f), span.glyphSize(paint))
+            assertEquals(span.glyphSize(paint) + 2 * span.gap(paint), w)
+            // the line height is the text's own
+            assertEquals(paint.fontMetricsInt.ascent, fm.ascent)
+            assertEquals(paint.fontMetricsInt.descent, fm.descent)
+            val bmp = Bitmap.createBitmap(w, (size * 2).toInt(), Bitmap.Config.ARGB_8888)
+            span.draw(Canvas(bmp), "x", 0, 1, 0f, 0, (size * 1.4f).toInt(), bmp.height, paint)
+            var opaque = 0
+            for (x in 0 until bmp.width) for (y in 0 until bmp.height) {
+                val p = bmp.getPixel(x, y)
+                if (android.graphics.Color.alpha(p) == 255) {
+                    opaque++
+                    assertEquals(colour and 0xFFFFFF, p and 0xFFFFFF)
+                }
+            }
+            assertTrue("glyph drawn at $size", opaque > 20)
+        }
+    }
+
+    /** 7.0.0: releases ship the debuggable build, so StrictMode and the Performance readout stay off. */
+    @Test
+    fun performanceToolsAreOffInReleases() {
+        assertFalse(PerfMeter.enabled)
+        assertFalse(PerfMeter.isDebug(app))
     }
 }

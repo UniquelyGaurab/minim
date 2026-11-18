@@ -165,4 +165,18 @@ class AppVersionTest {
         assertFalse(v("v6.7.0") > installed!!)
         assertFalse(v("v6.6.0") > installed)
     }
+
+    /** 7.0.0: Stats, Reprise, Haze and the rest, offered to 6.6.0 (the last release) and older, not to itself. */
+    @Test
+    fun v700IsOfferedTo660AndOlder() {
+        val installed = AppVersion.installed("7.0.0-debug")
+        assertEquals(v("7.0.0"), installed)
+        assertFalse(installed!!.isPreRelease)
+        for (older in listOf("6.9.0-debug", "6.8.0-debug", "6.7.0-debug", "6.6.0-debug", "6.5.0-debug", "6.0.0-debug", "5.9.1-debug")) {
+            assertTrue(older, v("v7.0.0") > AppVersion.installed(older)!!)
+        }
+        assertFalse(v("v7.0.0") > installed)
+        assertFalse(v("v6.6.0") > installed)
+        assertTrue(v("v7.0.1") > installed)
+    }
 }

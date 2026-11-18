@@ -6310,6 +6310,14 @@ class MainActivity : AppCompatActivity() {
             haptic(it)
             checkForUpdatesNow()
         }
+        // 7.0.0: "Designed by [Instagram] @uniquely.gaurab", the glyph in the credit text's colour;
+        // the glyph and handle open the Instagram profile
+        findViewById<TextView>(R.id.set_credits).apply {
+            text = InstagramCredit.build(this@MainActivity)
+            movementMethod = android.text.method.LinkMovementMethod.getInstance()
+            highlightColor = android.graphics.Color.TRANSPARENT
+            contentDescription = InstagramCredit.description(this@MainActivity)
+        }
     }
 
     /** A lyrics timing button: one step per tap, repeating every 80 ms while held. */

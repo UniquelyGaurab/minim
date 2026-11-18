@@ -28,8 +28,15 @@ object PerfMeter {
 
     private val violations = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
+    /**
+     * 7.0.0: off in releases. GitHub releases ship the debuggable build type, so FLAG_DEBUGGABLE alone
+     * would turn StrictMode, the frame listener and the Performance entry on for everyone. Set this to
+     * true only for a test build that needs the readout.
+     */
+    @Volatile var enabled = false
+
     fun isDebug(context: Context): Boolean =
-        (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        enabled && (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
     /** One frame's total time: counted only while [counting]. */
     fun onFrame(totalNs: Long) {

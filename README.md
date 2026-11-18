@@ -36,6 +36,16 @@
 
 Minim plays YouTube Music without the clutter. Songs are found and streamed with [NewPipe Extractor](https://github.com/TeamNewPipe/NewPipeExtractor), lyrics come from [LRCLib](https://lrclib.net), and everything else (your likes, playlists, history, stats and settings) lives on your phone. There's nothing to sign in to and no API key to set up before you press play.
 
+## New in V7
+
+- **A new Stats tab.** Today, Week, Month and All time, each with your total time, bars through the day or week, Top 5 songs, artists (with their photos) and channels, a month heatmap with day numbers, and insights. Switching between them is instant.
+- **Reprise, your listening as a story.** A Daily Reprise for any day (tap it on the heatmap), a Weekly Reprise every Sunday morning and a Monthly Reprise on the last evening of the month, with your top song playing behind it, a guess-your-top-song game, your Top 5 and more. Share any slide as a 9:16 card, and save the month as a playlist.
+- **Haze theme.** Settings → Theme is now Light, Dark or Haze. Haze puts the playing song's cover, blurred, behind every screen, Now Playing and Up Next included, with text and icons turning white or near-black to stay readable.
+- **Playlists, redesigned.** A cover at the top with Play, Shuffle, search inside the list and sorting. Make your own cover (Mosaic, Type, Blur or a photo from your gallery) and hold and drag songs to reorder them.
+- **Search filters.** All, Songs, Artists, Albums and Tapes under the search bar. Tapes searches YouTube itself.
+- **Animated lyrics cards.** The lines you pick fill in word by word, with the song playing under them if you like, on a tidy 4:5 card. Static cards still work, and everything is in one new share sheet.
+- **Smoother all round.** The mini player slides up from the bottom and back down, and Stats and Reprise open without waiting.
+
 ## New in V6
 
 - **No accounts.** Google sign-in is gone. Minim doesn't know who you are and doesn't need to.
@@ -46,7 +56,7 @@ Minim plays YouTube Music without the clutter. Songs are found and streamed with
 - **Backups and syncing through a folder you pick.** Minim backs up when you leave the app and once a day, only adding what's new, and picks up your other phones' changes when you open it.
 - **Your own Gemini key.** Lyrics translation, Gemini lyrics, the chat and the daily Search shelf use a free key from Google AI Studio that you add yourself.
 
-Coming from 5.x or 6.x? 6.6 installs as an update and keeps your library, likes, playlists, stats and settings. The first line in Settings, "No accounts. No cloud. Nobody watching you skip the same song at 3am.", opens to explain why Google sign-in went and Minim went fully local. Tap it again to fold it.
+Coming from 5.x or 6.x? 7.0 installs as an update and keeps your library, likes, playlists, stats and settings. The first line in Settings, "No accounts. No cloud. Nobody watching you skip the same song at 3am.", opens to explain why Google sign-in went and Minim went fully local. Tap it again to fold it.
 
 ## Minim Fermata
 
@@ -63,7 +73,7 @@ What it does:
 
 ## Install
 
-1. Download `Minim-v6.6.0.apk` (or whatever the newest is) from [Releases](https://github.com/UniquelyGaurab/minim/releases/latest).
+1. Download `Minim-v7.0.0.apk` (or whatever the newest is) from [Releases](https://github.com/UniquelyGaurab/minim/releases/latest).
 2. Open it on your phone and allow installs from your browser or file manager if Android asks.
 
 After that, Minim keeps itself up to date. When it opens, or comes back after a few hours, it checks this repo's latest release and offers to download and install it. You can also tap Check for updates in Settings → About. Each release installs over the one before and keeps your library and settings. What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
@@ -99,6 +109,8 @@ After that, Minim keeps itself up to date. When it opens, or comes back after a 
 ### Library and discovery
 
 - **Liked** songs, tapes and artists, playlists, recents and offline downloads.
+- **Playlist pages** with a cover, total time, Play, Shuffle, search inside the list and sorting (Custom, Recently added, Title, Artist). Hold and drag a song to move it. Pick a cover: Auto, Mosaic, Type (a word or an emoji), Blur, or a photo from your gallery cropped square.
+- **Search filters:** All, Songs, Artists, Albums and Tapes under the search bar. Tapes searches regular YouTube.
 - **Search your playlists** by name from the pill at the top of Library.
 - **Import playlists** from YouTube, YouTube Music, Spotify or a plain list of songs, then review the matches before saving.
 - **Discover** on the Search page: shelves picked from what you listen to, your top artists and a daily shelf picked by Gemini.
@@ -110,15 +122,17 @@ After that, Minim keeps itself up to date. When it opens, or comes back after a 
 - **A 9:16 share card**, story style: the cover (or a 2×2 collage for a playlist) on a card in the cover's colours, with "Shared by" and the Minim mark. Share it with the link through the normal share sheet, or send the link only.
 - **Share from** the song sheet, Now Playing's menu, a playlist's share button, or a playlist's long-press menu. Your own playlists and saved YouTube Music or Spotify ones share the same way, as a snapshot of the songs.
 - **"Shared with you":** tap a Minim link and Minim opens a pop-up with the song or playlist and who shared it. **Play** plays it (a song starts a radio after), **Save** likes the song or saves the playlist to your library.
-- **Lyrics cards:** in full-screen lyrics, tap the share button (or hold a line) and pick up to 5 lines in a row. They go on a 9:16 card in the cover's colours, as sung, translated or both. For timed lyrics the link starts the song at the first line.
+- **Lyrics cards:** in full-screen lyrics, tap the share button (or hold a line) and pick up to 5 lines in a row. They go on a 4:5 card, as sung, translated or both, on the cover's colours or the blurred cover. Pick **Static**, or **Animated** for a short video where the words fill in with the song (Fit, 30s, 45s or 60s), with or without the song's sound. Share the card, the link only, or save it to your gallery. For timed lyrics the link starts the song at the first line.
 - **No Minim?** The same link opens a small web page with the songs, "Shared by", a Download button and, for a song, Listen on YouTube Music. A lyrics link also shows the shared lines as a quote. "Listen on YouTube Music" always starts the song from the beginning, because YouTube Music drops the start time; only Minim jumps to the line. The page reads the link in your browser, with no analytics and no cookies.
 - If links open in the browser instead of Minim, turn on **Open supported links** for Minim in Android's app settings.
 
-### Stats and recap
+### Stats and Reprise
 
-- **Stats** for today's listening time, songs, artists, tapes and your streak. Every repeat-one loop counts as a play.
-- **Daily recap story** with the day's top song playing behind it: time listened, your day in hours, a guess-your-top-song game, the top 5, top artist, a roast, your listening personality and more.
-- **A 9:16 card** to share or save, and the day's top songs saved as a playlist in one tap.
+- **Stats tab** with Today, Week, Month and All time pills: your total time (like "2 hr 15 min"), bars, Top 5 songs, artists and channels with their covers and photos, insights, and a month heatmap you can swipe, with today outlined. Every repeat-one loop counts as a play.
+- **Daily Reprise:** tap any day on the heatmap for its story, with the day's top song playing behind it: minutes listened, your day in hours, a guess-your-top-song game, the top 5, top artist, a roast, your listening personality and more.
+- **Weekly Reprise** (Sunday to Saturday, out Sunday at 8 AM) and **Monthly Reprise** (out at 6 PM on the last day), each with its own pop-up. In the last week of the month a teaser counts down to it. Get back to the latest ones from the Week and Month pills.
+- **Share any slide:** every slide has a share button at thumb height. The slide becomes a clean 9:16 card with the day, week or month on top and "Shared by" and minim at the bottom. Share it or save it, and the story carries on.
+- **Save as playlist:** the day's or the month's top songs in one tap.
 
 ### Ask Gemini
 
@@ -131,8 +145,8 @@ A chat that finds, plays and queues songs, opens artist pages, explains or trans
 
 ### Look and feel
 
-- **Dynamic colours** taken from the cover of the song that's playing, or a black and white **Default** mode. Light and dark themes.
-- **Smooth motion:** the mini player turns into Now Playing, colours fade between songs, and the heart bursts when you like a song. **Remove animations** turns it all off.
+- **Dynamic colours** taken from the cover of the song that's playing, or a black and white **Default** mode. **Light**, **Dark** and **Haze** themes: Haze puts the playing song's cover, blurred, behind the whole app, with text and icons in white or near-black depending on the cover.
+- **Smooth motion:** the mini player turns into Now Playing and slides up from the bottom and back down, colours fade between songs, and the heart bursts when you like a song. **Remove animations** turns it all off.
 - **Rotating greetings** on Home, including lines about what you're playing and how much you've listened.
 - **Festival themes** with their own wallpaper, colours and greetings.
 - **Haptic feedback**, album art gestures and HD artwork.
@@ -220,7 +234,7 @@ Both live in this repo, so they change without an app update.
 
 ## Credits
 
-Designed by **Gaurab**, built by **Charlie (Sesame AI)**.
+Designed by **Gaurab** ([Instagram @uniquely.gaurab](https://www.instagram.com/uniquely.gaurab/)), built by **Charlie (Sesame AI)**.
 
 - **Dev**, for [Minim Fermata](https://github.com/UniquelyGaurab/minim-fermata) (Apache-2.0)
 - [NewPipe Extractor](https://github.com/TeamNewPipe/NewPipeExtractor) for search and streams (GPL-3.0)
