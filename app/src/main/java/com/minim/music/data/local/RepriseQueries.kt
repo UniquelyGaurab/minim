@@ -169,22 +169,90 @@ object RepriseQueries {
  * way Fermata's own projections do it.
  */
 object RepriseLog {
+    /**
+     * 6.9.0 b78: the plays and skips are kept in memory and only rows added since the last read are
+     * decoded. It used to decode all of Fermata's history (10k+ JSON events) on every Stats pill
+     * and every Reprise, and took Fermata's lock (held while its model builds) to find the clear
+     * point. Now it reads the log table directly, without that lock: only play, skip and clear
+     * rows, plus the rows that replace another, are decoded. A deleted row (a clear, a restore)
+     * is seen from the row count, and the whole log is read again once.
+     */
+    private class Kept(
+        val maxRow: Long,
+        val count: Long,
+        val events: List<com.minim.fermata.log.Event>,
+        val rows: List<LogRow>
+    )
+
+    @Volatile private var kept: Kept? = null
+    @Volatile private var keptFor: Int = 0
+    private val lock = Any()
+
+    /** How many times the whole log was decoded (for the tests). */
+    @Volatile var fullReads = 0
+        private set
+
+    fun forget() { kept = null }
+
     fun rows(bridge: com.minim.music.data.fermata.FermataBridge?, beforeMs: Long = Long.MAX_VALUE): List<LogRow> {
-        val f = bridge?.fermata ?: return emptyList()
+        val db = bridge?.lib ?: return emptyList()
         return try {
-            val all = f.events()
-            val cleared = listOfNotNull(f.clearedBefore(), com.minim.fermata.log.EventLog.clearedBefore(all)).maxOrNull()
-            com.minim.fermata.log.EventLog.effective(all).mapNotNull { e ->
-                if (e.ctx.timestamp >= beforeMs) return@mapNotNull null
-                if (com.minim.fermata.log.EventLog.isCleared(e, cleared)) return@mapNotNull null
-                when (val b = e.body) {
-                    is com.minim.fermata.log.EventBody.Play -> LogRow(LogRow.PLAY, b.track.id, b.track.title, b.track.artist, e.ctx.timestamp, e.ctx.source.key, b.track.thumbnailUrl)
-                    is com.minim.fermata.log.EventBody.Skip -> LogRow(LogRow.SKIP, b.track.id, b.track.title, b.track.artist, e.ctx.timestamp, e.ctx.source.key, b.track.thumbnailUrl)
-                    else -> null
-                }
+            val all = synchronized(lock) { refresh(db) }
+            if (beforeMs == Long.MAX_VALUE) all
+            else {
+                // rows are in time order: cut at the first one at or after beforeMs
+                var hi = all.size
+                var lo = 0
+                while (lo < hi) { val m = (lo + hi) ushr 1; if (all[m].ts < beforeMs) lo = m + 1 else hi = m }
+                if (hi == all.size) all else all.subList(0, hi)
             }
         } catch (_: Exception) {
             emptyList()
         }
     }
+
+    private fun refresh(lib: LibraryDatabase): List<LogRow> {
+        val db = lib.readableDatabase
+        val table = LibraryDatabase.FERMATA_LOG_TABLE
+        val (maxRow, count) = db.rawQuery("SELECT IFNULL(MAX(rowid), 0), COUNT(*) FROM $table", null).use { c ->
+            if (c.moveToFirst()) c.getLong(0) to c.getLong(1) else 0L to 0L
+        }
+        val k = kept?.takeIf { keptFor == System.identityHashCode(lib) }
+        if (k != null && k.maxRow == maxRow && k.count == count) return k.rows
+        val fresh = k == null || maxRow < k.maxRow
+        val after = if (fresh) 0L else k!!.maxRow
+        val types = "'${com.minim.fermata.log.EventBody.PLAY}','${com.minim.fermata.log.EventBody.SKIP}','${com.minim.fermata.log.EventBody.HISTORY_CLEAR}'"
+        val added = ArrayList<com.minim.fermata.log.Event>()
+        db.rawQuery(
+            "SELECT json FROM $table WHERE rowid > ? AND (type IN ($types) OR json LIKE '%\"replaces\"%')",
+            arrayOf(after.toString())
+        ).use { c ->
+            while (c.moveToNext()) {
+                try { added += com.minim.fermata.backup.EventCodec.decode(c.getString(0)) } catch (_: Exception) {}
+            }
+        }
+        // Rows were deleted too (a clear or a restore): start again from the whole log
+        if (!fresh && k!!.count + countAfter(db, table, after) != count) {
+            kept = null
+            return refresh(lib)
+        }
+        if (fresh) fullReads++
+        val events = if (fresh) added else k!!.events + added
+        val cleared = com.minim.fermata.log.EventLog.clearedBefore(events)
+        val rows = com.minim.fermata.log.EventLog.effective(events).mapNotNull { e ->
+            if (com.minim.fermata.log.EventLog.isCleared(e, cleared)) return@mapNotNull null
+            when (val b = e.body) {
+                is com.minim.fermata.log.EventBody.Play -> LogRow(LogRow.PLAY, b.track.id, b.track.title, b.track.artist, e.ctx.timestamp, e.ctx.source.key, b.track.thumbnailUrl)
+                is com.minim.fermata.log.EventBody.Skip -> LogRow(LogRow.SKIP, b.track.id, b.track.title, b.track.artist, e.ctx.timestamp, e.ctx.source.key, b.track.thumbnailUrl)
+                else -> null
+            }
+        }
+        // Only what can matter later is kept: the plays, skips, clears and replacing rows
+        kept = Kept(maxRow, count, events, rows)
+        keptFor = System.identityHashCode(lib)
+        return rows
+    }
+
+    private fun countAfter(db: android.database.sqlite.SQLiteDatabase, table: String, after: Long): Long =
+        db.rawQuery("SELECT COUNT(*) FROM $table WHERE rowid > ?", arrayOf(after.toString())).use { c -> if (c.moveToFirst()) c.getLong(0) else 0L }
 }

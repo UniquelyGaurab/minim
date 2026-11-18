@@ -239,7 +239,7 @@ class StatsEngineTest {
         val s = StatsEngine.compute(20261022, emptyList(), listOf(ListenRow("a", "Song a", "Anirudh", "", 10, 40_000)), ist)
         assertEquals(40_000L, s.timeMs)
         assertEquals(0, s.songs)
-        assertEquals("40s", StatsFormat.duration(s.timeMs))
+        assertEquals("0 min", StatsFormat.duration(s.timeMs)) // 6.9.0 b78: whole minutes
     }
 
     @Test fun aFewSecondsOfSkippingIsNotHistory() {
@@ -291,10 +291,11 @@ class StatsEngineTest {
     // ---- formatting ----
 
     @Test fun formats() {
-        assertEquals("40s", StatsFormat.duration(40_000))
-        assertEquals("12m", StatsFormat.duration(12 * 60_000L + 30_000))
-        assertEquals("2h 14m", StatsFormat.duration((2 * 60 + 14) * 60_000L))
-        assertEquals("3h", StatsFormat.duration(3 * 3_600_000L))
+        // 6.9.0 b78: the Stats format
+        assertEquals("0 min", StatsFormat.duration(40_000))
+        assertEquals("12 min", StatsFormat.duration(12 * 60_000L + 30_000))
+        assertEquals("2 hr 14 min", StatsFormat.duration((2 * 60 + 14) * 60_000L))
+        assertEquals("3 hr", StatsFormat.duration(3 * 3_600_000L))
         assertEquals("11 PM", StatsFormat.hour(23))
         assertEquals("12 AM", StatsFormat.hour(0))
         assertEquals("12 PM", StatsFormat.hour(12))

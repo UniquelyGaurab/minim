@@ -126,7 +126,7 @@ class RecapNewSlidesTest {
         val before = DayStats.empty(Days.previous(day)).copy(timeMs = 60 * min, songs = 16, artists = 7)
         val c = RecapMoreMath.compare(today, before)!!
         assertEquals(40 * min, c.diffMs)
-        assertEquals("40m", RecapMoreMath.compareBig(c))
+        assertEquals("40 min", RecapMoreMath.compareBig(c))
         assertEquals("more than Saturday", RecapMoreMath.compareLine(c, RecapMoreMath.beforeName(day)))
         assertEquals("4 more songs  ·  1 fewer artist", RecapMoreMath.compareCounts(c))
         val less = RecapCompare(30 * min, 90 * min, 5, 5, 2, 2)

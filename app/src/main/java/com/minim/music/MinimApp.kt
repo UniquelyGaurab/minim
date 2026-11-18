@@ -231,6 +231,8 @@ open class MinimApp : Application(), com.minim.fermata.android.FermataHolder {
         instance = this
         // Hotfix 4.9.10: save any crash's stack trace; MainActivity shows it once on the next launch
         installCrashReporter()
+        // 6.9.0 b78: debug builds log and count main-thread disk and network work (never a crash)
+        com.minim.music.ui.PerfMeter.strictMode(this)
         registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
             // 5.10.1: automatic backups. The whole app coming to the foreground merges the other
             // phones' backups; going to the background backs up what changed. A rotation is

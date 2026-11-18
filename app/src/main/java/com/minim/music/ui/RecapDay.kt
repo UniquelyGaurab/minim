@@ -1,5 +1,7 @@
 package com.minim.music.ui
 
+import com.minim.music.data.stats.TimeFormat
+
 import com.minim.music.data.stats.DayStats
 import com.minim.music.data.stats.Days
 import com.minim.music.data.stats.ListenRow
@@ -197,7 +199,7 @@ object RecapPersonality {
             add(Type.EARLY_BIRD to "Your day started with music.")
         }
         if (s.totalMs >= 3L * 60L * MIN) {
-            add(Type.MARATHONER to "${StatsFormat.duration(s.totalMs)} of listening. Big day.")
+            add(Type.MARATHONER to "${TimeFormat.reprise(s.totalMs)} of listening. Big day.")
         }
         if (s.totalMs in 1 until 20 * MIN) {
             add(Type.SNACKER to "A quick bite of music.")
@@ -230,7 +232,7 @@ object RecapPersonality {
         if (s.artists >= (if (n > 7) 40 else 15)) add(Type.EXPLORER to "${s.artists} artists. Always after the next one.")
         if (s.totalMs >= 20 * MIN && share(d.hours, 23, 4) >= 0.5f) add(Type.NIGHT_OWL to "Most of it happened after dark.")
         if (s.totalMs >= 20 * MIN && share(d.hours, 5, 9) >= 0.5f) add(Type.EARLY_BIRD to "Your days started with music.")
-        if (s.totalMs >= n * 2L * 60L * MIN) add(Type.MARATHONER to "${StatsFormat.duration(s.totalMs)} of listening. Big $word.")
+        if (s.totalMs >= n * 2L * 60L * MIN) add(Type.MARATHONER to "${TimeFormat.reprise(s.totalMs)} of listening. Big $word.")
         if (s.totalMs in 1 until n * 15L * MIN) add(Type.SNACKER to "Little bites of music, all $word.")
     }
 

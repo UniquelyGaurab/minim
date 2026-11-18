@@ -107,7 +107,7 @@ class TapeStatsTest {
         assertEquals(22, s.peakHour) // the tape hour beats the song hour
         assertEquals(8, s.songs)
         assertEquals(1, s.tapes.tapes)
-        assertEquals(listOf("1h 40m", "8", "4", "1"), RecapCard.tiles(s).map { it.first })
+        assertEquals(listOf("100 min", "8", "4", "1"), RecapCard.tiles(s).map { it.first })
     }
 
     @Test fun aTapeOnlyDayIsARealDay() {
@@ -151,7 +151,7 @@ class TapeStatsTest {
         assertNull(TapeStats.savedLine(normal))
         assertEquals("1.25x", TapeStats.speedLabel(125))
         assertEquals("2x", TapeStats.speedLabel(200))
-        assertEquals("1h 5 min", TapeStats.savedText(65 * 60_000L))
+        assertEquals("1 hr 5 min", TapeStats.savedText(65 * 60_000L))
     }
 
     @Test fun nightOwlWhenMostTapesStartAfter11Pm() {

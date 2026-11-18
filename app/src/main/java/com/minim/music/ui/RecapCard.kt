@@ -1,5 +1,7 @@
 package com.minim.music.ui
 
+import com.minim.music.data.stats.TimeFormat
+
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapShader
@@ -160,7 +162,7 @@ object RecapCard {
         y = 1440f
         c.drawRect(M, y, right, y + 2f, Paint().apply { color = hair })
         textStart(c, "listened", M, y + 70f, 30f, regular, muted, 560)
-        textStart(c, StatsFormat.duration(s.totalMs), M, y + 178f, 112f, bold, fg, 600)
+        textStart(c, TimeFormat.repriseShort(s.totalMs), M, y + 178f, 112f, bold, fg, 600)
         val counts = tiles(s).drop(1)
         var cy = y + 78f + (3 - counts.size).coerceAtLeast(0) * 28f
         for ((i, v) in counts.withIndex()) {
@@ -198,7 +200,7 @@ object RecapCard {
 
     /** 5.7.0 u51: the numbers row: listened (songs and tapes), songs, artists, and tapes when there were any. */
     fun tiles(s: DayStats): List<Pair<String, String>> = buildList {
-        add(StatsFormat.duration(s.totalMs) to "listened")
+        add(TimeFormat.repriseShort(s.totalMs) to "listened")
         add(s.songs.toString() to if (s.songs == 1) "song" else "songs")
         add(s.artists.toString() to if (s.artists == 1) "artist" else "artists")
         if (s.tapes.tapes > 0) add(s.tapes.tapes.toString() to if (s.tapes.tapes == 1) "tape" else "tapes")

@@ -211,16 +211,8 @@ object TapeStats {
         }
     }
 
-    /** "22 min", "1h 5 min", "40s". */
-    fun savedText(ms: Long): String {
-        val sec = (ms / 1000L).coerceAtLeast(0L)
-        if (sec < 60L) return "${sec}s"
-        val min = sec / 60L
-        if (min < 60L) return "$min min"
-        val h = min / 60L
-        val m = min % 60L
-        return if (m == 0L) "${h}h" else "${h}h $m min"
-    }
+    /** 6.9.0 b78: the Stats format, "22 min", "1 hr 5 min" (see [TimeFormat.stats]). */
+    fun savedText(ms: Long): String = TimeFormat.stats(ms)
 
     /** "1.5x saved you 22 min", or null when nothing played above 1x. */
     fun savedLine(t: TapeDay): String? {

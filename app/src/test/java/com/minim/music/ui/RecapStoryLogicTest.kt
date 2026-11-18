@@ -70,6 +70,6 @@ class RecapStoryLogicTest {
 
     @Test fun quietShortDayFallsBackToShortAndSweet() {
         val d = day(timeMs = 6 * min, songs = 2, artists = 2, song = null, artist = null, peak = 14, streak = null)
-        assertEquals(listOf("6m of music." to "Short and sweet."), RecapRoast.candidates(d))
+        assertEquals(listOf("6 minutes of music." to "Short and sweet."), RecapRoast.candidates(d))
     }
 }

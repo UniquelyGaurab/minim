@@ -1,5 +1,7 @@
 package com.minim.music.ui
 
+import com.minim.music.data.stats.TimeFormat
+
 import com.minim.music.data.stats.DayStats
 import com.minim.music.data.stats.StatsFormat
 
@@ -16,7 +18,7 @@ object RecapRoast {
         val title = song?.let { Greetings.shortTitle(it.title, it.artist, 20) }
         val streak = s.streak
         val artist = s.topArtist?.name?.let { Greetings.shortArtist(it, 16) }
-        val time = StatsFormat.duration(s.timeMs)
+        val time = TimeFormat.reprise(s.timeMs)
 
         if (song != null && title != null && song.plays >= 5) {
             out.add("$title, ${song.plays} times." to "Are you okay?")

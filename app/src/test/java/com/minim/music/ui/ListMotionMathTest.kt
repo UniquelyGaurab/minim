@@ -82,23 +82,23 @@ class ListMotionMathTest {
     @Test
     fun listenedTimeCountsWholeMinutesInTheCardsFormat() {
         val target = (83 * 60_000L) + 25_000L // 1h 23m 25s
-        assertEquals("0m", CountUpMath.durationText(0, target, 0f))
-        assertEquals("1h 23m", CountUpMath.durationText(0, target, 1f))
-        // Mid count: whole minutes, never seconds, "Xm" below an hour and "Xh Ym" above
+        // 6.9.0 b78: the Stats format, "0 min" … "1 hr 23 min"
+        assertEquals("0 min", CountUpMath.durationText(0, target, 0f))
+        assertEquals("1 hr 23 min", CountUpMath.durationText(0, target, 1f))
+        // Mid count: whole minutes, never seconds
         for (i in 1..99) {
             val text = CountUpMath.durationText(0, target, i / 100f)
             assertFalse(text, text.endsWith("s"))
-            assertTrue(text, Regex("""^(\d+m|\d+h|\d+h \d+m)$""").matches(text))
+            assertTrue(text, Regex("""^(\d+ min|\d+ hr|\d+ hr \d+ min)$""").matches(text))
         }
-        assertEquals("1h", CountUpMath.durationText(0, 3_600_000L, 1f))
+        assertEquals("1 hr", CountUpMath.durationText(0, 3_600_000L, 1f))
     }
 
     @Test
-    fun underAMinuteCountsSeconds() {
-        assertEquals("0s", CountUpMath.durationText(0, 45_000L, 0f))
-        assertEquals("45s", CountUpMath.durationText(0, 45_000L, 1f))
-        val mid = CountUpMath.durationText(0, 45_000L, 0.5f)
-        assertTrue(mid, mid.endsWith("s"))
+    fun underAMinuteIsZeroMinutes() {
+        // 6.9.0 b78: whole minutes only (no seconds) in the Stats format
+        assertEquals("0 min", CountUpMath.durationText(0, 45_000L, 0f))
+        assertEquals("0 min", CountUpMath.durationText(0, 45_000L, 1f))
     }
 
     // ---- up next ----

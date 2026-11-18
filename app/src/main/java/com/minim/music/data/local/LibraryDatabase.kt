@@ -67,6 +67,19 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
         createV9AddedAt(db)
     }
 
+    /**
+     * 6.9.0 b78: an index for the Reprise and Stats tape queries (they filter tape_plays by time).
+     * Additive and idempotent, so no schema version change and nothing else is touched.
+     */
+    override fun onOpen(db: SQLiteDatabase) {
+        super.onOpen(db)
+        if (db.isReadOnly) return
+        try {
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_tape_plays_time ON tape_plays(played_at)")
+        } catch (_: Exception) {
+        }
+    }
+
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         // v4.3: real step-by-step migrations. Never drop tables: liked songs, playlists and
         // recents must survive every update.

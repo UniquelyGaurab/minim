@@ -209,7 +209,22 @@ object StatsEngine {
         if (play.durationSec > 0) play.durationSec * 1000L else play.listenedMs.coerceAtLeast(0L)
 
     /** "Arijit Singh, Pritam & Shreya" -> "Arijit Singh"; "" for unknown. */
+    /**
+     * 6.9.0 b78: remembered per artist line. It runs for every play and listen row (15k+ for All
+     * time) and splitting with a regex each time was the biggest part of a pill's maths.
+     */
+    private val primaryMemo = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val keyMemo = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     fun primaryArtist(line: String): String {
+        primaryMemo[line]?.let { return it }
+        val v = primaryArtistOf(line)
+        if (primaryMemo.size > 8_192) primaryMemo.clear()
+        primaryMemo[line] = v
+        return v
+    }
+
+    private fun primaryArtistOf(line: String): String {
         val t = line.trim()
         if (t.isEmpty() || t.equals("Unknown Artist", ignoreCase = true)) return ""
         val first = t.split(SafeRegex.of("""\s*(,|&|\bfeat\.?\s|\bft\.?\s|•)\s*""", RegexOption.IGNORE_CASE))
@@ -217,8 +232,13 @@ object StatsEngine {
         return first.removeSuffix(" - Topic").trim()
     }
 
-    internal fun artistKey(name: String): String =
-        name.lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }
+    internal fun artistKey(name: String): String {
+        keyMemo[name]?.let { return it }
+        val v = name.lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }
+        if (keyMemo.size > 8_192) keyMemo.clear()
+        keyMemo[name] = v
+        return v
+    }
 
     /** 5.7.0 u51: song listening per hour of the day, the same way [compute] adds it up. */
     fun hourMs(plays: List<PlayRow>, listens: List<ListenRow>, zone: ZoneId = ZoneId.systemDefault()): LongArray {
@@ -420,16 +440,8 @@ object RecapRules {
 }
 
 object StatsFormat {
-    /** "45s", "12m", "2h 14m", "3h". */
-    fun duration(ms: Long): String {
-        val sec = (ms.coerceAtLeast(0L)) / 1000L
-        if (sec < 60L) return "${sec}s"
-        val min = sec / 60L
-        if (min < 60L) return "${min}m"
-        val h = min / 60L
-        val m = min % 60L
-        return if (m == 0L) "${h}h" else "${h}h ${m}m"
-    }
+    /** 6.9.0 b78: the Stats format, "45 min", "2 hr 15 min", "142 hrs" (see [TimeFormat.stats]). */
+    fun duration(ms: Long): String = TimeFormat.stats(ms)
 
     /** "11 PM", "12 AM", "12 PM". */
     fun hour(h: Int): String {

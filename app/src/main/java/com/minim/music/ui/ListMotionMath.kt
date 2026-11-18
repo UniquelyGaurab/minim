@@ -77,11 +77,10 @@ object CountUpMath {
      * It ends on exactly the card's own text.
      */
     fun durationText(fromMs: Long, toMs: Long, t: Float): String {
+        // 6.9.0 b78: whole minutes in the Stats format the whole way ("0 min" … "2 hr 15 min")
         if (t >= 1f) return StatsFormat.duration(toMs)
         val ms = valueAt(fromMs, toMs, t).coerceAtLeast(0L)
-        if (toMs < 60_000L) return "${ms / 1000L}s"
-        val minutes = ms / 60_000L
-        return if (minutes == 0L) "0m" else StatsFormat.duration(minutes * 60_000L)
+        return StatsFormat.duration(ms / 60_000L * 60_000L)
     }
 }
 

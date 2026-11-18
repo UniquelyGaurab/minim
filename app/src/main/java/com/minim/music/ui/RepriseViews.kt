@@ -1,5 +1,7 @@
 package com.minim.music.ui
 
+import com.minim.music.data.stats.TimeFormat
+
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
@@ -65,7 +67,7 @@ class RepriseBars(
                 text.typeface = labelFace
                 text.textSize = 12f * d
                 text.color = ColorUtils.setAlphaComponent(fg, ((f - 0.6f) / 0.4f * 255).toInt().coerceIn(0, 255))
-                canvas.drawText(StatsFormat.duration(values[i]), (left + w / 2f).coerceIn(20f * d, width - 20f * d), rect.top - 6f * d, text)
+                canvas.drawText(TimeFormat.repriseShort(values[i]), (left + w / 2f).coerceIn(20f * d, width - 20f * d), rect.top - 6f * d, text)
             }
             if (labels.getOrNull(i).isNullOrEmpty()) continue
             text.typeface = if (i == busy) labelFace else smallFace

@@ -225,17 +225,8 @@ object StatsPeriods {
         return "$sign${long(Math.abs(diff))} vs $word"
     }
 
-    /** "1 hr 12 min", "45 min", "3 hr". */
-    fun long(ms: Long): String {
-        val mins = ms / 60_000L
-        val h = mins / 60
-        val m = mins % 60
-        return when {
-            h == 0L -> "$m min"
-            m == 0L -> "$h hr"
-            else -> "$h hr $m min"
-        }
-    }
+    /** 6.9.0 b78: the Stats format, "45 min", "2 hr 15 min", "142 hrs" (see [TimeFormat.stats]). */
+    fun long(ms: Long): String = TimeFormat.stats(ms)
 
     class Bar(val label: String, val ms: Long, val day: Int?)
 

@@ -1,5 +1,7 @@
 package com.minim.music.ui
 
+import com.minim.music.data.stats.TimeFormat
+
 import kotlinx.coroutines.launch
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
@@ -234,7 +236,12 @@ class RecapStory(
                 shareSlide()
             }
         }
-        addView(shareButton, LayoutParams(dp(40f), dp(40f)).apply { gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL })
+        // 6.9.0 b78: at thumb height from the start (the insets add the navigation bar when they arrive)
+        addView(shareButton, LayoutParams(dp(SHARE_SIZE), dp(SHARE_SIZE)).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            bottomMargin = dp(SHARE_CENTER - SHARE_SIZE / 2f)
+        })
+        slideHost.setPadding(0, dp(48f), 0, dp(SHARE_ROOM))
         noteView.apply {
             typeface = semi
             textSize = 13f
@@ -252,9 +259,11 @@ class RecapStory(
             (dateLabel.layoutParams as LayoutParams).topMargin = bars.top + dp(22f)
             (soundButton.layoutParams as LayoutParams).topMargin = bars.top + dp(14f)
             // 6.9.0 b77: room at the bottom for the share button, so it never sits on a slide's content
+            // 6.9.0 b78: the share button sits at thumb height (its centre SHARE_CENTER above the
+            // navigation bar), and the slide ends above it, so it never covers anything
             slideHost.setPadding(0, bars.top + dp(48f), 0, bars.bottom + dp(SHARE_ROOM))
-            (shareButton.layoutParams as LayoutParams).bottomMargin = bars.bottom + dp(10f)
-            (noteView.layoutParams as LayoutParams).bottomMargin = bars.bottom + dp(84f)
+            (shareButton.layoutParams as LayoutParams).bottomMargin = bars.bottom + dp(SHARE_CENTER - SHARE_SIZE / 2f)
+            (noteView.layoutParams as LayoutParams).bottomMargin = bars.bottom + dp(SHARE_ROOM + 8f)
             progress.requestLayout()
             insets
         }
@@ -526,12 +535,13 @@ class RecapStory(
 
     /** Counts [tv] up from zero to [ms] of listening. */
     private fun countUp(tv: TextView, ms: Long, delay: Long) {
-        tv.text = StatsFormat.duration(0L)
+        tv.text = TimeFormat.repriseShort(0L)
+        (tv as? FitOneLineText)?.reserve(TimeFormat.repriseShort(ms))
         track(ValueAnimator.ofFloat(0f, 1f).apply {
             startDelay = delay
             duration = 1_400
             interpolator = DecelerateInterpolator(1.6f)
-            addUpdateListener { tv.text = StatsFormat.duration(RecapMotion.countValue(ms, it.animatedValue as Float)) }
+            addUpdateListener { tv.text = TimeFormat.repriseShort(RecapMotion.countValue(ms, it.animatedValue as Float)) }
             start()
         })
     }
@@ -545,7 +555,7 @@ class RecapStory(
     }
 
     private fun label(s: String, size: Float, face: Typeface, color: Int, top: Float = 0f, lines: Int = 2): TextView =
-        TextView(context).apply {
+        (if (lines == 1) FitOneLineText(context) else TextView(context)).apply {
             text = s
             textSize = size
             typeface = face
@@ -560,16 +570,10 @@ class RecapStory(
         }
 
     private fun image(sizeDp: Float, round: Boolean, look: Look, top: Float = 0f, radius: Float = 22f): ImageView =
-        ImageView(context).apply {
+        ShapedImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             setBackgroundColor(look.soft)
-            clipToOutline = true
-            outlineProvider = object : ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: Outline) {
-                    if (round) outline.setOval(0, 0, view.width, view.height)
-                    else outline.setRoundRect(0, 0, view.width, view.height, dp(radius).toFloat())
-                }
-            }
+            shape(round, dp(radius).toFloat())
             layoutParams = LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp)).apply { topMargin = dp(top) }
         }
 
@@ -720,7 +724,7 @@ class RecapStory(
         val col = column()
         col.addView(label("You listened for", 18f, regular, look.muted))
         // 5.7.0 u51: songs and tapes together, with tapes and channels under songs and artists
-        val big = label(StatsFormat.duration(stats.totalMs), 64f, bold, look.fg, top = 10f, lines = 1)
+        val big = label(TimeFormat.repriseShort(stats.totalMs), 64f, bold, look.fg, top = 10f, lines = 1)
         col.addView(big)
         countUp(big, stats.totalMs, 250L)
         val songs = if (stats.songs == 1) "1 song" else "${stats.songs} songs"
@@ -1006,7 +1010,7 @@ class RecapStory(
         name.setOnClickListener { tick(it); onOpenArtist() }
         col.addView(name)
         wordsIn(name, a.name, 550L, perWord = 180L)
-        val time = label("${StatsFormat.duration(a.ms)} listened", 16f, semi, look.fg, top = 8f)
+        val time = label("${TimeFormat.reprise(a.ms)} listened", 16f, semi, look.fg, top = 8f)
         col.addView(time)
         riseIn(time, 1_100L)
         (if (scope != null) "One of ${scope.artistsTotal} artists this ${scope.word}" else RecapSlides.streakLine(stats))?.let {
@@ -1025,7 +1029,7 @@ class RecapStory(
         val col = column()
         val ch = stats.tapes.topChannel!!
         col.addView(label("You spent", 18f, regular, look.muted))
-        val big = label(StatsFormat.duration(ch.ms), 56f, bold, look.fg, top = 8f, lines = 1)
+        val big = label(TimeFormat.repriseShort(ch.ms), 56f, bold, look.fg, top = 8f, lines = 1)
         col.addView(big)
         countUp(big, ch.ms, 150L)
         col.addView(label("with", 18f, regular, look.muted, top = 10f))
@@ -1037,7 +1041,7 @@ class RecapStory(
         val name = label(ch.name, 28f, bold, look.fg, top = 18f)
         col.addView(name)
         wordsIn(name, ch.name, 1_000L)
-        val line = label(if (scope != null) "${if (scope.isWeek) "Channel of the week" else "Channel of the month"}  ·  ${StatsFormat.duration(stats.tapes.ms)} of tapes" else RecapSlides.tapesLine(stats), 16f, semi, look.muted, top = 8f)
+        val line = label(if (scope != null) "${if (scope.isWeek) "Channel of the week" else "Channel of the month"}  ·  ${TimeFormat.reprise(stats.tapes.ms)} of tapes" else RecapSlides.tapesLine(stats), 16f, semi, look.muted, top = 8f)
         col.addView(line)
         riseIn(line, 1_600L)
         return col
@@ -1079,7 +1083,7 @@ class RecapStory(
             riseIn(l, 1_900L)
         }
         busy?.let {
-            val l = label("${weekday(it, false)}: ${StatsFormat.duration(sc.dayTotals[it] ?: 0L)}", 14f, regular, look.muted, top = 8f)
+            val l = label("${weekday(it, false)}: ${TimeFormat.repriseShort(sc.dayTotals[it] ?: 0L)}", 14f, regular, look.muted, top = 8f)
             col.addView(l)
             riseIn(l, 2_300L)
         }
@@ -1214,7 +1218,7 @@ class RecapStory(
         val big = label("${weekday(k, false)}, ${d.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH)} ${d.dayOfMonth}", 32f, bold, look.fg, top = 8f)
         col.addView(big)
         wordsIn(big, big.text.toString(), 200L)
-        val t = label(StatsFormat.duration(sc.dayTotals[k] ?: 0L) + " of music", 18f, semi, look.fg, top = 8f)
+        val t = label(TimeFormat.reprise(sc.dayTotals[k] ?: 0L) + " of music", 18f, semi, look.fg, top = 8f)
         col.addView(t)
         riseIn(t, 900L)
         val img = image(150f, round = false, look = look, top = 26f, radius = 18f)
@@ -1254,7 +1258,7 @@ class RecapStory(
             LinearLayout.LayoutParams(dp(28f), LinearLayout.LayoutParams.WRAP_CONTENT))
         row.addView(label(m.name, 17f, semi, look.fg, lines = 1).apply { gravity = Gravity.START },
             LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        row.addView(label("${StatsFormat.duration(m.beforeMs)} → ${StatsFormat.duration(m.nowMs)}", 13f, regular, look.muted, lines = 1))
+        row.addView(label("${TimeFormat.repriseShort(m.beforeMs)} → ${TimeFormat.repriseShort(m.nowMs)}", 13f, regular, look.muted, lines = 1))
         return row
     }
 
@@ -1384,7 +1388,7 @@ class RecapStory(
         val ss = more.session!!
         val col = column()
         col.addView(label("Your longest session", 18f, regular, look.muted))
-        val big = label(StatsFormat.duration(ss.ms), 60f, bold, look.fg, top = 8f, lines = 1)
+        val big = label(TimeFormat.repriseShort(ss.ms), 60f, bold, look.fg, top = 8f, lines = 1)
         col.addView(big)
         countUp(big, ss.ms, 200L)
         val line = label("nonstop, starting ${RecapDay.clock(ss.startMs)}", 18f, semi, look.fg, top = 6f)
@@ -1442,15 +1446,10 @@ class RecapStory(
             if (items.isEmpty()) break
             val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_HORIZONTAL }
             for ((i, song) in items.withIndex()) {
-                val img = ImageView(context).apply {
+                val img = ShapedImageView(context).apply {
                     scaleType = ImageView.ScaleType.CENTER_CROP
                     setBackgroundColor(look.soft)
-                    clipToOutline = true
-                    outlineProvider = object : ViewOutlineProvider() {
-                        override fun getOutline(view: View, outline: Outline) {
-                            outline.setRoundRect(0, 0, view.width, view.height, dp(12f).toFloat())
-                        }
-                    }
+                    shape(false, dp(12f).toFloat())
                     contentDescription = song.title
                     isClickable = true
                     isFocusable = true
@@ -1695,7 +1694,7 @@ class RecapStory(
         val col = column()
         col.addView(label(if (sc.isWeek) "That was your week" else "That was ${sc.title}", 28f, bold, look.fg))
         col.addView(label(sc.label, 15f, regular, look.muted, top = 6f, lines = 1))
-        val time = label(StatsFormat.duration(stats.totalMs), 44f, bold, look.fg, top = 22f, lines = 1)
+        val time = label(TimeFormat.repriseShort(stats.totalMs), 44f, bold, look.fg, top = 22f, lines = 1)
         col.addView(time)
         col.addView(label("listened", 14f, regular, look.muted, top = 2f, lines = 1))
         val top = day.top.firstOrNull()
@@ -1988,8 +1987,11 @@ class RecapStory(
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = ev.rawX; downY = ev.rawY; dragging = false
+                // 6.9.0 b78: a touch that starts on the share button is the button's alone (no tap zones, no swipe)
+                downOnShare = onShareButton(ev.x, ev.y)
             }
             MotionEvent.ACTION_MOVE -> {
+                if (downOnShare) return false
                 val dy = ev.rawY - downY
                 if (dy > slop && dy > abs(ev.rawX - downX)) {
                     dragging = true
@@ -2001,9 +2003,24 @@ class RecapStory(
         return false
     }
 
+    private var downOnShare = false
+
+    /** Whether ([x], [y]) in this view is on the share button (with a little room around it). */
+    internal fun onShareButton(x: Float, y: Float): Boolean {
+        val b = shareButton
+        if (b.visibility != View.VISIBLE || b.width == 0) return false
+        val room = dp(8f)
+        return x >= b.left - room && x <= b.right + room && y >= b.top - room && y <= b.bottom + room
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(ev: MotionEvent): Boolean {
         if (closing || sharing) return true
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN && onShareButton(ev.x, ev.y)) downOnShare = true
+        if (downOnShare) {
+            if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) downOnShare = false
+            return true
+        }
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = ev.rawX; downY = ev.rawY; dragging = false
@@ -2160,7 +2177,7 @@ class RecapStory(
                 }
                 text.textAlign = Paint.Align.RIGHT
                 text.color = if (r.third) fg else muted
-                if (f > 0.5f) canvas.drawText(StatsFormat.duration(r.second), width.toFloat(), cy + 5f * d, text)
+                if (f > 0.5f) canvas.drawText(TimeFormat.repriseShort(r.second), width.toFloat(), cy + 5f * d, text)
             }
         }
     }
@@ -2323,4 +2340,60 @@ object MusicArt {
 /** 6.9.0 b77: tags views that belong to the story, not the slide (hints, end pills): a still leaves them out. */
 private const val HINT = "minim.story.hint"
 /** Room under a slide for its share button (dp). */
-private const val SHARE_ROOM = 64f
+/** 6.9.0 b78: the share button: its size, its centre above the navigation bar, and the room the slide leaves for it. */
+internal const val SHARE_SIZE = 40f
+internal const val SHARE_CENTER = 104f
+internal const val SHARE_ROOM = SHARE_CENTER + SHARE_SIZE / 2f + 8f
+
+/**
+ * 6.9.0 b78: a one-line label that shrinks its text to fit its width instead of cutting it off
+ * ("12,480 min" at 64sp on a narrow phone). It fits the widest text it has shown, so a count-up
+ * doesn't change size on the way.
+ */
+internal class FitOneLineText(context: android.content.Context) : androidx.appcompat.widget.AppCompatTextView(context) {
+    private var maxPx = 0f
+    private var widest = 0f
+    private val probe = android.graphics.Paint()
+
+    /** The text's width at the full size. */
+    private fun fullWidth(t: CharSequence): Float {
+        probe.set(paint)
+        probe.textSize = maxPx
+        return probe.measureText(t.toString())
+    }
+
+    override fun setTextSize(unit: Int, size: Float) {
+        super.setTextSize(unit, size)
+        if (!fitting) { maxPx = textSize; widest = 0f }
+    }
+
+    private var fitting = false
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val avail = android.view.View.MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight
+        if (avail > 0 && maxPx > 0f) {
+            val w = fullWidth(text)
+            if (w > widest) widest = w
+            val want = if (widest <= avail) maxPx else maxOf(maxPx * 0.4f, maxPx * avail / widest * 0.98f)
+            if (kotlin.math.abs(want - textSize) > 0.5f) {
+                fitting = true
+                super.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, want)
+                fitting = false
+            }
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
+    /** Sizes for [t] ahead (the end of a count-up), so the text keeps one size while it counts. */
+    fun reserve(t: CharSequence) {
+        if (maxPx <= 0f) return
+        val w = fullWidth(t)
+        if (w > widest) { widest = w; requestLayout() }
+    }
+
+    override fun setText(text: CharSequence?, type: BufferType?) {
+        super.setText(text, type)
+        // a longer text than any so far has to be measured again
+        if (maxPx > 0f && text != null && fullWidth(text) > widest) requestLayout()
+    }
+}

@@ -173,7 +173,7 @@ object RecapMoreMath {
 
     /** The big number: "40m", or "Same" when it's within a minute. */
     fun compareBig(c: RecapCompare): String =
-        if (kotlin.math.abs(c.diffMs) < SAME_MS) "Same" else StatsFormat.duration(kotlin.math.abs(c.diffMs))
+        if (kotlin.math.abs(c.diffMs) < SAME_MS) "Same" else TimeFormat.repriseShort(kotlin.math.abs(c.diffMs))
 
     /** "4 more songs  ·  1 fewer artist", "same number of songs  ·  2 more artists". */
     fun compareCounts(c: RecapCompare): String {

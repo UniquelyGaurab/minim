@@ -388,6 +388,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 6.9.0 b78: debug builds count the Stats tab's frames for the hidden Performance readout
+        PerfMeter.attach(this)
+        PerfMeter.countWhile = { tab == Tab.STATS && !isSettingsOpen }
         // 5.10.1: Take photo was open when Android closed Minim; the camera's result still comes
         // back to this new activity, so remember which file it was writing into
         savedInstanceState?.getString(STATE_CAMERA_FILE)?.let { profileCameraFile = java.io.File(it) }
@@ -7073,23 +7076,68 @@ class MainActivity : AppCompatActivity() {
     /** Loads one period's numbers into the period layout (read only). */
     private fun loadStatsPeriod(p: StatsPeriods.Period) {
         if (!::statsPeriodView.isInitialized) return
+        // 6.9.0 b78: a pill shows what it last showed at once (today's), then refreshes quietly
+        val dayKey = Days.key(java.time.LocalDate.now())
+        statsPeriodModels[p]?.takeIf { it.first == dayKey }?.let { statsPeriodView.setModel(it.second) }
         statsPeriodLoads.request(p)
+    }
+
+    /** 6.9.0 b78: each pill's last model (day key, model), so switching pills never waits. */
+    private val statsPeriodModels = java.util.EnumMap<StatsPeriods.Period, Pair<Int, StatsPeriodView.Model>>(StatsPeriods.Period::class.java)
+    private var statsPrefetchJob: Job? = null
+
+    /** For the Performance screen: each pill's and each Reprise's last load time (ms). */
+    internal val perfTimes = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /**
+     * 6.9.0 b78: when Stats opens, the pills not on screen are loaded in the background one after
+     * another (own job, so the pill on screen and the live refresh never cancel it).
+     */
+    private fun prefetchStatsPeriods() {
+        if (!::statsPeriodView.isInitialized || statsPrefetchJob?.isActive == true) return
+        statsPrefetchJob = lifecycleScope.launch {
+            val today = java.time.LocalDate.now()
+            val dayKey = Days.key(today)
+            for (p in StatsPeriods.Period.values()) {
+                if (p == statsPeriodView.period || statsPeriodModels[p]?.first == dayKey) continue
+                try {
+                    val t = android.os.SystemClock.elapsedRealtime()
+                    val l = StatsPeriodLoad.load(app.database, p, today)
+                    val rows = statsPeriodInsights[p]?.takeIf { it.first == dayKey }?.third
+                        ?: StatsPeriodLoad.insights(app.database, app.fermataBridge, l).also {
+                            statsPeriodInsights[p] = Triple(dayKey, android.os.SystemClock.elapsedRealtime(), it)
+                        }
+                    val m = withContext(Dispatchers.Default) { StatsPeriodLoad.assemble(l, rows) }
+                    statsPeriodModels[p] = dayKey to m
+                    perfTimes["pill ${p.name} (background)"] = android.os.SystemClock.elapsedRealtime() - t
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
+            }
+        }
     }
 
     /** The hero, bars, Top 5s and boxes first; the insights after (kept for a minute per pill). */
     private suspend fun runStatsPeriodLoad(p: StatsPeriods.Period) {
         val today = java.time.LocalDate.now()
         val dayKey = Days.key(today)
+        val t0 = android.os.SystemClock.elapsedRealtime()
         val l = StatsPeriodLoad.load(app.database, p, today)
         val kept = statsPeriodInsights[p]?.takeIf { it.first == dayKey }
         val fast = withContext(Dispatchers.Default) { StatsPeriodLoad.assemble(l, kept?.third ?: emptyList()) }
+        if (kept != null || statsPeriodModels[p]?.first != dayKey) statsPeriodModels[p] = dayKey to fast
         if (statsPeriodView.period != p) return
-        statsPeriodView.setModel(fast)
+        // without insights yet, a kept model (which has them) stays up until the full one is ready
+        if (kept != null || statsPeriodModels[p]?.second === fast) statsPeriodView.setModel(fast)
+        perfTimes["pill ${p.name}"] = android.os.SystemClock.elapsedRealtime() - t0
         val now = android.os.SystemClock.elapsedRealtime()
         if (kept != null && now - kept.second < STATS_INSIGHTS_KEEP_MS) return
         val rows = StatsPeriodLoad.insights(app.database, app.fermataBridge, l)
         statsPeriodInsights[p] = Triple(dayKey, android.os.SystemClock.elapsedRealtime(), rows)
         val full = withContext(Dispatchers.Default) { StatsPeriodLoad.assemble(l, rows) }
+        statsPeriodModels[p] = dayKey to full
+        perfTimes["pill ${p.name} + insights"] = android.os.SystemClock.elapsedRealtime() - t0
         if (statsPeriodView.period == p) statsPeriodView.setModel(full)
     }
 
@@ -7197,7 +7245,8 @@ class MainActivity : AppCompatActivity() {
         teaserTickJob = null
         val ticking = t.phase == RepriseClock.Phase.DAYS || t.phase == RepriseClock.Phase.TOMORROW ||
             t.phase == RepriseClock.Phase.HOURS || t.phase == RepriseClock.Phase.FINAL_HOUR
-        if (ticking) {
+        // 6.9.0 b78: the teaser only ticks while Stats is on screen; it catches up when Stats is back
+        if (ticking && StatsLive.visible(tab == Tab.STATS, isNowPlayingOpen, isSettingsOpen, wasStopped)) {
             val wait = minOf(RepriseClock.tickMs(t), (t.msLeft).coerceAtLeast(250L))
             teaserTickJob = lifecycleScope.launch {
                 kotlinx.coroutines.delay(wait)
@@ -7255,14 +7304,14 @@ class MainActivity : AppCompatActivity() {
             else com.minim.music.data.stats.RepriseScope.Period.MONTH
             val (data, scope) = com.minim.music.data.local.RepriseLoader.scope(app.database, app.fermataBridge, period, start)
             if (data.stats.totalMs <= 0L) null
-            else PeriodOpen(data, scope, preparePeriodStory(data, dark, photoWaitMs), dark).also { warmPeriodArt(it) }
+            else PeriodOpen(data, scope, preparePeriodStory(data, dark, photoWaitMs, palWaitMs = if (photoWaitMs <= 800L) OPEN_ART_WAIT_MS else 1_500L), dark).also { warmPeriodArt(it) }
         }
     }
 
     /** 6.9.0 b76: builds a dropped (or previewed) Weekly/Monthly Reprise ahead of the tap. */
     private fun prewarmPeriod(isWeek: Boolean, start: java.time.LocalDate) {
         if (recapStory != null) return
-        obtainPeriod(isWeek, start, photoWaitMs = 6_000L)
+        obtainPeriod(isWeek, start, photoWaitMs = 1_500L)
     }
 
     /** Fetches the story's covers and photos ahead (into the artwork caches), off the tap. */
@@ -7301,17 +7350,24 @@ class MainActivity : AppCompatActivity() {
     private fun openPeriodReprise(isWeek: Boolean, start: java.time.LocalDate, atCard: Boolean) {
         if (recapStory != null || recapStoryOpening) return
         recapStoryOpening = true
+        val t0 = android.os.SystemClock.elapsedRealtime()
+        val perfKey = if (isWeek) "Reprise Weekly open" else "Reprise Monthly open"
         // 6.9.0 b76: built ahead, it opens at once; otherwise the loading state shows while it builds
         val ready = periodCache.get(periodKey(isWeek, start))?.takeIf { it.dark == app.preferences.isDarkTheme }
         if (ready != null) {
             recapStoryOpening = false
             openBuiltPeriod(isWeek, ready, atCard)
+            perfTimes[perfKey] = android.os.SystemClock.elapsedRealtime() - t0
             return
         }
         val loading = showRepriseLoading(isWeek)
         lifecycleScope.launch {
+            var finished = false
             val opened = try {
-                obtainPeriod(isWeek, start, photoWaitMs = 800L).await()
+                // 6.9.0 b78: never waits for good; on a timeout it says so instead of sitting there
+                withRealTimeout(REPRISE_OPEN_TIMEOUT_MS) {
+                    obtainPeriod(isWeek, start, photoWaitMs = 300L).await().also { finished = true }
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 recapStoryOpening = false
                 loading?.dismiss()
@@ -7324,12 +7380,18 @@ class MainActivity : AppCompatActivity() {
                 loading?.dismiss()
                 return@launch
             }
+            if (!finished) {
+                loading?.dismiss()
+                showNote("Your Reprise is taking too long. Try again in a moment")
+                return@launch
+            }
             if (opened == null) {
                 loading?.dismiss()
                 showNote(if (isWeek) "Nothing to Reprise for that week yet" else "Nothing to Reprise for that month yet")
                 return@launch
             }
             openBuiltPeriod(isWeek, opened, atCard)
+            perfTimes[perfKey] = android.os.SystemClock.elapsedRealtime() - t0
             loading?.dismiss()
         }
     }
@@ -7346,10 +7408,10 @@ class MainActivity : AppCompatActivity() {
     internal var lastPeriodOpenedFromCache = false
 
     /** Like prepareRecapStory, for a whole week or month (its top song plays behind the story). */
-    private suspend fun preparePeriodStory(data: com.minim.music.data.local.PeriodData, dark: Boolean, photoWaitMs: Long = 2_500L): RecapPrep {
+    private suspend fun preparePeriodStory(data: com.minim.music.data.local.PeriodData, dark: Boolean, photoWaitMs: Long = 2_500L, palWaitMs: Long = OPEN_ART_WAIT_MS): RecapPrep {
         val recap = data.stats
         val artwork = app.artworkPipeline
-        val storyPal = try { RecapCard.palette(artwork, recap, dark) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { Pal.build(0, dark) }
+        val storyPal = RecapCard.coverUrl(recap)?.let { quickPals(listOf(it), dark, palWaitMs)[it] } ?: Pal.build(0, dark)
         val day = try {
             withContext(Dispatchers.Default) { RecapDay.compute(recap, data.plays, data.listens, data.tapeListens) }
         } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { RecapDay.NONE }
@@ -7361,14 +7423,7 @@ class MainActivity : AppCompatActivity() {
         recap.topArtist?.name?.let { app.preferences.artistPhoto(it) }?.let { urls.add(it) }
         recap.tapes.topChannel?.let { statsChannelPhotos[it.key] }?.let { urls.add(it) }
         recap.tapes.topTape?.thumbnailUrl?.let { urls.add(it) }
-        val pals = HashMap<String, Pal>()
-        for (u in urls) {
-            if (u.isBlank()) continue
-            try {
-                val seed = artwork.extractAccentForUrl(u)
-                if (seed != 0) pals[u] = Pal.build(seed, dark)
-            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {}
-        }
+        val pals = quickPals(urls, dark, palWaitMs)
         val top = recap.topSong?.let { s ->
             val saved = try { app.database.getTracksByIds(listOf(s.trackId)).firstOrNull() } catch (_: Exception) { null }
             saved ?: Track(s.trackId, s.title, s.artist, 0L, s.thumbnailUrl, "https://music.youtube.com/watch?v=${s.trackId}")
@@ -7430,7 +7485,7 @@ class MainActivity : AppCompatActivity() {
             sheetHeading(box, title, sub)
             val v = layoutInflater.inflate(R.layout.sheet_recap_popup, box, false)
             v.findViewById<TextView>(R.id.recap_popup_line).apply {
-                text = if (due.totalMs > 0L) "${StatsFormat.duration(due.totalMs)} of listening, wrapped." else "Your ${if (due.isWeek) "week" else "month"}, wrapped."
+                text = if (due.totalMs > 0L) "${com.minim.music.data.stats.TimeFormat.reprise(due.totalMs)} of listening, wrapped." else "Your ${if (due.isWeek) "week" else "month"}, wrapped."
                 visibility = View.VISIBLE
             }
             v.findViewById<View>(R.id.recap_popup_dive_in).setOnClickListener {
@@ -7491,8 +7546,15 @@ class MainActivity : AppCompatActivity() {
         app.playbackController.liveStats = tab == Tab.STATS && !wasStopped && !isNowPlayingOpen
         if (statsLiveDirty && tab == Tab.STATS && !isNowPlayingOpen && !isSettingsOpen) {
             statsLiveDirty = false
-            refreshStats(live = true)
+            // 6.9.0 b78: catches up just after Now Playing (or Settings) has finished closing, so
+            // the reload and its re-layout don't land on the closing animation's last frames
+            window.decorView.removeCallbacks(statsCatchUp)
+            window.decorView.postDelayed(statsCatchUp, STATS_CATCH_UP_DELAY_MS)
         }
+    }
+
+    private val statsCatchUp = Runnable {
+        if (tab == Tab.STATS && !isNowPlayingOpen && !isSettingsOpen) refreshStats(live = true)
     }
 
     private fun refreshStats(live: Boolean = false) {
@@ -7607,6 +7669,8 @@ class MainActivity : AppCompatActivity() {
         // the refresh just below glides any that changed. Called before the tab changes over.
         if (tab != Tab.STATS) statsScreen.countUp()
         refreshStats()
+        // 6.9.0 b78: the other pills load in the background, so switching to them is instant
+        window.decorView.postDelayed({ prefetchStatsPeriods() }, 600L)
     }
 
     /** "new" next to stats until the tab is opened once, then a dot while a recap is unchecked. */
@@ -8067,6 +8131,9 @@ class MainActivity : AppCompatActivity() {
         prewarmPeriod(false, java.time.LocalDate.now().withDayOfMonth(1))
         openSheet { box ->
             sheetHeading(box, "Previews", "Only you can see these")
+            if (PerfMeter.isDebug(this)) sheetAction(box, R.drawable.ic_speed, "Performance") {
+                closeSheet { showPerformance() }
+            }
             sheetAction(box, R.drawable.ic_sparkle, "Festival theme preview") {
                 closeSheet { app.toggleThemePreview { showPreviewToast(it) } }
             }
@@ -8096,6 +8163,28 @@ class MainActivity : AppCompatActivity() {
                     previewReprisePopup(false)
                     showNote("Go back to Home to see it")
                 }
+            }
+        }
+    }
+
+    /** 6.9.0 b78: the hidden Performance readout (debug builds only): load times, frames, StrictMode. */
+    private fun showPerformance() {
+        openSheet { box ->
+            sheetHeading(box, "Performance", "Screenshot this and send it")
+            val text = android.widget.TextView(this).apply {
+                setTextIsSelectable(true)
+                textSize = 13f
+                typeface = android.graphics.Typeface.MONOSPACE
+                box.findViewById<TextView>(R.id.sheet_heading)?.let { setTextColor(it.currentTextColor) }
+                val pad = dpPx(20f)
+                setPadding(pad, dpPx(4f), pad, dpPx(8f))
+                text = PerfMeter.report(perfTimes)
+            }
+            box.addView(text)
+            sheetAction(box, R.drawable.ic_history, "Reset frame count") {
+                PerfMeter.resetFrames()
+                PerfMeter.clearViolations()
+                text.text = PerfMeter.report(perfTimes)
             }
         }
     }
@@ -8727,7 +8816,7 @@ class MainActivity : AppCompatActivity() {
                 else "${recap.songs} ${getString(R.string.stats_songs)}"
                 // 5.7.0 u51: songs and tapes together
                 if (recap.tapes.tapes > 0) songs += ", ${statsScreen.tapesText(recap.tapes.tapes)}"
-                text = getString(R.string.recap_popup_line, StatsFormat.duration(recap.totalMs), songs)
+                text = getString(R.string.recap_popup_line, com.minim.music.data.stats.TimeFormat.reprise(recap.totalMs), songs)
                 visibility = View.VISIBLE
             }
             v.findViewById<View>(R.id.recap_popup_dive_in).setOnClickListener {
@@ -9264,10 +9353,16 @@ class MainActivity : AppCompatActivity() {
         val recap = day ?: recapStats ?: return
         if (day == null || day.day == recapStats?.day) markRecapViewed(recap)
         recapStoryOpening = true
+        val t0 = android.os.SystemClock.elapsedRealtime()
         lifecycleScope.launch {
             val dark = app.preferences.isDarkTheme
+            // 6.9.0 b78: never stuck: if the day's extras take too long it opens with what it has
             val prep = try {
-                prepareRecapStory(recap, dark)
+                withRealTimeout(REPRISE_OPEN_TIMEOUT_MS) { prepareRecapStory(recap, dark) } ?: run {
+                    recapStoryOpening = false
+                    showNote("Your Reprise is taking too long. Try again in a moment")
+                    return@launch
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 recapStoryOpening = false
                 throw e
@@ -9277,7 +9372,43 @@ class MainActivity : AppCompatActivity() {
             recapStoryOpening = false
             if (isFinishing || isDestroyed || recapStory != null) return@launch
             showRecapStory(recap, prep, atCard)
+            perfTimes["Reprise Daily open"] = android.os.SystemClock.elapsedRealtime() - t0
         }
+    }
+
+    /**
+     * 6.9.0 b78: each picture's colours, waiting at most [waitMs] for all of them together. They
+     * used to be fetched one after another from the network with no time limit, so a slow or stuck
+     * picture held the Reprise on its loading state for good. What isn't back in time uses the
+     * plain colours; the fetch carries on in the background, so the next open has it.
+     */
+    /**
+     * 6.9.0 b78: [block] (run where it is called), or null after [ms] of real time. The timer runs
+     * off the main thread, so it keeps time even while the main thread is busy.
+     */
+    private suspend fun <T> withRealTimeout(ms: Long, block: suspend () -> T): T? = kotlinx.coroutines.coroutineScope {
+        val work = async { block() }
+        val timer = async(Dispatchers.Default) { kotlinx.coroutines.delay(ms) }
+        kotlinx.coroutines.selects.select<T?> {
+            work.onAwait { timer.cancel(); it }
+            timer.onAwait { work.cancel(); null }
+        }
+    }
+
+    private suspend fun quickPals(urls: Collection<String>, dark: Boolean, waitMs: Long): Map<String, Pal> {
+        val artwork = app.artworkPipeline
+        val jobs = urls.filter { it.isNotBlank() }.distinct().associateWith { u ->
+            lifecycleScope.async(Dispatchers.IO) { try { artwork.extractAccentForUrl(u) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { 0 } }
+        }
+        if (jobs.isEmpty()) return emptyMap()
+        withRealTimeout(waitMs) { jobs.values.forEach { it.join() } }
+        val out = HashMap<String, Pal>()
+        for ((u, d) in jobs) {
+            if (!d.isCompleted || d.isCancelled) continue
+            val seed = try { d.getCompleted() } catch (_: Exception) { 0 }
+            if (seed != 0) out[u] = Pal.build(seed, dark)
+        }
+        return out
     }
 
     private class RecapPrep(
@@ -9289,10 +9420,10 @@ class MainActivity : AppCompatActivity() {
         val more: com.minim.music.data.stats.RecapMore
     )
 
-    private suspend fun prepareRecapStory(recap: DayStats, dark: Boolean): RecapPrep {
+    private suspend fun prepareRecapStory(recap: DayStats, dark: Boolean, palWaitMs: Long = OPEN_ART_WAIT_MS): RecapPrep {
         val artwork = app.artworkPipeline
         // Colours from the day's top song cover (black and white when there's no cover)
-        val storyPal = try { RecapCard.palette(artwork, recap, dark) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { Pal.build(0, dark) }
+        val storyPal = RecapCard.coverUrl(recap)?.let { quickPals(listOf(it), dark, palWaitMs)[it] } ?: Pal.build(0, dark)
         val db = app.database
         val day = try {
             val plays = db.getDayPlays(recap.day)
@@ -9304,7 +9435,7 @@ class MainActivity : AppCompatActivity() {
         // Each slide's own colours: from its cover or photo
         // 6.9.0 b76: the top artist's and channel's photos are looked up now (a short wait at most),
         // not only taken from what was cached, so their slides and the card have them from the start
-        resolveRecapPhotos(recap)
+        resolveRecapPhotos(recap, OPEN_ART_WAIT_MS)
         val urls = LinkedHashSet<String>()
         day.first?.thumbnailUrl?.let { urls.add(it) }
         more.firstListens.firstOrNull()?.thumbnailUrl?.let { urls.add(it) }
@@ -9313,14 +9444,7 @@ class MainActivity : AppCompatActivity() {
         recap.topArtist?.name?.let { app.preferences.artistPhoto(it) }?.let { urls.add(it) }
         recap.tapes.topChannel?.let { statsChannelPhotos[it.key] }?.let { urls.add(it) }
         recap.tapes.topTape?.thumbnailUrl?.let { urls.add(it) }
-        val pals = HashMap<String, Pal>()
-        for (u in urls) {
-            if (u.isBlank()) continue
-            try {
-                val seed = artwork.extractAccentForUrl(u)
-                if (seed != 0) pals[u] = Pal.build(seed, dark)
-            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {}
-        }
+        val pals = quickPals(urls, dark, palWaitMs)
         // 5.8.3 u55: no blurred cover anywhere in the recap, only solid colours from the covers
         val top = recap.topSong?.let { s ->
             val saved = try { db.getTracksByIds(listOf(s.trackId)).firstOrNull() } catch (_: Exception) { null }
@@ -13266,6 +13390,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        /** 6.9.0 b78: how long opening a Reprise waits for pictures' colours and photos. */
+        const val OPEN_ART_WAIT_MS = 250L
+        /** 6.9.0 b78: Stats catches up this long after what covered it has closed. */
+        const val STATS_CATCH_UP_DELAY_MS = 450L
+        /** 6.9.0 b78: the loading state gives up after this and says so (it never stays stuck). */
+        const val REPRISE_OPEN_TIMEOUT_MS = 4_000L
         /** 6.8.0 (71): Haze's key for "no cover, the Dark look", and the cover size it reads. */
         private const val HAZE_KEY_DARK = "haze:dark"
         private const val HAZE_COVER_PX = 160

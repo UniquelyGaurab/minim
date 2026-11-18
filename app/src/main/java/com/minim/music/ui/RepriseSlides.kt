@@ -1,5 +1,7 @@
 package com.minim.music.ui
 
+import com.minim.music.data.stats.TimeFormat
+
 import com.minim.music.data.stats.DayStats
 import com.minim.music.data.stats.RecapMoreMath
 import com.minim.music.data.stats.RepriseScope
@@ -94,7 +96,7 @@ object RepriseRoast {
         val song = s.topSong
         val title = song?.let { Greetings.shortTitle(it.title, it.artist, 20) }
         val artist = s.topArtist?.name?.let { Greetings.shortArtist(it, 16) }
-        val time = StatsFormat.duration(sc.totalMs)
+        val time = TimeFormat.reprise(sc.totalMs)
         if (song != null && title != null && song.plays >= (if (sc.isWeek) 12 else 30)) {
             out.add("$title, ${song.plays} times this $w." to "It's asking for a restraining order.")
         } else if (song != null && title != null && song.plays >= 6) {
