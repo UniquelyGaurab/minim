@@ -1,5 +1,6 @@
 package com.minim.music.ui
 
+import kotlinx.coroutines.launch
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
@@ -83,7 +84,9 @@ class RecapStory(
     private val onSound: (Boolean) -> Unit,
     private val onClosed: () -> Unit,
     /** 6.9.0: a Weekly or Monthly Reprise (null: the Daily one). */
-    private val scope: com.minim.music.data.stats.RepriseScope? = null
+    private val scope: com.minim.music.data.stats.RepriseScope? = null,
+    /** 6.9.0 b77: the name for "Shared by" on a slide's share card (blank: left out). */
+    private val sharedBy: String? = null
 ) : FrameLayout(context) {
 
     /**
@@ -105,6 +108,7 @@ class RecapStory(
     private val bold: Typeface = font(R.font.poppins_bold, Typeface.DEFAULT_BOLD)
     private val semi: Typeface = font(R.font.poppins_semibold, Typeface.DEFAULT_BOLD)
     private val regular: Typeface = font(R.font.poppins_regular, Typeface.DEFAULT)
+    private val medium: Typeface = font(R.font.poppins_medium, Typeface.DEFAULT)
 
     private val slides: List<Kind> = scope?.let { RepriseSlides.plan(it, stats, day, roast != null, persona != null) }
         ?: RecapSlides.plan(stats, day, roast != null, more)
@@ -168,6 +172,13 @@ class RecapStory(
     // Steps of the current slide that happen at a set time into it (driven by its bar, so they wait while held)
     private val phases = ArrayList<Pair<Long, () -> Unit>>()
     private var guessed = false
+    /** 6.9.0 b77: shows the guess's answer at once, for a still of the slide (null: not the guess). */
+    private var guessReveal: (() -> Unit)? = null
+    // 6.9.0 b77: share any slide
+    private val shareButton = ImageView(context)
+    private var shareSheet: FrameLayout? = null
+    private var sharing = false
+    private var shareJob: kotlinx.coroutines.Job? = null
 
     // touch
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
@@ -212,6 +223,18 @@ class RecapStory(
             }
         }
         addView(soundButton, LayoutParams(dp(36f), dp(36f)).apply { gravity = Gravity.END or Gravity.TOP; rightMargin = dp(8f) })
+        shareButton.apply {
+            setImageResource(R.drawable.ic_share)
+            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
+            contentDescription = "Share this slide"
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                tick(it)
+                shareSlide()
+            }
+        }
+        addView(shareButton, LayoutParams(dp(40f), dp(40f)).apply { gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL })
         noteView.apply {
             typeface = semi
             textSize = 13f
@@ -228,13 +251,21 @@ class RecapStory(
             (progress.layoutParams as LayoutParams).topMargin = bars.top + dp(10f)
             (dateLabel.layoutParams as LayoutParams).topMargin = bars.top + dp(22f)
             (soundButton.layoutParams as LayoutParams).topMargin = bars.top + dp(14f)
-            slideHost.setPadding(0, bars.top + dp(48f), 0, bars.bottom + dp(16f))
+            // 6.9.0 b77: room at the bottom for the share button, so it never sits on a slide's content
+            slideHost.setPadding(0, bars.top + dp(48f), 0, bars.bottom + dp(SHARE_ROOM))
+            (shareButton.layoutParams as LayoutParams).bottomMargin = bars.bottom + dp(10f)
             (noteView.layoutParams as LayoutParams).bottomMargin = bars.bottom + dp(84f)
             progress.requestLayout()
             insets
         }
         index = if (startAtCard) slides.size - 1 else 0
     }
+
+    internal val shareButtonView: View get() = shareButton
+    internal val isSharing: Boolean get() = sharing
+    internal val shareSheetView: View? get() = shareSheet
+    /** For tests: jumps to slide [i]. */
+    internal fun showForTest(i: Int) = show(i, forward = true)
 
     /** The slides this story shows, in order (for tests). */
     internal val kinds: List<Kind> get() = slides
@@ -297,6 +328,10 @@ class RecapStory(
     /** For MainActivity's Back handling: closes the story. Returns true when it was showing. */
     fun onBack(): Boolean {
         if (closing) return false
+        if (sharing) {
+            closeShareSheet()
+            return true
+        }
         close()
         return true
     }
@@ -351,6 +386,7 @@ class RecapStory(
         dateLabel.setTextColor(look.muted)
         soundButton.setColorFilter(look.muted)
         progress.setColors(look.fg)
+        paintShareButton(look)
         progress.set(i, 0f)
         onBars(ColorUtils.calculateLuminance(look.bg) > 0.5)
 
@@ -358,12 +394,15 @@ class RecapStory(
         animator = null
         stopMotion()
         guessed = false
+        guessReveal = null
         slideHost.removeAllViews()
         cardImage = null
         cardPills = null
         artistImage = null
         channelImage = null
         val kind = slides[i]
+        // The Daily card has its own share and save; every other slide gets the share button
+        shareButton.visibility = if (kind == Kind.CARD && scope == null) View.GONE else View.VISIBLE
         val v = build(kind, look)
         StoryArt.noClip(v)
         prefetchAfter(i)
@@ -633,7 +672,7 @@ class RecapStory(
         Kind.STREAK -> buildStreak(look)
         Kind.ROAST -> buildRoast(look)
         Kind.PERSONA -> buildPersona(look)
-        Kind.CARD -> buildCard(look)
+        Kind.CARD -> if (scope == null) buildCard(look) else buildPeriodEnd(look, scope)
         Kind.WEEK_DAYS -> buildWeekDays(look)
         Kind.SOUNDTRACK -> buildCoverStrip(look, true)
         Kind.ANTHEMS -> buildCoverStrip(look, false)
@@ -795,7 +834,7 @@ class RecapStory(
         val options = RecapGuess.options(day, stats.day)!!
         val answer = day.top[0].trackId
         col.addView(label(if (scope?.isWeek == true) "Guess your song of the week" else "Guess your top song", 26f, bold, look.fg))
-        col.addView(label("Tap the one you played most.", 15f, regular, look.muted, top = 8f))
+        col.addView(label("Tap the one you played most.", 15f, regular, look.muted, top = 8f).apply { tag = HINT })
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
@@ -839,6 +878,21 @@ class RecapStory(
         col.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(28f) })
         col.addView(reply)
         col.addView(title)
+        // 6.9.0 b77: a still of the guess shows the answer, as if picked (no pick: "It was this one.")
+        guessReveal = {
+            for ((j, t) in tiles.withIndex()) {
+                val isAnswer = options[j].trackId == answer
+                t.animate().cancel()
+                t.alpha = if (isAnswer) 1f else 0.3f
+                val sc = if (isAnswer) StoryArt.GUESS_GROW else 0.92f
+                t.scaleX = sc; t.scaleY = sc
+                if (isAnswer) t.elevation = dp(10f).toFloat()
+            }
+            if (!guessed) reply.setText(R.string.recap_guess_reveal)
+            title.text = day.top[0].title
+            reply.alpha = 1f; reply.translationY = 0f
+            title.alpha = 1f; title.translationY = 0f
+        }
         return col
     }
 
@@ -912,7 +966,7 @@ class RecapStory(
             else if (s.plays == 1) "Played once" else "Played ${s.plays} times"
         val plays = label(playsText, 16f, semi, look.fg, top = 14f)
         col.addView(plays)
-        val hint = label("tap the cover to play it", 12f, regular, look.muted, top = 18f)
+        val hint = label("tap the cover to play it", 12f, regular, look.muted, top = 18f).apply { tag = HINT }
         col.addView(hint)
         reveal.addView(col, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         reveal.visibility = View.INVISIBLE
@@ -920,11 +974,12 @@ class RecapStory(
         plays.alpha = 0f
         hint.alpha = 0f
         at(RecapSlides.top5RevealAt(rest.size)) {
+            // 6.9.0 b77: tracked, so a still of the slide can jump straight to the end
             if (rest.isNotEmpty()) {
-                list.animate().alpha(0f).scaleX(0.94f).scaleY(0.94f).setDuration(280).start()
+                tween(280L) { f -> list.alpha = 1f - f; list.scaleX = 1f - 0.06f * f; list.scaleY = list.scaleX }
             }
             reveal.visibility = View.VISIBLE
-            reveal.animate().alpha(1f).setDuration(420).setInterpolator(DecelerateInterpolator()).start()
+            tween(420L) { f -> reveal.alpha = f }
             scaleIn(disc, 0L, from = 0.3f)
             scaleIn(img, 120L, from = 0.6f)
             wordsIn(title, s.title, 520L)
@@ -959,7 +1014,7 @@ class RecapStory(
             col.addView(st)
             riseIn(st, 1_600L)
         }
-        val hint = label("tap to open their page", 12f, regular, look.muted, top = 18f)
+        val hint = label("tap to open their page", 12f, regular, look.muted, top = 18f).apply { tag = HINT }
         col.addView(hint)
         riseIn(hint, 2_000L)
         return col
@@ -1420,7 +1475,8 @@ class RecapStory(
         for ((i, img) in covers.withIndex()) {
             img.rotation = if (i % 2 == 0) -6f else 6f
             scaleIn(img, 800L + i * 230L, from = 0.4f)
-            at(800L + i * 230L) { img.animate().rotation(0f).setDuration(420).start() }
+            val from = img.rotation
+            at(800L + i * 230L) { tween(420L) { f -> img.rotation = from * (1f - f) } }
         }
         val after = 800L + covers.size * 230L + 300L
         RecapMoreMath.moreLine(all.size, RecapMoreMath.GRID_MAX)?.let {
@@ -1432,7 +1488,7 @@ class RecapStory(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = dp(16f); gravity = Gravity.CENTER_HORIZONTAL })
         pill.maxWidth = avail
-        val hint = label("tap a cover to see what it is", 12f, regular, look.muted, top = 10f)
+        val hint = label("tap a cover to see what it is", 12f, regular, look.muted, top = 10f).apply { tag = HINT }
         col.addView(hint)
         riseIn(hint, after + 300L)
         return col
@@ -1634,6 +1690,274 @@ class RecapStory(
         return col
     }
 
+    /** 6.9.0 b77: the Weekly and Monthly end: the period in one still, with "share this slide". */
+    private fun buildPeriodEnd(look: Look, sc: com.minim.music.data.stats.RepriseScope): View {
+        val col = column()
+        col.addView(label(if (sc.isWeek) "That was your week" else "That was ${sc.title}", 28f, bold, look.fg))
+        col.addView(label(sc.label, 15f, regular, look.muted, top = 6f, lines = 1))
+        val time = label(StatsFormat.duration(stats.totalMs), 44f, bold, look.fg, top = 22f, lines = 1)
+        col.addView(time)
+        col.addView(label("listened", 14f, regular, look.muted, top = 2f, lines = 1))
+        val top = day.top.firstOrNull()
+        if (top != null) {
+            val img = image(132f, round = false, look = look, top = 26f, radius = 20f)
+            cover(img, top.thumbnailUrl, 132f, top.trackId)
+            col.addView(img)
+            scaleIn(img, 200L, from = 0.85f)
+            col.addView(label(top.title, 17f, semi, look.fg, top = 14f, lines = 1))
+            val sub = listOfNotNull(top.artist.takeIf { it.isNotBlank() }, plays(top.plays)).joinToString("  ·  ")
+            col.addView(label(sub, 13f, regular, look.muted, top = 2f, lines = 1))
+        }
+        stats.topArtist?.let { a ->
+            col.addView(label("Top artist  ·  ${a.name}", 14f, semi, look.fg, top = 16f, lines = 1))
+        }
+        // The pills are the story's, not the slide's: a still leaves them out
+        val pills = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; tag = HINT }
+        pills.addView(pill("share this slide", filled = true, look = look) { shareSlide() },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(46f)))
+        if (!sc.isWeek && day.ranked.isNotEmpty()) {
+            pills.addView(pill("save as playlist", filled = false, look = look) { onSavePlaylist() },
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(46f)).apply { topMargin = dp(10f) })
+        }
+        col.addView(pills, matchWrap(24f))
+        riseIn(pills, 350L, dist = 10f)
+        return col
+    }
+
+    /** 6.9.0 b77: a tracked animation, so a still of the slide can jump it to its end. */
+    private fun tween(ms: Long, step: (Float) -> Unit) {
+        track(ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = ms
+            interpolator = DecelerateInterpolator()
+            addUpdateListener { step(it.animatedValue as Float) }
+            start()
+            if (held) pause()
+        })
+    }
+
+    private fun paintShareButton(look: Look) {
+        shareButton.setColorFilter(look.fg)
+        shareButton.background = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.OVAL
+            setColor(ColorUtils.blendARGB(look.bg, look.fg, 0.12f))
+        }
+    }
+
+    /**
+     * Jumps the slide showing now to its final state: every timed step done, every animation at its
+     * end, the guess answered. Steps can start more animations, so it goes round until all is still.
+     */
+    internal fun settleSlide() {
+        guessReveal?.invoke()
+        for (round in 0 until 8) {
+            runPhases(Long.MAX_VALUE)
+            val m = ArrayList(motion)
+            if (m.isEmpty() && phases.isEmpty()) break
+            motion.removeAll(m.toSet())
+            for (a in m) {
+                try {
+                    if (a.isPaused) a.resume()
+                    a.end()
+                } catch (_: Exception) {
+                }
+            }
+        }
+        guessReveal?.invoke()
+    }
+
+    /**
+     * The slide showing now as a still: final state, no hints or story pills, pictures that were
+     * still fading in shown in full. Main thread (it draws the views). Null when there's no slide.
+     */
+    internal fun slideStill(): Bitmap? {
+        val v = slideHost.getChildAt(0) ?: return null
+        if (v.width <= 0 || v.height <= 0) return null
+        v.animate().cancel()
+        v.alpha = 1f
+        v.translationX = 0f
+        settleSlide()
+        val hidden = ArrayList<View>()
+        val images = ArrayList<ImageView>()
+        fun walk(x: View) {
+            if (x.tag == HINT && x.visibility == View.VISIBLE) hidden.add(x)
+            if (x is ImageView) images.add(x)
+            if (x is ViewGroup) for (k in 0 until x.childCount) walk(x.getChildAt(k))
+        }
+        walk(v)
+        images.forEach { com.minim.music.util.ArtworkFade.cancel(it) }
+        hidden.forEach { it.visibility = View.INVISIBLE }
+        return try {
+            val bmp = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
+            v.draw(android.graphics.Canvas(bmp))
+            bmp
+        } catch (_: Throwable) {
+            null
+        } finally {
+            hidden.forEach { it.visibility = View.VISIBLE }
+        }
+    }
+
+    /** The period on a slide's card: the day, the week's dates or the month. */
+    internal val periodLabel: String get() = SlideCard.period(scope, stats.day)
+
+    /** The card for the slide showing now (main thread for the still, the rest off it). */
+    internal suspend fun slideCard(still: Bitmap?): Bitmap {
+        val look = currentLook ?: looks[index]
+        val faces = SlideCard.Faces(semi, medium, regular)
+        val period = periodLabel
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            SlideCard.render(still, look.bg, look.fg, look.muted, period, sharedBy, faces)
+        }
+    }
+
+    /**
+     * Share button: pauses the story, turns the slide into a card at once and opens the share sheet
+     * (Share and Save, as on the Daily card). Closing the sheet carries the story on.
+     */
+    private fun shareSlide() {
+        if (sharing || closing) return
+        val look = currentLook ?: return
+        sharing = true
+        removeCallbacks(holdRunnable)
+        if (!held) {
+            held = true
+            animator?.pause()
+            motion.forEach { if (it.isRunning) it.pause() }
+        }
+        // Pictures that are still on their way get a moment to land, then the slide is drawn
+        val preview = openShareSheet(look)
+        shareJob?.cancel()
+        shareJob = storyScope.launch {
+            var waited = 0L
+            while (art.anyPending() && waited < 900L) {
+                kotlinx.coroutines.delay(50L)
+                waited += 50L
+            }
+            val still = slideStill()
+            val card = try {
+                slideCard(still)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                null
+            }
+            if (!sharing || shareSheet == null) return@launch
+            if (card == null) {
+                closeShareSheet()
+                note("Couldn't make the card")
+                return@launch
+            }
+            shareCard = card
+            preview.setImageBitmap(card)
+            preview.alpha = 0f
+            preview.scaleX = 0.96f; preview.scaleY = 0.96f
+            preview.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(240).setInterpolator(DecelerateInterpolator()).start()
+            sharePills?.animate()?.alpha(1f)?.setDuration(160)?.start()
+        }
+    }
+
+    private var shareCard: Bitmap? = null
+    private var sharePills: View? = null
+
+    private fun openShareSheet(look: Look): ImageView {
+        val sheet = FrameLayout(context).apply {
+            setBackgroundColor(ColorUtils.setAlphaComponent(look.bg, 0xF2))
+            isClickable = true
+            isFocusable = true
+            elevation = dp(4f).toFloat()
+            setOnClickListener { closeShareSheet() }
+        }
+        val col = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+        val placeholder = android.graphics.drawable.GradientDrawable().apply {
+            cornerRadius = dp(18f).toFloat()
+            setColor(ColorUtils.blendARGB(look.bg, look.fg, 0.1f))
+        }
+        val img = ImageView(context).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            adjustViewBounds = true
+            clipToOutline = true
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    // Round the card itself: 9:16 fitted in the view
+                    val vw = view.width.toFloat()
+                    val vh = view.height.toFloat()
+                    val s = minOf(vw / SlideCard.W, vh / SlideCard.H)
+                    val w = (SlideCard.W * s).toInt()
+                    val h = (SlideCard.H * s).toInt()
+                    val l = ((vw - w) / 2f).toInt()
+                    val t = ((vh - h) / 2f).toInt()
+                    outline.setRoundRect(l, t, l + w, t + h, dp(18f).toFloat())
+                }
+            }
+            elevation = dp(6f).toFloat()
+            isClickable = true // a tap on the card doesn't close the sheet
+            contentDescription = "Share card"
+        }
+        // A soft card-shaped block while the card is made (a frame or two)
+        val holder = FrameLayout(context)
+        val block = object : View(context) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val h = MeasureSpec.getSize(heightMeasureSpec)
+                val w = MeasureSpec.getSize(widthMeasureSpec)
+                val bw = minOf(w, h * 9 / 16)
+                setMeasuredDimension(bw, minOf(h, bw * 16 / 9))
+            }
+        }.apply { background = placeholder }
+        holder.addView(block, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT, Gravity.CENTER))
+        holder.addView(img, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        img.alpha = 0f
+        col.addView(holder, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            alpha = 0.4f
+        }
+        row.addView(pill("share", filled = true, look = look) { shareCard?.let(onShare) },
+            LinearLayout.LayoutParams(0, dp(48f), 1f).apply { rightMargin = dp(5f) })
+        row.addView(pill("save", filled = false, look = look) { shareCard?.let(onSave) },
+            LinearLayout.LayoutParams(0, dp(48f), 1f).apply { leftMargin = dp(5f) })
+        col.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(16f)
+        })
+        val insets = ViewCompat.getRootWindowInsets(this)?.getInsets(WindowInsetsCompat.Type.systemBars())
+        val top = (insets?.top ?: 0) + dp(36f)
+        val bottom = (insets?.bottom ?: 0) + dp(24f)
+        sheet.addView(col, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT).apply {
+            setMargins(dp(40f), top, dp(40f), bottom)
+        })
+        // Above the slide and its buttons, under the note (so "Saved" still shows)
+        addView(sheet, indexOfChild(noteView).coerceAtLeast(0), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        sheet.alpha = 0f
+        sheet.animate().alpha(1f).setDuration(160).start()
+        shareSheet = sheet
+        sharePills = row
+        shareCard = null
+        return img
+    }
+
+    /** Closes the share sheet and carries the story on from where it was. */
+    internal fun closeShareSheet() {
+        if (!sharing) return
+        sharing = false
+        shareJob?.cancel()
+        shareJob = null
+        val sheet = shareSheet
+        shareSheet = null
+        sharePills = null
+        shareCard = null
+        sheet?.animate()?.alpha(0f)?.setDuration(160)?.withEndAction { removeView(sheet) }?.start()
+        if (closing) return
+        if (index in slides.indices && slides[index] == Kind.GUESS && animator == null) {
+            // The still answered the guess, so its bar runs from here
+            guessed = true
+            startBar(Kind.GUESS)
+        }
+        release()
+    }
+
     private fun pill(text: String, filled: Boolean, look: Look, onClick: () -> Unit): TextView =
         TextView(context).apply {
             this.text = text
@@ -1659,6 +1983,8 @@ class RecapStory(
     // ---- touch: tap left/right, hold to pause, swipe down to close ----------------------------
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+        // The share sheet keeps its own touches (no swipe-to-close under it)
+        if (sharing) return false
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = ev.rawX; downY = ev.rawY; dragging = false
@@ -1677,7 +2003,7 @@ class RecapStory(
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(ev: MotionEvent): Boolean {
-        if (closing) return true
+        if (closing || sharing) return true
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = ev.rawX; downY = ev.rawY; dragging = false
@@ -1993,3 +2319,8 @@ object MusicArt {
     fun big(url: String): String =
         com.minim.music.data.source.MusicSourceAdapter.upscaleYtImage(url, 720)
 }
+
+/** 6.9.0 b77: tags views that belong to the story, not the slide (hints, end pills): a still leaves them out. */
+private const val HINT = "minim.story.hint"
+/** Room under a slide for its share button (dp). */
+private const val SHARE_ROOM = 64f

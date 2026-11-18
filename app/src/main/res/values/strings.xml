@@ -878,4 +878,6 @@
     <string name="search_failed_artists">Couldn\'t search artists. Check your connection and try again.</string>
     <string name="search_failed_albums">Couldn\'t search albums. Check your connection and try again.</string>
     <string name="search_failed_tapes">Couldn\'t search tapes. Check your connection and try again.</string>
+    <!-- 6.9.0 b77: the guess slide as a still, when nobody picked -->
+    <string name="recap_guess_reveal">It was this one.</string>
 </resources>

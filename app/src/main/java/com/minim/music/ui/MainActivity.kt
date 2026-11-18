@@ -334,6 +334,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var queueList: RecyclerView
     /** Keeps the floating mini player on screen (invisible) while it morphs, so it has a place. */
     private var miniHeldForMorph = false
+    /** 6.9.0 b77: the floating pill's slide up from / down off the bottom of the screen. */
+    private lateinit var floatSlide: PillSlide
+    /** The next chrome update moves the floating pill at once (the morph just handed it over). */
+    private var floatInstantOnce = false
     /** This touch started on a mini player pill: a swipe up opens Now Playing. */
     private var downOnMiniPill = false
     private var npSwipeCandidate = false
@@ -581,6 +585,7 @@ class MainActivity : AppCompatActivity() {
         homeListening = findViewById(R.id.home_listening)
         homeMini = Mini(findViewById(R.id.home_mini), findViewById(R.id.home_mini_actions))
         floatMini = Mini(findViewById(R.id.mini_player))
+        floatSlide = PillSlide(floatMini.root) { animationsOn() }
         // 5.7.0 u48: both pills fill from the left as the song plays (the tint stays the Painter's)
         for (mini in listOf(homeMini, floatMini)) {
             val sweep = PillSweepDrawable(animationsOn = { animationsOn() })
@@ -1115,13 +1120,19 @@ class MainActivity : AppCompatActivity() {
         val hasTrack = app.playbackController.uiState.value.currentTrack != null
         // 5.3.0: the import review hides it too (its Save pill sits where the mini player would)
         // 5.5.1: while Settings grows out of / shrinks into the avatar, the screen behind still shows
-        val settingsCovers = isSettingsOpen && !(::settingsReveal.isInitialized && settingsReveal.isRunning)
+        // 6.9.0 b77: the pill slides away as Settings starts growing, and back up as it starts shrinking
+        val settingsCovers = isSettingsOpen && !(::settingsReveal.isInitialized && settingsReveal.isClosing)
         val coveredByPlayer = (isNowPlayingOpen && !miniHeldForMorph) || isLyricsOpen || isQueueOpen || settingsCovers || isImportReviewOpen
         val onScreenThatFloats = isSearchOpen || isListOpen || isShelfOpen || isArtistOpen || tab != Tab.HOME
         // Pop in when playback starts and out when it stops; other changes (navigation) are instant
         val playbackChanged = lastHasTrack != null && lastHasTrack != hasTrack
         lastHasTrack = hasTrack
-        setShown(floatMini.root, hasTrack && !coveredByPlayer && onScreenThatFloats, playbackChanged)
+        // 6.9.0 b77: the floating pill slides up from the bottom edge and back down off it, wherever
+        // it shows or hides. Only the Now Playing morph moves it at once: the pill is the morph's own
+        // start and landing spot, so it must sit exactly at rest. (The Home pill is unchanged.)
+        val instant = miniHeldForMorph || floatInstantOnce
+        floatInstantOnce = false
+        floatSlide.set(hasTrack && !coveredByPlayer && onScreenThatFloats, animate = !instant)
         setShown(homeListening, hasTrack, playbackChanged)
         setShown(homeMini.root, hasTrack, playbackChanged)
         setShown(homeMini.actions, hasTrack, playbackChanged)
@@ -5757,6 +5768,7 @@ class MainActivity : AppCompatActivity() {
         )
         npMorph.onSettled = { open ->
             miniHeldForMorph = false
+            floatInstantOnce = true
             if (open) updateChrome() else collapseNowPlaying()
         }
     }
@@ -5792,6 +5804,8 @@ class MainActivity : AppCompatActivity() {
             return true
         }
         miniHeldForMorph = true
+        // A pill still sliding settles at rest first, so the morph starts from its real spot
+        if (mini === floatMini) floatSlide.set(true, animate = false)
         npMorph.begin(morphSource(mini), 0f)
         expandNowPlaying()
         return true
@@ -8062,12 +8076,6 @@ class MainActivity : AppCompatActivity() {
             sheetAction(box, R.drawable.ic_play, "This month's Monthly Reprise") {
                 closeSheet { openPeriodReprise(false, java.time.LocalDate.now().withDayOfMonth(1), atCard = false) }
             }
-            sheetAction(box, R.drawable.ic_auto_cover, "Weekly card (Receipt)") {
-                closeSheet { openPeriodReprise(true, RepriseClock.weekStart(java.time.LocalDate.now()), atCard = true) }
-            }
-            sheetAction(box, R.drawable.ic_auto_cover, "Monthly card (Calendar)") {
-                closeSheet { openPeriodReprise(false, java.time.LocalDate.now().withDayOfMonth(1), atCard = true) }
-            }
             for (kind in ReprisePreview.Teaser.values()) {
                 sheetAction(box, R.drawable.ic_history, kind.label) {
                     closeSheet {
@@ -9421,7 +9429,8 @@ class MainActivity : AppCompatActivity() {
                 recapMusic?.setMuted(!on)
             },
             onClosed = { onRecapStoryClosed() },
-            scope = scope
+            scope = scope,
+            sharedBy = app.preferences.userName
         )
         recapStory = story
         // Above everything (root's screens, sheets and notes), right up behind the system bars
@@ -9439,9 +9448,10 @@ class MainActivity : AppCompatActivity() {
                 try { kotlinx.coroutines.withTimeoutOrNull(8_000L) { recapChannelPhoto(ch.key, ch.name, ch.channelId) } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
             }
             if (lateChannel != null && recapStory === story) story.setChannelPhoto(lateChannel)
+            // 6.9.0 b77: Weekly and Monthly share any slide instead of a card of their own
+            if (scope != null) return@launch
             val bmp = try {
-                if (scope != null) buildPeriodCard(scope, recap, prep, storyPal, lateArtist)
-                else RecapCard.build(
+                RecapCard.build(
                     this@MainActivity, app.artworkPipeline, recap, storyPal,
                     if (recap.topArtist == null) lateChannel else lateArtist,
                     persona,
@@ -9453,50 +9463,6 @@ class MainActivity : AppCompatActivity() {
                 null
             }
             if (bmp != null && recapStory === story) story.setCard(bmp)
-        }
-    }
-
-    /**
-     * 6.9.0 b76: the Weekly "Receipt" and Monthly "Calendar" cards, with the same images the story
-     * shows (the cover's URL, else the song's own video frame). The Daily card is unchanged.
-     */
-    private suspend fun buildPeriodCard(
-        scope: com.minim.music.data.stats.RepriseScope,
-        recap: DayStats,
-        prep: RecapPrep,
-        pal: Pal,
-        artistPhoto: String?
-    ): android.graphics.Bitmap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-        suspend fun first(urls: List<String>, px: Int): android.graphics.Bitmap? {
-            for (u in urls) {
-                val b = try { app.artworkPipeline.loadBitmap(u, px) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
-                if (b != null) return b
-            }
-            return null
-        }
-        val coverUrls = recap.topSong?.let { StoryArt.coverCandidates(it.thumbnailUrl, it.trackId, MusicArt::big) }?.takeIf { it.isNotEmpty() }
-            ?: recap.tapes.topTape?.let { StoryArt.coverCandidates(it.thumbnailUrl, it.videoId, MusicArt::big) }.orEmpty()
-        val name = app.preferences.userName.trim().takeIf { it.isNotEmpty() }
-        if (scope.isWeek) {
-            val cover = first(coverUrls, 160)
-            RepriseCards.receipt(
-                this@MainActivity,
-                RepriseCards.Week(
-                    scope.start, Days.date(scope.days.lastOrNull() ?: Days.key(scope.start.plusDays(6))),
-                    prep.day.top, recap.songs, recap.tapes.tapes, recap.topArtist?.name, scope.longestStreak, recap.totalMs
-                ),
-                cover, name
-            )
-        } else {
-            val cover = first(coverUrls, 320)
-            val photo = artistPhoto?.let { first(StoryArt.photoCandidates(it), 320) }
-            val ym = java.time.YearMonth.from(scope.start)
-            val todayKey = Days.key(java.time.LocalDate.now()).takeIf { java.time.YearMonth.now() == ym }
-            RepriseCards.calendar(
-                this@MainActivity,
-                RepriseCards.Month(ym, scope.dayTotals, todayKey, recap.totalMs, recap.topSong, recap.topArtist?.name),
-                pal, cover, photo, name
-            )
         }
     }
 

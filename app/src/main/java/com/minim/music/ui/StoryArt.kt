@@ -74,6 +74,9 @@ class StoryArt(
     /** Whether [img]'s last bind is still waiting for its image. */
     fun pending(img: ImageView): Boolean = jobs[img]?.isActive == true
 
+    /** 6.9.0 b77: any picture still on its way (a slide's card waits a moment for them). */
+    fun anyPending(): Boolean = jobs.values.any { it.isActive }
+
     private fun fetch(candidates: List<String>, px: Int): Deferred<Bitmap?> {
         val key = keyOf(candidates, px)
         inflight[key]?.let { if (!it.isCancelled) return it }
