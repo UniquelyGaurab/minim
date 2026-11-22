@@ -111,11 +111,12 @@ runs:
         EXPECTED_PACKAGE: com.minim.music.debug
         VERSION_CODE: ${{ steps.version.outputs.code }}
       run: |
-        bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+        bt="$ANDROID_HOME/build-tools/34.0.0"
+        [ -x "$bt/apksigner" ] || bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
         apk=app/build/outputs/apk/debug/app-debug.apk
-        cert=$("$bt/apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+        cert=$("$bt/apksigner" verify --print-certs "$apk" | grep -m1 "certificate SHA-256 digest:" | sed 's/.*digest: *//' || true)
         badging=$("$bt/aapt2" dump badging "$apk" | head -1)
-        echo "Certificate SHA-256: $cert"
+        echo "Build tools: ${bt##*/}, certificate SHA-256: $cert"
         echo "$badging"
         [ "$cert" = "$EXPECTED_CERT" ] || { echo "::error::APK is not signed with Minim's key"; exit 1; }
         echo "$badging" | grep -q "name='$EXPECTED_PACKAGE'" || { echo "::error::Wrong package name"; exit 1; }
