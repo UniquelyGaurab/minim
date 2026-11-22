@@ -90,11 +90,12 @@ class ShareCardRenderTest {
         val pal = ShareCard.palette(seedOf(covers[0]))
         val bmp = ShareCard.render(ctx, pal, "Gaurab's picks", "5 songs", "Gaurab", covers, playlist = true)
         assertEquals(1080 to 1920, bmp.width to bmp.height)
-        // four different tiles in the collage
+        // four different tiles in the collage. Sampled in each tile's lower-left quarter: the fake
+        // covers all share a yellow circle over their centre, so centres alone look the same.
         val left = ShareCard.CARD_LEFT + 56f
         val top = ShareCard.CARD_TOP + 56f
         val q = (ShareCard.CARD_W - 112f) / 4f
-        val tiles = listOf(left + q to top + q, left + 3 * q to top + q, left + q to top + 3 * q, left + 3 * q to top + 3 * q)
+        val tiles = listOf(left + q / 2 to top + 1.5f * q, left + 2.5f * q to top + 1.5f * q, left + q / 2 to top + 3.5f * q, left + 2.5f * q to top + 3.5f * q)
             .map { (x, y) -> bmp.getPixel(x.toInt(), y.toInt()) }
         assertTrue(tiles.toSet().size >= 3)
         save(bmp, "playlist-card")
