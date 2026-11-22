@@ -1,0 +1,128 @@
+# Shared by test-build.yml and release.yml: Fermata tests, Minim tests and lint, then a debug APK
+# signed with Minim's own key (so it installs as an update over the GitHub releases).
+# The key comes in through repository secrets and only ever lives in the runner's temp folder.
+name: Build and sign Minim
+description: Runs Fermata's and Minim's tests and lint, builds the debug APK and signs it with Minim's key.
+
+inputs:
+  keystore-base64:
+    description: The keystore file, base64-encoded (secret MINIM_KEYSTORE_BASE64)
+    required: true
+  keystore-password:
+    description: secret MINIM_KEYSTORE_PASSWORD
+    required: true
+  key-alias:
+    description: secret MINIM_KEY_ALIAS
+    required: true
+  key-password:
+    description: secret MINIM_KEY_PASSWORD
+    required: true
+
+outputs:
+  apk:
+    description: Path of the signed APK
+    value: app/build/outputs/apk/debug/app-debug.apk
+  version-name:
+    description: versionName from app/build.gradle.kts, for example 7.0.0
+    value: ${{ steps.version.outputs.name }}
+  version-code:
+    description: versionCode from app/build.gradle.kts
+    value: ${{ steps.version.outputs.code }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: "17"
+
+    - uses: gradle/actions/setup-gradle@v4
+
+    - name: Read version
+      id: version
+      shell: bash
+      run: |
+        name=$(sed -n 's/^ *versionName = "\(.*\)"/\1/p' app/build.gradle.kts | head -1)
+        code=$(sed -n 's/^ *versionCode = \([0-9]*\).*/\1/p' app/build.gradle.kts | head -1)
+        [ -n "$name" ] && [ -n "$code" ] || { echo "::error::Could not read versionName/versionCode"; exit 1; }
+        echo "name=$name" >> "$GITHUB_OUTPUT"
+        echo "code=$code" >> "$GITHUB_OUTPUT"
+
+    - name: Signing key
+      shell: bash
+      env:
+        KS: ${{ inputs.keystore-base64 }}
+        KS_PASS: ${{ inputs.keystore-password }}
+        KEY_ALIAS: ${{ inputs.key-alias }}
+        KEY_PASS: ${{ inputs.key-password }}
+      run: |
+        if [ -z "$KS" ] || [ -z "$KS_PASS" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASS" ]; then
+          echo "::error::A signing secret is missing (MINIM_KEYSTORE_BASE64, MINIM_KEYSTORE_PASSWORD, MINIM_KEY_ALIAS, MINIM_KEY_PASSWORD)"
+          exit 1
+        fi
+        printf '%s' "$KS" | base64 -d > "$RUNNER_TEMP/minim.keystore"
+        {
+          echo "storeFile=$RUNNER_TEMP/minim.keystore"
+          echo "storePassword=$KS_PASS"
+          echo "keyAlias=$KEY_ALIAS"
+          echo "keyPassword=$KEY_PASS"
+        } > keystore.properties
+
+    - name: Fermata tests
+      shell: bash
+      working-directory: fermata
+      run: ./gradlew test
+
+    - name: Minim tests and lint
+      shell: bash
+      # Lint fails the build on errors only; warnings are reported, not fatal.
+      run: ./gradlew --continue testDebugUnitTest lintDebug
+
+    - name: Test counts
+      if: always()
+      shell: python
+      run: |
+        import glob, os, re
+        def count(pattern):
+            t = f = e = s = 0
+            for x in glob.glob(pattern, recursive=True):
+                m = re.search(r'tests="(\d+)" skipped="(\d+)" failures="(\d+)" errors="(\d+)"', open(x).read(1000))
+                if m:
+                    t += int(m[1]); s += int(m[2]); f += int(m[3]); e += int(m[4])
+            return t, f, e, s
+        lines = []
+        for label, pat in (("Minim", "app/build/test-results/**/*.xml"), ("Fermata", "fermata/**/build/test-results/**/*.xml")):
+            t, f, e, s = count(pat)
+            lines.append(f"{label}: {t} tests, {f} failures, {e} errors, {s} skipped")
+        print("\n".join(lines))
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
+            out.write("### Tests\n" + "\n".join("- " + l for l in lines) + "\n")
+
+    - name: Build APK
+      shell: bash
+      run: ./gradlew assembleDebug
+
+    - name: Check signature and package
+      shell: bash
+      env:
+        # SHA-256 of Minim's signing certificate (public, the same as every GitHub release)
+        EXPECTED_CERT: 38a79e9e78c3b7e33eed8afab205759e315a761f4328f5e6a1c93569953c9c83
+        EXPECTED_PACKAGE: com.minim.music.debug
+        VERSION_CODE: ${{ steps.version.outputs.code }}
+      run: |
+        bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+        apk=app/build/outputs/apk/debug/app-debug.apk
+        cert=$("$bt/apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+        badging=$("$bt/aapt2" dump badging "$apk" | head -1)
+        echo "Certificate SHA-256: $cert"
+        echo "$badging"
+        [ "$cert" = "$EXPECTED_CERT" ] || { echo "::error::APK is not signed with Minim's key"; exit 1; }
+        echo "$badging" | grep -q "name='$EXPECTED_PACKAGE'" || { echo "::error::Wrong package name"; exit 1; }
+        echo "$badging" | grep -q "versionCode='$VERSION_CODE'" || { echo "::error::Wrong versionCode"; exit 1; }
+        echo "- Signed with Minim's key (SHA-256 \`$cert\`), $EXPECTED_PACKAGE, versionCode $VERSION_CODE" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Remove signing key
+      if: always()
+      shell: bash
+      run: rm -f keystore.properties "$RUNNER_TEMP/minim.keystore"

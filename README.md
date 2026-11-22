@@ -191,6 +191,10 @@ Minim has no account, no server of its own and no analytics. Your library, histo
 
 ## Build from source
 
+Test builds and releases are built on GitHub with GitHub Actions: every push to `dev` puts a signed APK on the [test-build](https://github.com/UniquelyGaurab/minim/releases/tag/test-build) pre-release, and pushing a version tag publishes the release. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+To build it yourself:
+
 You need JDK 17 and the Android SDK with platform 34 and build-tools 34.0.0. Minim Fermata is a git submodule, so fetch it too.
 
 ```bash

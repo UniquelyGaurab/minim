@@ -1,0 +1,80 @@
+# Test builds: every push to dev runs the tests, builds a signed APK and puts it on the rolling
+# "test-build" pre-release (https://github.com/UniquelyGaurab/minim/releases/tag/test-build).
+# Minim's update checker never offers it: it reads /releases/latest, which skips pre-releases,
+# "test-build" isn't a version number, and UpdateRules refuses pre-releases (TestBuildChannelTest).
+name: Test build
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: test-build
+  cancel-in-progress: false
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - id: build
+        uses: ./.github/actions/build-minim
+        with:
+          keystore-base64: ${{ secrets.MINIM_KEYSTORE_BASE64 }}
+          keystore-password: ${{ secrets.MINIM_KEYSTORE_PASSWORD }}
+          key-alias: ${{ secrets.MINIM_KEY_ALIAS }}
+          key-password: ${{ secrets.MINIM_KEY_PASSWORD }}
+
+      - name: Name the APK
+        run: |
+          mkdir -p dist
+          cp "${{ steps.build.outputs.apk }}" dist/Minim-test.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: minim-test-build-${{ github.run_number }}
+          path: dist/Minim-test.apk
+          retention-days: 14
+
+      - name: Publish the test-build pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_NAME: ${{ steps.build.outputs.version-name }}
+          VERSION_CODE: ${{ steps.build.outputs.version-code }}
+        run: |
+          short=${GITHUB_SHA::7}
+          subject=$(git log -1 --format=%s)
+          {
+            echo "Test build from \`dev\`. Not a release: Minim never offers this as an update."
+            echo
+            echo "- **Version:** $VERSION_NAME-debug, versionCode $VERSION_CODE"
+            echo "- **Commit:** [$short](https://github.com/$GITHUB_REPOSITORY/commit/$GITHUB_SHA) $subject"
+            echo "- **Run:** [#$GITHUB_RUN_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+            echo
+            echo "Download **Minim-test.apk** below and install it over Minim. It keeps your library."
+          } > notes.md
+          gh release delete test-build --yes --cleanup-tag 2>/dev/null || true
+          gh release create test-build dist/Minim-test.apk \
+            --prerelease --latest=false --target "$GITHUB_SHA" \
+            --title "Test build ($VERSION_NAME, run $GITHUB_RUN_NUMBER)" --notes-file notes.md
+
+      - name: Check the update checker can't see it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pre=$(gh release view test-build --json isPrerelease --jq .isPrerelease)
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          web=$(curl -sI "https://github.com/$GITHUB_REPOSITORY/releases/latest" | tr -d '\r' | sed -n 's|^[Ll]ocation: .*/releases/tag/||p')
+          echo "test-build pre-release: $pre, latest (API): $latest, latest (web): $web"
+          [ "$pre" = "true" ] || { echo "::error::test-build is not marked pre-release"; exit 1; }
+          case "$latest" in v[0-9]*) ;; *) echo "::error::releases/latest is $latest"; exit 1;; esac
+          case "$web" in v[0-9]*) ;; *) echo "::error::github.com/releases/latest points to $web"; exit 1;; esac
+          echo "- Latest release is still **$latest**; test-build is a pre-release" >> "$GITHUB_STEP_SUMMARY"

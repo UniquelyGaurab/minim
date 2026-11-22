@@ -1,0 +1,66 @@
+# Releases: pushing a tag like v7.1.0 (or running this by hand with the tag) runs the tests, builds
+# the signed APK as Minim-v7.1.0.apk (the name Minim's update checker looks for) and publishes the
+# GitHub release marked latest, with the notes from that version's CHANGELOG.md entry.
+# Phones find it through /releases/latest; there is no other update file to change.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to release, for example v7.1.0
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          submodules: true
+
+      - name: Check tag, version and changelog
+        run: |
+          version=${TAG#v}
+          gradle=$(sed -n 's/^ *versionName = "\(.*\)"/\1/p' app/build.gradle.kts | head -1)
+          [ "$version" = "$gradle" ] || { echo "::error::Tag $TAG doesn't match versionName $gradle"; exit 1; }
+          if gh release view "$TAG" >/dev/null 2>&1; then echo "::error::Release $TAG already exists"; exit 1; fi
+          awk -v h="## $version" '/^## /{ if (found) exit; if ($0 == h || index($0, h " ") == 1) { found = 1; next } } found' CHANGELOG.md \
+            | sed '/./,$!d' > notes.md
+          [ -s notes.md ] || { echo "::error::CHANGELOG.md has no '## $version' entry"; exit 1; }
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - id: build
+        uses: ./.github/actions/build-minim
+        with:
+          keystore-base64: ${{ secrets.MINIM_KEYSTORE_BASE64 }}
+          keystore-password: ${{ secrets.MINIM_KEYSTORE_PASSWORD }}
+          key-alias: ${{ secrets.MINIM_KEY_ALIAS }}
+          key-password: ${{ secrets.MINIM_KEY_PASSWORD }}
+
+      - name: Publish the release
+        run: |
+          mkdir -p dist
+          cp "${{ steps.build.outputs.apk }}" "dist/Minim-$TAG.apk"
+          gh release create "$TAG" "dist/Minim-$TAG.apk" --verify-tag --latest \
+            --title "Minim $VERSION" --notes-file notes.md
+
+      - name: Check it's the latest release
+        run: |
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          [ "$latest" = "$TAG" ] || { echo "::error::releases/latest is $latest, not $TAG"; exit 1; }
+          echo "- **Minim $VERSION** is the latest release: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"
