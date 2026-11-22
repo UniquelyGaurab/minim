@@ -88,7 +88,8 @@ class OfflineManagerTest {
         idle()
         assertEquals(3, maxRunning.get())
         assertEquals(9, store.saved.value.size)
-        assertEquals(9 to 9, manager.session.value)
+        // The count is bumped just after the song leaves the progress map, so give it a moment
+        assertEquals(9 to 9, withTimeout(2_000) { manager.session.first { it == 9 to 9 } })
     }
 
     @Test

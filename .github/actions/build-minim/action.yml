@@ -91,6 +91,9 @@ runs:
                 if m:
                     t += int(m[1]); s += int(m[2]); f += int(m[3]); e += int(m[4])
             return t, f, e, s
+        for x in glob.glob("**/build/test-results/**/*.xml", recursive=True):
+            for m in re.finditer(r'<testcase name="([^"]+)" classname="([^"]+)"[^>]*>\s*<failure message="([^"]*)"', open(x).read()):
+                print(f"::error::{m[2]}.{m[1]}: {m[3][:300]}")
         lines = []
         for label, pat in (("Minim", "app/build/test-results/**/*.xml"), ("Fermata", "fermata/**/build/test-results/**/*.xml")):
             t, f, e, s = count(pat)
