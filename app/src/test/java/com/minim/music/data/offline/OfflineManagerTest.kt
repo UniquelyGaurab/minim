@@ -76,8 +76,15 @@ class OfflineManagerTest {
     @Test
     fun savesThreeSongsAtATime() = runBlocking {
         val tracks = (1..9).map { track("s$it") }
+        // Hold the first saves until three are running, so a slow machine can't finish one before
+        // the third starts (that made this flaky on GitHub's runners).
+        val hold = CompletableDeferred<Unit>()
+        gate = hold
         assertEquals(9, manager.save(tracks))
         assertTrue(manager.busy)
+        withTimeout(10_000) { while (running.get() < 3) delay(10) }
+        delay(100)
+        hold.complete(Unit)
         idle()
         assertEquals(3, maxRunning.get())
         assertEquals(9, store.saved.value.size)
