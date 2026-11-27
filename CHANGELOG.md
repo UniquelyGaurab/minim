@@ -2,6 +2,24 @@
 
 Every Minim release, newest first. Download any of them from the [Releases](https://github.com/UniquelyGaurab/minim/releases) page.
 
+## 7.1.0 (unreleased)
+
+Drift: an endless radio from your own taste, plus Smart Shuffle for playlists.
+
+**Drift**
+- **One tap on Home.** The new Drift pill under Search starts an endless radio from your own listening. No song to pick first. Now Playing says "You're listening to Drift"
+- **No fixed queue.** Drift chooses the next song as the current one nears its end, and Up Next only shows the next one or two. The next song's stream is fetched early so the change stays smooth
+- **It listens.** Skip a song in its first 30 seconds and Drift steers away from that song, its artist and songs like it. Play songs through, replay them or heart them and it leans in. It also knows who you play at 2 AM and who you play at 5 PM
+- **Comfort to Explore.** One dial for familiar favourites vs. new finds, in Now Playing's ⋯ menu while Drift plays (or tap the Drift pill again). It's remembered, and starts in the middle
+- **No loops.** A song you heard recently stays out (your last 50 Drift songs, and anything you heard in the last 3 hours), and the same artist waits at least four songs while anyone else fits
+- **Offline:** with no connection, Drift plays only your saved-offline songs
+- Hidden songs never play, and Tapes stay out
+- **On your phone only.** Songs come from your library, likes and history plus YouTube Music's related songs, and Fermata ranks them on the phone. Drift plays are logged with their own "drift" source
+
+**Smart Shuffle**
+- Long-press a playlist's Shuffle button to choose Smart Shuffle (remembered). It plays songs you haven't heard in a while sooner, keeps the same artist apart and gives your favourites a light nudge
+- It only changes the order: it never adds a song or leaves one out. Plain Shuffle is one long-press away
+
 ## 7.0.0 (2026-11-18)
 
 Minim V7: a new Stats tab, Reprise stories for your day, week and month, the Haze theme, redesigned playlists, search filters and animated lyrics cards. This covers everything since 6.6.0, including the 6.7.0, 6.8.0 and 6.9.0 test builds (their notes are below).

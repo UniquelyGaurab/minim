@@ -49,6 +49,9 @@ open class MinimApp : Application(), com.minim.fermata.android.FermataHolder {
     lateinit var offlineStore: com.minim.music.data.offline.OfflineStore
         private set
 
+    /** 7.1.0: true once [offlineStore] is set up (Drift asks before reading saved songs). */
+    fun isOfflineStoreReady(): Boolean = this::offlineStore.isInitialized
+
     /** 5.4.0: the "Save offline" queue (3 songs at a time, each in parallel ranged parts). */
     lateinit var offline: com.minim.music.data.offline.OfflineManager
         private set

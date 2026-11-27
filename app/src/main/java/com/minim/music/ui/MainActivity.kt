@@ -432,6 +432,7 @@ class MainActivity : AppCompatActivity() {
         setupQueue()
         setupSettings()
         setupGemini()
+        setupDrift()
         setupBack()
         setupWelcome()
         setupStats()
@@ -4546,6 +4547,9 @@ class MainActivity : AppCompatActivity() {
         val search = findViewById<View>(R.id.list_search_pill)
         play.setOnClickListener { v -> playOpenList(v, shuffled = false) }
         shuffle.setOnClickListener { v -> playOpenList(v, shuffled = true) }
+        // 7.1.0: long-press chooses Smart Shuffle or plain Shuffle (remembered)
+        shuffle.setOnLongClickListener { v -> haptic(v); showShuffleModeSheet(); true }
+        renderShuffleLabel()
         search.setOnClickListener { v -> if (!listSearchOpen) { haptic(v); openListSearch() } }
         listMore.setOnClickListener { v ->
             if (!isOwnPlaylistOpen) return@setOnClickListener
@@ -4603,8 +4607,13 @@ class MainActivity : AppCompatActivity() {
         if (shown.isEmpty()) return
         haptic(v)
         if (isRenaming) cancelRename()
-        val list = if (shuffled) shown.shuffled() else shown
-        app.playbackController.playTrack(list.first(), list, listPlaySource())
+        val source = listPlaySource()
+        if (shuffled) {
+            // 7.1.0: Smart Shuffle (when chosen) only reorders: the same songs, never one more
+            shuffleOrder(shown) { list -> list.firstOrNull()?.let { app.playbackController.playTrack(it, list, source) } }
+            return
+        }
+        app.playbackController.playTrack(shown.first(), shown, source)
     }
 
     private fun openListType(): PlaylistLook.ListType = when {
@@ -6694,7 +6703,9 @@ class MainActivity : AppCompatActivity() {
         textFade.set(npArtist, track.artist, fadeText)
         // 5.7.0 u44: "You're listening to" for a stories upload, "You're vibing to" for songs
         // (only the text changes while Now Playing is closed: its opening motion owns the alpha)
-        val vibe = getString(com.minim.music.data.stories.NowPlayingLabel.forTrack(track))
+        // 7.1.0: "You're listening to Drift" while Drift picks the songs
+        val drifting = app.playbackController.driftActive.value && !com.minim.music.data.stories.StoryTracks.isStory(track)
+        val vibe = getString(if (drifting) R.string.drift_listening else com.minim.music.data.stories.NowPlayingLabel.forTrack(track))
         if (npVibing.text.toString() != vibe) {
             if (isNowPlayingOpen) textFade.set(npVibing, vibe, fadeText) else npVibing.text = vibe
         }
@@ -10323,6 +10334,12 @@ class MainActivity : AppCompatActivity() {
             sheetAction(box, R.drawable.ic_share, getString(R.string.sheet_share)) {
                 closeSheet { shareTrack(track) }
             }
+            // 7.1.0: Drift's one control, the Comfort to Explore dial, while Drift plays
+            if (app.playbackController.driftActive.value && !isTape) {
+                sheetAction(box, R.drawable.ic_drift, getString(R.string.drift_pill), trailing = driftDialLabel()) {
+                    showDriftSheet()
+                }
+            }
             // 5.7.0 u47: playback speed, tapes only (songs always play at 1x)
             if (isTape) {
                 sheetAction(
@@ -11968,6 +11985,117 @@ class MainActivity : AppCompatActivity() {
     private val isGeminiOpen get() = ::geminiChat.isInitialized && geminiChat.isOpen
     /** 5.3.0: open, or closed but its closing animation still on screen. */
     private val isGeminiShowing get() = ::geminiChat.isInitialized && geminiChat.isShowing
+
+    // ---- 7.1.0: Drift and Smart Shuffle ------------------------------------------------------------
+
+    private fun setupDrift() {
+        findViewById<View>(R.id.home_drift)?.setOnClickListener { v ->
+            haptic(v)
+            val pc = app.playbackController
+            // Drifting already: the pill opens the dial instead of starting over
+            if (pc.driftActive.value) { showDriftSheet(); return@setOnClickListener }
+            pc.startDrift { ok ->
+                if (ok) return@startDrift
+                val online = (getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager).activeNetwork != null
+                showNote(getString(if (online) R.string.drift_empty else R.string.drift_empty_offline))
+            }
+        }
+    }
+
+    private fun driftDialLabel(): String {
+        val v = app.playbackController.driftExplore
+        return when {
+            v < 0.45f -> getString(R.string.drift_comfort)
+            v > 0.55f -> getString(R.string.drift_explore)
+            else -> getString(R.string.drift_dial_mid)
+        }
+    }
+
+    /** The one Drift control: Comfort (familiar favourites) to Explore (new finds). */
+    private fun showDriftSheet() {
+        val pc = app.playbackController
+        openSheet { box ->
+            sheetHeading(box, getString(R.string.drift_pill), getString(R.string.drift_sheet_sub), wrapSub = true)
+            val row = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(dp(20f).toInt(), dp(14f).toInt(), dp(20f).toInt(), dp(6f).toInt())
+            }
+            fun label(text: String) = TextView(this).apply {
+                this.text = text
+                textSize = 13f
+                tag = "text:muted"
+                setTextColor(pal.muted)
+            }
+            val bar = android.widget.SeekBar(this).apply {
+                max = 100
+                progress = (pc.driftExplore * 100).toInt()
+                contentDescription = getString(R.string.drift_dial_desc)
+                progressTintList = android.content.res.ColorStateList.valueOf(pal.fg)
+                thumbTintList = android.content.res.ColorStateList.valueOf(pal.fg)
+                progressBackgroundTintList = android.content.res.ColorStateList.valueOf(pal.muted)
+                setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(s: android.widget.SeekBar?, p: Int, fromUser: Boolean) {}
+                    override fun onStartTrackingTouch(s: android.widget.SeekBar?) {}
+                    // Only on release, so the next picks are chosen once
+                    override fun onStopTrackingTouch(s: android.widget.SeekBar?) {
+                        val p = s?.progress ?: return
+                        // A soft snap to the middle
+                        val v = if (kotlin.math.abs(p - 50) <= 4) 50 else p
+                        if (v != p) s.progress = v
+                        haptic(s)
+                        pc.driftExplore = v / 100f
+                    }
+                })
+            }
+            row.addView(label(getString(R.string.drift_comfort)))
+            row.addView(bar, android.widget.LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = dp(8f).toInt(); marginEnd = dp(8f).toInt()
+            })
+            row.addView(label(getString(R.string.drift_explore)))
+            box.addView(row)
+        }
+    }
+
+    /** The playlist's Shuffle: Smart (by default once chosen) or plain; never adds a song. */
+    private fun shuffleOrder(tracks: List<Track>, then: (List<Track>) -> Unit) {
+        if (!app.preferences.smartShuffle || tracks.size < 2) { then(tracks.shuffled()); return }
+        lifecycleScope.launch {
+            val ordered = try {
+                val last = app.database.getLastPlayed(tracks.map { it.id })
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    // Fermata's light nudge (empty when it isn't ready)
+                    val rank = com.minim.music.data.drift.DriftEngine.rankScores(app.recommendations.reorderShelf(tracks).map { it.id })
+                    com.minim.music.data.drift.SmartShuffle.order(tracks, last, rank)
+                }
+            } catch (_: Exception) { tracks.shuffled() }
+            then(ordered)
+        }
+    }
+
+    /** Long-press on a playlist's Shuffle: Smart Shuffle or plain Shuffle, remembered. */
+    private fun showShuffleModeSheet() {
+        val smart = app.preferences.smartShuffle
+        openSheet { box ->
+            sheetHeading(box, getString(R.string.shuffle_sheet_title), getString(R.string.shuffle_sheet_sub), wrapSub = true)
+            sheetAction(box, R.drawable.ic_drift, getString(R.string.smart_shuffle), trailingIcon = if (smart) R.drawable.ic_check else null) {
+                app.preferences.smartShuffle = true
+                closeSheet()
+                renderShuffleLabel()
+            }
+            sheetAction(box, R.drawable.ic_drift, getString(R.string.shuffle_plain), trailingIcon = if (!smart) R.drawable.ic_check else null) {
+                app.preferences.smartShuffle = false
+                closeSheet()
+                renderShuffleLabel()
+            }
+        }
+    }
+
+    /** The Shuffle pill says "Smart Shuffle" while that's what it plays. */
+    private fun renderShuffleLabel() {
+        val tv = findViewById<TextView>(R.id.list_shuffle) ?: return
+        tv.text = getString(if (app.preferences.smartShuffle) R.string.smart_shuffle else R.string.artist_shuffle)
+    }
 
     private fun setupGemini() {
         geminiChat = GeminiChatPanel(findViewById(R.id.gemini_root), geminiHost)

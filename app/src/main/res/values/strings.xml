@@ -884,4 +884,19 @@
     <string name="search_failed_tapes">Couldn\'t search tapes. Check your connection and try again.</string>
     <!-- 6.9.0 b77: the guess slide as a still, when nobody picked -->
     <string name="recap_guess_reveal">It was this one.</string>
+    <!-- 7.1.0: Drift (endless personal radio) and Smart Shuffle -->
+    <string name="drift_pill">Drift</string>
+    <string name="drift_open_desc">Start Drift, an endless radio from your taste</string>
+    <string name="drift_listening">You\'re listening to Drift</string>
+    <string name="drift_sheet_sub">More of what you love, or more new finds</string>
+    <string name="drift_comfort">Comfort</string>
+    <string name="drift_explore">Explore</string>
+    <string name="drift_dial_mid">Balanced</string>
+    <string name="drift_empty">Drift needs a few songs to go on. Play or heart some first.</string>
+    <string name="drift_empty_offline">You\'re offline and no songs are saved. Save some offline to drift without a connection.</string>
+    <string name="drift_dial_desc">Comfort to Explore</string>
+    <string name="smart_shuffle">Smart Shuffle</string>
+    <string name="shuffle_plain">Shuffle</string>
+    <string name="shuffle_sheet_title">How Shuffle plays</string>
+    <string name="shuffle_sheet_sub">Smart Shuffle brings songs you haven\'t heard in a while sooner and keeps the same artist apart. It never adds songs.</string>
 </resources>

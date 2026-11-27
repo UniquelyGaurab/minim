@@ -116,6 +116,7 @@ class PlaybackController(
             applyTapeSpeed(mediaItem)
             updateStateFromController(clearError = true)
             fermataSafe { fermataOnTransition(mediaItem, reason) }
+            driftSafe { driftOnTransition(mediaItem, reason) }
             resetListen(mediaItem?.mediaId)
             maybeTopUpRadio()
             mediaItem?.let { item ->
@@ -535,6 +536,7 @@ class PlaybackController(
 
     /** Plays [track] with [queueList] queued in order (Liked Songs, a playlist, "Play all"). */
     fun playTrack(track: Track, queueList: List<Track> = listOf(track), source: String? = null) {
+        stopDrift()
         setRadio(false)
         startQueue(track, queueList, source)
     }
@@ -545,6 +547,7 @@ class PlaybackController(
      * like before 4.3. 6.6.0: [startAtMs] starts the song there (a lyrics card's link), else 0.
      */
     fun playRadio(track: Track, fallback: List<Track> = emptyList(), source: String? = null, startAtMs: Long = 0L) {
+        stopDrift()
         setRadio(true)
         radioSession++
         radioSeen.clear()
@@ -561,6 +564,7 @@ class PlaybackController(
      */
     fun playListThenRadio(list: List<Track>, source: String? = null) {
         val first = list.firstOrNull() ?: return
+        stopDrift()
         setRadio(true)
         radioSession++
         radioSeen.clear()
@@ -596,6 +600,294 @@ class PlaybackController(
             }
         }
         return true
+    }
+
+    // ---- 7.1.0: Drift ------------------------------------------------------------------------------
+    //
+    // An endless radio from your own taste. There's no fixed queue: only the next one or two songs
+    // are chosen, again whenever you skip, heart or replay, and once more near the end of each song.
+    // The pool is built once on a background thread; every pick runs on Dispatchers.Default.
+
+    private val _driftActive = MutableStateFlow(false)
+    /** True while Drift is choosing what plays next. */
+    val driftActive: StateFlow<Boolean> = _driftActive.asStateFlow()
+
+    private val driftPoolSource by lazy {
+        val app = com.minim.music.MinimApp.instance
+        com.minim.music.data.drift.DriftPool(context.applicationContext, database, sourceAdapter, recommendations) {
+            if (app.isOfflineStoreReady()) app.offlineStore else null
+        }
+    }
+    private var driftSession = 0
+    private var driftSalt = 0L
+    private var driftStartJob: Job? = null
+    private var driftFillJob: Job? = null
+    private var driftLikesJob: Job? = null
+    /** Replaced whole, never changed in place, so a background pick can read it safely. */
+    @Volatile private var driftPool: List<com.minim.music.data.drift.DriftCandidate> = emptyList()
+    private var driftById: Map<String, com.minim.music.data.drift.DriftCandidate> = emptyMap()
+    private var driftHours = com.minim.music.data.drift.HourAffinity.EMPTY
+    private var driftSaved: Set<String> = emptySet()
+    private var driftEarlier: Set<String> = emptySet()
+    private var driftSignals = com.minim.music.data.drift.DriftSignals()
+    /** This session's Drift songs as they played, oldest first. */
+    private val driftPlayed = ArrayList<com.minim.music.data.drift.DriftCandidate>()
+    private var driftCurrent: Track? = null
+    private var driftLastPos = 0L
+    private var driftRepickedFor: String? = null
+    private val driftSeeded = HashSet<String>()
+
+    /** The Comfort (0) to Explore (1) dial. Moving it while Drift plays changes what's next. */
+    var driftExplore: Float
+        get() = preferences.driftExplore
+        set(value) {
+            if (value == preferences.driftExplore) return
+            preferences.driftExplore = value
+            if (_driftActive.value) driftFill(replace = true)
+        }
+
+    private inline fun driftSafe(block: () -> Unit) {
+        try { block() } catch (e: Exception) { android.util.Log.w("Drift", "drift step failed", e) }
+    }
+
+    /**
+     * Starts Drift: your taste, no seed song. [onResult] gets false when there's nothing to drift
+     * through yet (a brand-new library, or offline with nothing saved).
+     */
+    fun startDrift(onResult: (Boolean) -> Unit = {}) {
+        val session = ++driftSession
+        driftStartJob?.cancel()
+        driftFillJob?.cancel()
+        driftStartJob = scope.launch {
+            val lib = try { driftPoolSource.library() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+            if (session != driftSession) return@launch
+            if (lib == null) { onResult(false); return@launch }
+            setRadio(false)
+            driftSalt = System.nanoTime()
+            driftSignals = com.minim.music.data.drift.DriftSignals()
+            driftPlayed.clear()
+            driftSeeded.clear()
+            driftPool = lib.candidates
+            driftById = lib.candidates.associateBy { it.track.id }
+            driftHours = lib.hours
+            driftSaved = lib.savedOffline
+            driftEarlier = preferences.driftRecent.toHashSet()
+            driftRepickedFor = null
+            val st = driftState(emptyList(), offline = !driftPoolSource.isOnline())
+            val sig = driftSignals.snapshot()
+            var picks = withContext(Dispatchers.Default) {
+                com.minim.music.data.drift.DriftEngine.pick(driftPool, st, sig, com.minim.music.data.drift.DriftEngine.AHEAD + 1)
+            }
+            // Everything cooling down (a small library): start fresh rather than not at all
+            if (picks.isEmpty() && driftEarlier.isNotEmpty()) {
+                driftEarlier = emptySet()
+                val st2 = st.copy(earlier = emptySet())
+                picks = withContext(Dispatchers.Default) {
+                    com.minim.music.data.drift.DriftEngine.pick(driftPool, st2, sig, com.minim.music.data.drift.DriftEngine.AHEAD + 1)
+                }
+            }
+            if (session != driftSession) return@launch
+            if (picks.isEmpty()) { onResult(false); return@launch }
+            val first = picks.first()
+            if (!startQueue(first.track, picks.map { it.track }, FermataSource.DRIFT)) { onResult(false); return@launch }
+            _driftActive.value = true
+            driftCurrent = first.track
+            driftNotePlayed(first)
+            driftWatchLikes(session)
+            onResult(true)
+            driftPrefetch(picks.getOrNull(1)?.track)
+            // New finds: related songs for a few favourites (online only)
+            driftExpand(lib.candidates.sortedByDescending { it.taste }.take(3).map { it.track } + first.track)
+        }
+    }
+
+    /** Drift stops choosing (another song or list was played, or the queue was cleared). */
+    fun stopDrift() {
+        if (!_driftActive.value && driftStartJob?.isActive != true) return
+        driftSession++
+        driftStartJob?.cancel()
+        driftFillJob?.cancel()
+        driftLikesJob?.cancel()
+        _driftActive.value = false
+        driftCurrent = null
+        driftPool = emptyList()
+        driftById = emptyMap()
+    }
+
+    private fun driftState(
+        upcoming: List<Track>,
+        offline: Boolean,
+    ): com.minim.music.data.drift.DriftEngine.State {
+        val fam = driftPlayed.count { it.familiar }
+        val recent = driftPlayed.map { it.track } + listOfNotNull(driftCurrent).filter { c -> driftPlayed.lastOrNull()?.track?.id != c.id } + upcoming
+        return com.minim.music.data.drift.DriftEngine.State(
+            explore = preferences.driftExplore,
+            now = System.currentTimeMillis(),
+            hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY),
+            recent = recent,
+            hidden = database.notInterestedIds.value,
+            offline = offline,
+            savedOffline = driftSaved,
+            familiarPicked = fam + upcoming.count { driftById[it.id]?.familiar == true },
+            newPicked = (driftPlayed.size - fam) + upcoming.count { driftById[it.id]?.familiar == false },
+            hours = driftHours,
+            earlier = driftEarlier,
+            salt = driftSalt,
+        )
+    }
+
+    private fun driftNotePlayed(c: com.minim.music.data.drift.DriftCandidate) {
+        if (driftPlayed.lastOrNull()?.track?.id == c.track.id) return
+        driftPlayed.add(c)
+        if (driftPlayed.size > com.minim.music.data.drift.DriftEngine.COOLDOWN_SONGS * 2) driftPlayed.removeAt(0)
+        preferences.driftRecent = (preferences.driftRecent.filter { it != c.track.id } + c.track.id)
+    }
+
+    /**
+     * Chooses the next songs on a background thread and puts them after anything you queued by
+     * hand. [replace]: what Drift had lined up goes (unless it would choose the same again, which
+     * keeps the next song's prefetch).
+     */
+    private fun driftFill(replace: Boolean) {
+        if (!_driftActive.value) return
+        val c = mediaController ?: return
+        val session = driftSession
+        val curIdx = c.currentMediaItemIndex
+        if (curIdx < 0) return
+        val curId = c.currentMediaItem?.mediaId
+        val upcomingDrift = (curIdx + 1 until c.mediaItemCount).map { c.getMediaItemAt(it) }
+            .filter { Track.playSourceOf(it) == FermataSource.DRIFT }
+            .map { Track.fromMediaItem(it) }
+        val keep = if (replace) emptyList() else upcomingDrift
+        val need = com.minim.music.data.drift.DriftEngine.AHEAD - keep.size
+        if (need <= 0) return
+        val sig = driftSignals.snapshot()
+        val pool = driftPool
+        driftFillJob?.cancel()
+        driftFillJob = scope.launch {
+            val offline = withContext(Dispatchers.Default) { !driftPoolSource.isOnline() }
+            val st = driftState(keep, offline)
+            val picks = withContext(Dispatchers.Default) {
+                com.minim.music.data.drift.DriftEngine.pick(pool, st, sig, need)
+            }
+            val mc = mediaController ?: return@launch
+            if (session != driftSession || mc.currentMediaItem?.mediaId != curId) return@launch
+            val chosen = keep + picks.map { it.track }
+            if (replace && chosen.map { it.id } == upcomingDrift.map { it.id }) return@launch
+            if (picks.isEmpty() && !replace) return@launch
+            // Out with Drift's old picks after the current song (songs you queued stay)
+            val cur = mc.currentMediaItemIndex
+            if (replace) {
+                for (i in mc.mediaItemCount - 1 downTo cur + 1) {
+                    if (Track.playSourceOf(mc.getMediaItemAt(i)) == FermataSource.DRIFT) mc.removeMediaItem(i)
+                }
+            }
+            if (picks.isNotEmpty()) mc.addMediaItems(picks.map { it.track.toMediaItem(FermataSource.DRIFT) })
+            trimPlayedRadioItems(mc)
+            updateStateFromController()
+            driftPrefetch(chosen.firstOrNull())
+        }
+    }
+
+    /** Warms the next song's stream link so the change of song stays smooth. */
+    private fun driftPrefetch(track: Track?) {
+        track ?: return
+        if (track.id in driftSaved) return
+        scope.launch(Dispatchers.IO) {
+            try { sourceAdapter.resolveStreamBlocking(track.id) } catch (_: Exception) { }
+        }
+    }
+
+    /** Adds related songs (YouTube Music, like the radio) for [seeds] to the pool, once per seed. */
+    private fun driftExpand(seeds: List<Track>) {
+        val fresh = seeds.filter { driftSeeded.add(it.id) }
+        if (fresh.isEmpty()) return
+        val session = driftSession
+        scope.launch {
+            if (!withContext(Dispatchers.Default) { driftPoolSource.isOnline() }) {
+                fresh.forEach { driftSeeded.remove(it.id) } // try again when back online
+                return@launch
+            }
+            val known = driftById.keys.toHashSet()
+            val more = try { driftPoolSource.related(fresh, known) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { emptyList() }
+            if (session != driftSession || more.isEmpty()) return@launch
+            val merged = (driftPool + more.filter { it.track.id !in driftById }).takeLast(MAX_DRIFT_POOL)
+            driftPool = merged
+            driftById = merged.associateBy { it.track.id }
+            // New finds may suit the dial better than what's lined up
+            if (driftExplore > 0f) driftFill(replace = false)
+        }
+    }
+
+    /** Song change: learn from how the last one ended, then choose what's next. */
+    private fun driftOnTransition(mediaItem: MediaItem?, reason: Int) {
+        if (!_driftActive.value) return
+        val prev = driftCurrent
+        val newId = mediaItem?.mediaId
+        var replace = false
+        if (prev != null && newId != prev.id) {
+            val back = newId != null && driftPlayed.any { it.track.id == newId }
+            when {
+                back -> { mediaItem?.let { driftSignals.replay(Track.fromMediaItem(it)) }; replace = true }
+                reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> {
+                    driftSignals.fullPlay(driftById[prev.id], prev)
+                    driftExpand(listOf(prev))
+                }
+                reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK &&
+                    driftLastPos < com.minim.music.data.drift.DriftEngine.EARLY_SKIP_MS -> {
+                    driftSignals.earlySkip(driftById[prev.id], prev)
+                    replace = true
+                }
+            }
+        }
+        driftLastPos = 0L
+        driftRepickedFor = null
+        if (mediaItem == null) return
+        val track = Track.fromMediaItem(mediaItem)
+        driftCurrent = track
+        if (Track.playSourceOf(mediaItem) == FermataSource.DRIFT) {
+            driftNotePlayed(driftById[track.id] ?: com.minim.music.data.drift.DriftCandidate(track, familiar = true, taste = 0.5))
+        }
+        driftFill(replace)
+    }
+
+    /** Repeat one (or the same song again): lean in. */
+    private fun driftOnLoop(mediaId: String?) {
+        if (!_driftActive.value) return
+        val cur = driftCurrent ?: return
+        if (cur.id != mediaId) return
+        driftSignals.replay(cur)
+        driftFill(replace = true)
+    }
+
+    /** Every second while playing: where we are, and the last choice ~20 s before the end. */
+    private fun driftTick(c: MediaController, item: MediaItem) {
+        if (!_driftActive.value) return
+        driftLastPos = c.currentPosition
+        val dur = c.duration
+        if (dur <= 0 || driftRepickedFor == item.mediaId) return
+        if (dur - driftLastPos <= com.minim.music.data.drift.DriftEngine.PICK_BEFORE_END_MS) {
+            driftRepickedFor = item.mediaId
+            driftFill(replace = true)
+        }
+    }
+
+    /** A heart on the song Drift is playing: lean in, and fetch songs like it. */
+    private fun driftWatchLikes(session: Int) {
+        driftLikesJob?.cancel()
+        driftLikesJob = scope.launch {
+            var before = database.likedIds.value
+            database.likedIds.collect { now ->
+                if (session != driftSession) return@collect
+                val cur = driftCurrent
+                if (cur != null && cur.id in now && cur.id !in before) {
+                    driftSignals.like(cur)
+                    driftExpand(listOf(cur))
+                    driftFill(replace = true)
+                }
+                before = now
+            }
+        }
     }
 
     // ---- v4.3: radio queue -----------------------------------------------------------------------
@@ -840,6 +1132,7 @@ class PlaybackController(
         val c = mediaController
         val durMs = c?.duration?.takeIf { it > 0 } ?: ((listenTrack?.durationSec ?: 0L) * 1000L)
         if (!RepeatLoop.shouldStartNewLoop(mediaId != null && mediaId == listenId, listenedMs, durMs)) return
+        driftSafe { driftOnLoop(mediaId) }
         val track = listenTrack
         resetListen(mediaId)
         // Same song: keep crediting it without a gap
@@ -971,6 +1264,7 @@ class PlaybackController(
                     startNewLoop(item.mediaId)
                 }
                 lastTickPos = pos
+                driftSafe { driftTick(c, item) }
                 fermataSafe { fermataStart(item) }
                 val now = SystemClock.elapsedRealtime()
                 creditListen(now)
@@ -1143,6 +1437,7 @@ class PlaybackController(
     fun clearUpcomingQueue() {
         val c = mediaController ?: return
         setRadio(false) // clearing the queue on purpose stops the radio from refilling it
+        stopDrift() // and Drift too
         val currentIdx = c.currentMediaItemIndex
         if (currentIdx < 0) return
         val count = c.mediaItemCount
@@ -1156,6 +1451,8 @@ class PlaybackController(
         /** 5.9.0: how long the service's shutdown waits for the last Fermata save. */
         const val FERMATA_SHUTDOWN_WAIT_MS = 300L
         const val COUNT_AFTER_MS = 30_000L
+        /** 7.1.0: Drift's pool stays at most this big (related songs keep arriving as it goes). */
+        const val MAX_DRIFT_POOL = 1500
         /** Listening time is saved at least this often while playing (app killed = up to a minute lost). 6.2.0: was 5 s. */
         const val LISTEN_FLUSH_MS = com.minim.music.data.stats.ListenSaves.CHECKPOINT_MS
         /** One tick never credits more than this (the phone sleeping, a stalled tick). */

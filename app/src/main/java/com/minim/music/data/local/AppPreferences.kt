@@ -255,6 +255,21 @@ class AppPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_RADIO_QUEUE, false)
         set(value) = prefs.edit().putBoolean(KEY_RADIO_QUEUE, value).apply()
 
+    /** 7.1.0 Drift: the Comfort (0) to Explore (1) dial, remembered between sessions. */
+    var driftExplore: Float
+        get() = prefs.getFloat(KEY_DRIFT_EXPLORE, com.minim.music.data.drift.DriftEngine.DEFAULT_EXPLORE).coerceIn(0f, 1f)
+        set(value) = prefs.edit().putFloat(KEY_DRIFT_EXPLORE, value.coerceIn(0f, 1f)).apply()
+
+    /** 7.1.0 Drift: the last songs it played (ids, oldest first), for the cooldown across sessions. */
+    var driftRecent: List<String>
+        get() = prefs.getString(KEY_DRIFT_RECENT, "").orEmpty().split(',').filter { it.isNotBlank() }
+        set(value) = prefs.edit().putString(KEY_DRIFT_RECENT, value.takeLast(com.minim.music.data.drift.DriftEngine.COOLDOWN_SONGS).joinToString(",")).apply()
+
+    /** 7.1.0: the playlist Shuffle button plays a Smart Shuffle (true) or a plain one. */
+    var smartShuffle: Boolean
+        get() = prefs.getBoolean(KEY_SMART_SHUFFLE, false)
+        set(value) = prefs.edit().putBoolean(KEY_SMART_SHUFFLE, value).apply()
+
     fun applySavedTheme() {
         AppCompatDelegate.setDefaultNightMode(
             if (isDarkTheme) AppCompatDelegate.MODE_NIGHT_YES else AppCompatDelegate.MODE_NIGHT_NO
@@ -349,6 +364,9 @@ class AppPreferences(context: Context) {
         const val LYRICS_OFFSET_MIN = -2000
         const val LYRICS_OFFSET_MAX = 2000
         private const val KEY_RADIO_QUEUE = "radio_queue"
+        private const val KEY_DRIFT_EXPLORE = "drift_explore"
+        private const val KEY_DRIFT_RECENT = "drift_recent"
+        private const val KEY_SMART_SHUFFLE = "smart_shuffle"
         private const val KEY_SAVED_QUEUE = "saved_queue"
         private const val KEY_SAVED_INDEX = "saved_index"
         private const val KEY_SAVED_POSITION = "saved_position"

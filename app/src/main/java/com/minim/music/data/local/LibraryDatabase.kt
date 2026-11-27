@@ -1045,6 +1045,18 @@ class LibraryDatabase(context: Context, fileName: String = LibraryFiles.prepare(
     /** Song stats: how often (counted plays, plus older counts from before v4.3) and when last played. */
     data class TrackStats(val track: Track, val playCount: Int, val lastPlayedAt: Long, val isLiked: Boolean, val likedAt: Long)
 
+    /** 7.1.0 Smart Shuffle: when each of [ids] was last heard (missing = never). */
+    suspend fun getLastPlayed(ids: Collection<String>): Map<String, Long> = withContext(Dispatchers.IO) {
+        val out = HashMap<String, Long>(ids.size * 2)
+        for (chunk in ids.distinct().chunked(500)) {
+            val marks = chunk.joinToString(",") { "?" }
+            readableDatabase.rawQuery("SELECT id, last_played_at FROM tracks WHERE id IN ($marks)", chunk.toTypedArray()).use { c ->
+                while (c.moveToNext()) out[c.getString(0)] = c.getLong(1)
+            }
+        }
+        out
+    }
+
     suspend fun getAllTrackStats(): List<TrackStats> = withContext(Dispatchers.IO) {
         val list = ArrayList<TrackStats>()
         readableDatabase.rawQuery("SELECT * FROM tracks", null).use { c ->

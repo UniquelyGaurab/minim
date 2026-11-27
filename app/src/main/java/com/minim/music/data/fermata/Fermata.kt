@@ -48,9 +48,17 @@ object FermataSource {
     const val DISCOVER = "discover"
     const val TAPE = "tape"
     const val QUEUE = "queue"
+    /** 7.1.0: a song Drift picked. Fermata's own Source enum has no Drift yet, so [forFermata] files it as radio there. */
+    const val DRIFT = "drift"
     const val UNKNOWN = "unknown"
 
-    private val known = setOf(RADIO, SEARCH, LIBRARY, PLAYLIST, DISCOVER, TAPE, QUEUE, UNKNOWN)
+    private val known = setOf(RADIO, SEARCH, LIBRARY, PLAYLIST, DISCOVER, TAPE, QUEUE, DRIFT, UNKNOWN)
+
+    /**
+     * The word Fermata's log understands: Drift is a radio to Fermata until its Source enum gets a
+     * DRIFT entry (Minim's own event rows keep "drift").
+     */
+    fun forFermata(source: String?): String? = if (source == DRIFT) RADIO else source
 
     /** Anything missing or unrecognised (an older queue, a typo) is "unknown". */
     fun normalize(raw: String?): String = raw?.trim()?.lowercase()?.takeIf { it in known } ?: UNKNOWN

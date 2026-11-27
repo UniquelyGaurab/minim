@@ -761,7 +761,9 @@ class FermataBridge(
 
         /** The same row-to-event rules as the 5.9.0 import, recorded under a new id of this phone. */
         private fun recordRow(row: FermataEventRow) {
-            val e = MinimImport.convert(MinimTables(fermataEvents = listOf(row))).events.firstOrNull() ?: return
+            // 7.1.0: Drift plays are radio plays to Fermata (its Source enum has no Drift yet)
+            val r = if (row.source == FermataSource.DRIFT) row.copy(source = FermataSource.forFermata(row.source)) else row
+            val e = MinimImport.convert(MinimTables(fermataEvents = listOf(r))).events.firstOrNull() ?: return
             fermata.record(e.body, e.ctx.source, e.ctx.sessionId, e.ctx.previousTrackId, at = e.timestamp)
         }
     }
