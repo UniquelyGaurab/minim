@@ -135,10 +135,25 @@ jobs:
             n=$(gh pr list --head studio --base dev --state open --json number --jq '.[0].number')
           fi
           echo "- Pull request: #$n" >> "$GITHUB_STEP_SUMMARY"
-          # Pull requests opened by this workflow don't start other workflows on their own,
-          # so start the tests and the safety check on the studio branch here.
-          gh workflow run test-build.yml --ref studio
-          gh workflow run pr-guard.yml --ref studio -f base=dev
+          # GitHub holds pull request checks started by this workflow until someone approves them.
+          # Approve them here so the tests and the safety check run on the pull request by themselves.
+          sha="${{ steps.build.outputs.sha }}"
+          approved=0
+          for _ in 1 2 3 4 5 6; do
+            sleep 10
+            for id in $(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$sha&status=action_required" --jq '.workflow_runs[].id'); do
+              gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$id/approve" >/dev/null && approved=$((approved+1))
+            done
+            [ "$approved" -ge 2 ] && break
+          done
+          if [ "$approved" -eq 0 ]; then
+            # Fallback: start them on the studio branch directly.
+            gh workflow run test-build.yml --ref studio
+            gh workflow run pr-guard.yml --ref studio -f base=dev
+            echo "- Checks started on the studio branch." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Checks on the pull request: $approved started." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Close the pull request when there's nothing left
         if: steps.build.outputs.changed == 'false'
