@@ -16,3 +16,16 @@
 
 # Keep MinimMusic data models
 -keep class com.minim.music.data.model.** { *; }
+
+# Keep RoomDatabase subclass constructors (room-runtime 2.5.0 omits { <init>(); } and AGP 9 R8
+# strips WorkDatabase_Impl.<init>(), crashing WorkManagerInitializer before Application.onCreate).
+-keep class * extends androidx.room.RoomDatabase {
+    <init>();
+}
+
+# Keep WorkManager InputMerger constructors (work-runtime 2.9.0 omits { <init>(); }, stripping
+# OverwritingInputMerger.<init>() instantiated reflectively when workers run).
+-keep class * extends androidx.work.InputMerger {
+    <init>();
+}
+

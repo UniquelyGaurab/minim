@@ -2,7 +2,6 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
 }
 
 // V6 (5.10.1): no Firebase, no Google sign-in. Minim collects nothing and needs no
@@ -26,13 +25,15 @@ android {
         targetSdk = 34
         versionCode = 80
         versionName = "7.1.0"
-        // v5.0: Minim is English only; drops the translations the support libraries bring
-        resourceConfigurations += listOf("en")
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
+    }
+
+    androidResources {
+        // v5.0: Minim is English only; drops the translations the support libraries bring
+        localeFilters += listOf("en")
     }
 
     signingConfigs {
@@ -85,10 +86,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     testOptions {
         unitTests.isIncludeAndroidResources = true
         // 6.9.0 (75): the Robolectric Stats tests need more than Gradle's default 512 MB test heap
@@ -106,6 +103,12 @@ android {
             excludes += "**/*.proto"
             excludes += "META-INF/DEPENDENCIES"
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 
