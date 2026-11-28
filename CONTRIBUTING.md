@@ -19,6 +19,19 @@ The test-build pre-release is never offered as an update inside Minim: the updat
 
 The tag must match `versionName` in `app/build.gradle.kts`, and a release that already exists is never replaced.
 
+## Pull requests and AI Studio
+
+Google AI Studio works in its own private repo, [minim-studio](https://github.com/UniquelyGaurab/minim-studio), and never pushes here.
+
+1. AI Studio pushes to minim-studio's `main`.
+2. [Bring in AI Studio changes](.github/workflows/studio-sync.yml) (every 3 hours on its own, or Actions tab → Run workflow) copies it to the `studio` branch here and opens or updates the "AI Studio changes" pull request into `dev`. It never pushes to `main` or `dev`, and keeps Minim's own `.github` folder.
+3. The pull request gets the tests, lint and a build check (no signing key, no test-build page) and the [Safety check](.github/workflows/pr-guard.yml), which fails if it touches Fermata, keys, signing, the app ID, the build/release workflows or the version.
+4. Merging it into `dev` makes a normal test build.
+
+`main` and `dev` can't be force-pushed or deleted.
+
+Without the `fermata` submodule (as in AI Studio), Gradle takes Fermata from JitPack at the commit in `fermataFallback` (settings.gradle.kts).
+
 ## Version codes
 
 Test builds use the `versionCode` in `app/build.gradle.kts` as it is. Each release raises it by one, so a test build never outranks the next release and always installs over the current one.

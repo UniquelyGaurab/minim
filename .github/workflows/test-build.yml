@@ -2,18 +2,22 @@
 # "test-build" pre-release (https://github.com/UniquelyGaurab/minim/releases/tag/test-build).
 # Minim's update checker never offers it: it reads /releases/latest, which skips pre-releases,
 # "test-build" isn't a version number, and UpdateRules refuses pre-releases (TestBuildChannelTest).
+# Pull requests (and runs on any branch other than dev, like the AI Studio `studio` branch) get the
+# same tests, lint and build, with no signing secrets, and never touch the test-build page.
 name: Test build
 
 on:
   push:
     branches: [dev]
+  pull_request:
+    branches: [dev, main]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: test-build
+  group: test-build-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -24,27 +28,33 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
+          persist-credentials: false
 
+      # Only dev gets the signing key and the test-build page.
       - id: build
         uses: ./.github/actions/build-minim
         with:
-          keystore-base64: ${{ secrets.MINIM_KEYSTORE_BASE64 }}
-          keystore-password: ${{ secrets.MINIM_KEYSTORE_PASSWORD }}
-          key-alias: ${{ secrets.MINIM_KEY_ALIAS }}
-          key-password: ${{ secrets.MINIM_KEY_PASSWORD }}
+          sign: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/dev' }}
+          keystore-base64: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/dev' && secrets.MINIM_KEYSTORE_BASE64 || '' }}
+          keystore-password: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/dev' && secrets.MINIM_KEYSTORE_PASSWORD || '' }}
+          key-alias: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/dev' && secrets.MINIM_KEY_ALIAS || '' }}
+          key-password: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/dev' && secrets.MINIM_KEY_PASSWORD || '' }}
 
       - name: Name the APK
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/dev'
         run: |
           mkdir -p dist
           cp "${{ steps.build.outputs.apk }}" dist/Minim-test.apk
 
       - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/dev'
         with:
           name: minim-test-build-${{ github.run_number }}
           path: dist/Minim-test.apk
           retention-days: 14
 
       - name: Publish the test-build pre-release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/dev'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION_NAME: ${{ steps.build.outputs.version-name }}
@@ -67,6 +77,7 @@ jobs:
             --title "Test build ($VERSION_NAME, run $GITHUB_RUN_NUMBER)" --notes-file notes.md
 
       - name: Check the update checker can't see it
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/dev'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

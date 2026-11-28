@@ -5,18 +5,22 @@ name: Build and sign Minim
 description: Runs Fermata's and Minim's tests and lint, builds the debug APK and signs it with Minim's key.
 
 inputs:
+  sign:
+    description: "true signs with Minim's key and checks the certificate. false (pull requests) builds with no secrets: tests, lint and a build check only."
+    required: false
+    default: "true"
   keystore-base64:
     description: The keystore file, base64-encoded (secret MINIM_KEYSTORE_BASE64)
-    required: true
+    required: false
   keystore-password:
     description: secret MINIM_KEYSTORE_PASSWORD
-    required: true
+    required: false
   key-alias:
     description: secret MINIM_KEY_ALIAS
-    required: true
+    required: false
   key-password:
     description: secret MINIM_KEY_PASSWORD
-    required: true
+    required: false
 
 outputs:
   apk:
@@ -50,6 +54,7 @@ runs:
         echo "code=$code" >> "$GITHUB_OUTPUT"
 
     - name: Signing key
+      if: inputs.sign == 'true'
       shell: bash
       env:
         KS: ${{ inputs.keystore-base64 }}
@@ -107,6 +112,7 @@ runs:
       run: ./gradlew assembleDebug
 
     - name: Check signature and package
+      if: inputs.sign == 'true'
       shell: bash
       env:
         # SHA-256 of Minim's signing certificate (public, the same as every GitHub release)
@@ -125,6 +131,12 @@ runs:
         echo "$badging" | grep -q "name='$EXPECTED_PACKAGE'" || { echo "::error::Wrong package name"; exit 1; }
         echo "$badging" | grep -q "versionCode='$VERSION_CODE'" || { echo "::error::Wrong versionCode"; exit 1; }
         echo "- Signed with Minim's key (SHA-256 \`$cert\`), $EXPECTED_PACKAGE, versionCode $VERSION_CODE" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Unsigned build (pull request)
+      if: inputs.sign != 'true'
+      shell: bash
+      run: |
+        echo "- Pull request check: tests, lint and build only. Not signed with Minim's key, not published." >> "$GITHUB_STEP_SUMMARY"
 
     - name: Remove signing key
       if: always()
