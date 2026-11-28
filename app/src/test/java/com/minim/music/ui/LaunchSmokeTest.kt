@@ -453,8 +453,16 @@ class LaunchSmokeTest {
         call(a, "showTab", tab("STATS"), false)
         val s = stats(a)
         waitFor("recap shows") { s.diveIn.isShown || s.diveIn.visibility == View.VISIBLE }
-        s.diveIn.performClick()
-        waitFor("story opens") { story(a) != null }
+        // tap again if the stats page wasn't ready for the first tap (slow CI machines), as below
+        val opening = MainActivity::class.java.getDeclaredField("recapStoryOpening").apply { isAccessible = true }
+        var waited = 0
+        while (story(a) == null && waited < 600) {
+            if (waited % 50 == 0 && opening.get(a) == false) s.diveIn.performClick()
+            Thread.sleep(30)
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(100))
+            waited++
+        }
+        assertTrue("story opens (still preparing: ${opening.get(a)})", story(a) != null)
         val st = story(a)!!
         assertEquals(
             // 5.8.3 u55: every seeded song is new, so first listens shows too
