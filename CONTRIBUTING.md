@@ -32,6 +32,8 @@ Google AI Studio works in its own private repo, [minim-studio](https://github.co
 
 Without the `fermata` submodule (as in AI Studio), Gradle takes Fermata from JitPack at the commit in `fermataFallback` (settings.gradle.kts).
 
+AI Studio signs its own local builds with an auto-made `debug.keystore` in the project root (gitignored). The build file uses it only when there's no `keystore.properties`, so GitHub Actions always signs with Minim's key and the fingerprint check still fails on any other certificate.
+
 ## Version codes
 
 Test builds use the `versionCode` in `app/build.gradle.kts` as it is. Each release raises it by one, so a test build never outranks the next release and always installs over the current one.
