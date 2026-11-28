@@ -43,12 +43,23 @@ android {
                 keyAlias = keystoreProps.getProperty("keyAlias")
                 keyPassword = keystoreProps.getProperty("keyPassword")
             }
+        } else if (rootProject.file("debug.keystore").exists()) {
+            // Google AI Studio signs its own local builds with an auto-made debug.keystore in the
+            // project root (gitignored). Used only when keystore.properties is absent, so GitHub
+            // Actions and Minim's own builds always use Minim's key (checked by fingerprint in CI).
+            create("localDebug") {
+                storeFile = rootProject.file("debug.keystore")
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
         }
     }
 
     buildTypes {
         debug {
-            signingConfigs.findByName("minim")?.let { signingConfig = it }
+            (signingConfigs.findByName("minim") ?: signingConfigs.findByName("localDebug"))
+                ?.let { signingConfig = it }
             // Shrunk with R8 to keep the APK small
             isMinifyEnabled = true
             proguardFiles(
