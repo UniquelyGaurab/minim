@@ -68,7 +68,7 @@ jobs:
           git checkout -q --detach "$base"
           git read-tree "$s"
           # Keep Minim's own workflows: AI Studio's copies are never brought over.
-          gh_changes=$(git diff --cached --name-only "$base" -- .github || true)
+          gh_changes=$(git diff --cached --name-only --diff-filter=AM "$base" -- .github ":(exclude).github/STUDIO.md" || true)
           git rm -rq --cached .github 2>/dev/null || true
           git read-tree --prefix=.github/ "$base:.github"
           # If AI Studio simply couldn't import the Fermata submodule, keep it as it was.
