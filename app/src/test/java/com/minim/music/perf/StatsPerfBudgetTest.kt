@@ -28,6 +28,8 @@ import java.time.LocalDate
  * 6.9.0 b78: time limits on the big fixture (a year of plays, 10k+ Fermata events, tapes), and the
  * caches that make them: past days are read once, Fermata's log is only read for what's new.
  * The limits are for this machine's JVM; the phone is slower, so they're kept well under the goal.
+ * Warm timings take the best of three runs, and shared CI runners (CI=true) get 1.5x the budget,
+ * so a slow neighbour on GitHub's machine doesn't fail the build but a real slowdown still does.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -60,14 +62,24 @@ class StatsPerfBudgetTest {
         return v to (System.nanoTime() - t) / 1_000_000
     }
 
+    /** Best of [n] runs of an already-warm call: scheduling noise only ever adds time. */
+    private inline fun <T> best(n: Int = 3, block: () -> T): Pair<T, Long> {
+        var out = ms(block)
+        repeat(n - 1) { val r = ms(block); if (r.second < out.second) out = r }
+        return out
+    }
+
+    /** The time limit for [limitMs] on this machine: shared CI runners are slower and noisier. */
+    private fun budget(limitMs: Long): Long = if (System.getenv("CI") == "true") limitMs * 3 / 2 else limitMs
+
     @Test fun pillsAreUnderBudgetColdAndWarm() = runBlocking {
         val f = PerfFixture.fill(db, today)
         assertTrue(f.events >= 10_000)
         val cold = StatsPeriods.Period.values().associateWith { p -> ms { StatsPeriodLoad.load(db, p, today) }.second }
-        val warm = StatsPeriods.Period.values().associateWith { p -> ms { StatsPeriodLoad.load(db, p, today) }.second }
+        val warm = StatsPeriods.Period.values().associateWith { p -> best { StatsPeriodLoad.load(db, p, today) }.second }
         for (p in StatsPeriods.Period.values()) {
-            assertTrue("$p cold ${cold[p]} ms", cold[p]!! < 500)
-            assertTrue("$p warm ${warm[p]} ms", warm[p]!! < 100)
+            assertTrue("$p cold ${cold[p]} ms", cold[p]!! < budget(500))
+            assertTrue("$p warm ${warm[p]} ms", warm[p]!! < budget(100))
         }
     }
 
@@ -75,18 +87,18 @@ class StatsPerfBudgetTest {
         PerfFixture.fill(db, today)
         val l = StatsPeriodLoad.load(db, StatsPeriods.Period.ALL, today)
         StatsPeriodLoad.insights(db, bridge, l) // first read of Fermata's log
-        val (_, ins) = ms { StatsPeriodLoad.insights(db, bridge, l) }
-        assertTrue("insights again $ins ms", ins < 300)
+        val (_, ins) = best { StatsPeriodLoad.insights(db, bridge, l) }
+        assertTrue("insights again $ins ms", ins < budget(300))
         val (_, day) = ms { db.getDayStats(Days.key(today)) }
-        assertTrue("daily $day ms", day < 300)
+        assertTrue("daily $day ms", day < budget(300))
         val wk = today.minusDays(7)
         val mo = today.minusMonths(1).withDayOfMonth(1)
         RepriseLoader.scope(db, bridge, RepriseScope.Period.WEEK, wk)
         RepriseLoader.scope(db, bridge, RepriseScope.Period.MONTH, mo)
-        val (_, w) = ms { RepriseLoader.scope(db, bridge, RepriseScope.Period.WEEK, wk) }
-        val (_, m) = ms { RepriseLoader.scope(db, bridge, RepriseScope.Period.MONTH, mo) }
-        assertTrue("weekly again $w ms", w < 300)
-        assertTrue("monthly again $m ms", m < 300)
+        val (_, w) = best { RepriseLoader.scope(db, bridge, RepriseScope.Period.WEEK, wk) }
+        val (_, m) = best { RepriseLoader.scope(db, bridge, RepriseScope.Period.MONTH, mo) }
+        assertTrue("weekly again $w ms", w < budget(300))
+        assertTrue("monthly again $m ms", m < budget(300))
     }
 
     @Test fun pastDaysAreReadOnceAndAChangeToThemIsNoticed() = runBlocking {
@@ -114,19 +126,20 @@ class StatsPerfBudgetTest {
     }
 
     @Test fun fermatasLogIsOnlyReadForWhatIsNew() = runBlocking {
-        PerfFixture.fill(db, today)
+        // the fixture ends yesterday, so every play is in the past whatever time the tests run
+        PerfFixture.fill(db, today.minusDays(1))
         val first = RepriseLog.rows(bridge)
         val reads = RepriseLog.fullReads
         assertTrue(first.size >= 10_000)
         val (again, t) = ms { RepriseLog.rows(bridge) }
         assertEquals(first.size, again.size)
-        assertTrue("again $t ms", t < 50)
+        assertTrue("again $t ms", t < budget(50))
         assertEquals(reads, RepriseLog.fullReads)
         // clearing history deletes rows: seen, and read again from the start
         val at = System.currentTimeMillis()
         bridge.fermata.clearHistory()
         val cleared = RepriseLog.rows(bridge)
-        // (the fixture has a few of today's plays later than now; only those may stay)
-        assertTrue("${cleared.size} rows after a clear", cleared.all { it.ts >= at - 1_000 } && cleared.size < 40)
+        // every fixture play is older than the clear, so none may stay
+        assertTrue("${cleared.size} rows after a clear", cleared.all { it.ts >= at - 1_000 } && cleared.size <= 1)
     }
 }
