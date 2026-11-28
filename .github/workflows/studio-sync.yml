@@ -53,9 +53,14 @@ jobs:
           # history when it connected) the dev commit with the same files as its first commit.
           if base=$(git merge-base origin/dev $s 2>/dev/null); then how="shared history"
           else
-            root_tree=$(git rev-parse "$(git rev-list --max-parents=0 $s | tail -1)^{tree}")
-            base=$(git log origin/dev -n 500 --format='%H %T' | awk -v t="$root_tree" '$2==t{print $1; exit}')
-            how="same files as AI Studio's first commit"
+            # Unrelated history (AI Studio replaced it): no git merge of histories. Find the dev
+            # commit whose files match AI Studio's first commit (ignoring .github and Fermata).
+            root=$(git rev-list --max-parents=0 $s | tail -1)
+            base=""
+            for c in $(git rev-list -n 300 origin/dev); do
+              if git diff --quiet "$c" "$root" -- . ':(exclude).github' ':(exclude)fermata' ':(exclude).gitmodules'; then base=$c; break; fi
+            done
+            how="unrelated history; dev commit with the same files as AI Studio's first commit"
             [ -n "$base" ] || { base=$(git rev-parse origin/dev); how="no match found, so dev as it is now (check the diff for undone dev changes)"; }
           fi
           echo "Base: $base ($how)"
