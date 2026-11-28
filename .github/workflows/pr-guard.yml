@@ -1,0 +1,96 @@
+# Safety check for pull requests into dev and main (including AI Studio's `studio` pull request).
+# It reads the changes only, builds nothing, and fails with a plain message when a pull request
+# touches something that only the owner or a release should change.
+name: Safety check
+
+on:
+  pull_request:
+    branches: [dev, main]
+  workflow_dispatch:
+    inputs:
+      base:
+        description: Branch the changes would go into
+        default: dev
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Safety check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check the changes
+        env:
+          BASE: ${{ github.base_ref || inputs.base || 'dev' }}
+          HEAD_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          set -u
+          mb=$(git merge-base "origin/$BASE" HEAD) || { echo "::error::This branch shares no history with $BASE, so it can't be checked."; exit 1; }
+          problems=()
+          fail() { problems+=("$1"); echo "::error title=Safety check::$1"; }
+
+          files=$(git diff --name-only "$mb" HEAD)
+          added=$(git diff --name-only --diff-filter=AM "$mb" HEAD)
+          gradle_lines() { git diff -U0 "$mb" HEAD -- '*.gradle.kts' '*.gradle' | grep -E '^[+-][^+-]' || true; }
+
+          # 1. Keys and private files: checked on every pull request
+          bad=$(echo "$added" | grep -iE '\.(jks|keystore|p12|pfx)$|(^|/)(keystore|signing)\.properties$|(^|/)google-services\.json$' || true)
+          [ -z "$bad" ] || fail "It adds a signing key or private file ($(echo $bad)). Keys and Firebase files must never be in the repo."
+
+          if [ "$HEAD_BRANCH" = "dev" ] && [ "$BASE" = "main" ]; then
+            echo "dev into main (a release merge): version and build changes are expected, only keys are checked."
+          else
+            # 2. Fermata must stay the real submodule, on the commit Dev pinned
+            if echo "$files" | grep -qx '.gitmodules'; then
+              fail "It changes or removes .gitmodules, which links Minim to the real Fermata. Only Dev changes that."
+            fi
+            entry=$(git ls-tree HEAD fermata)
+            case "$entry" in
+              160000*) old=$(git ls-tree "$mb" fermata | awk '{print $3}'); new=$(echo "$entry" | awk '{print $3}')
+                       [ "$old" = "$new" ] || fail "It moves the Fermata submodule to another commit (${old:0:7} to ${new:0:7}). Only Dev updates Fermata." ;;
+              "")      fail "It removes the Fermata submodule (the fermata folder). Minim can't build without the real Fermata." ;;
+              *)       fail "It replaces Fermata with a plain fermata folder (a stand-in copy). Minim must use the real Fermata submodule." ;;
+            esac
+            if git diff -U0 "$mb" HEAD -- settings.gradle.kts app/build.gradle.kts | grep -E '^[+-][^+-]' | grep -qiE 'fermata|includeBuild'; then
+              fail "It changes how Fermata is included in the build (settings.gradle.kts or the Fermata dependency). Only Dev changes that."
+            fi
+
+            # 3. Signing, app ID and the build/release workflows
+            if gradle_lines | grep -qE 'signingConfig|applicationId|keystoreProps|storeFile|storePassword|keyAlias|keyPassword'; then
+              fail "It changes signing or the app ID (signingConfigs or applicationId). That could stop updates installing over Minim and lose your library."
+            fi
+            wf=$(echo "$files" | grep -E '^\.github/workflows/(release|test-build)\.yml$|^\.github/actions/' || true)
+            [ -z "$wf" ] || fail "It changes the build or release workflows ($(echo $wf)). Those hold the signing and release steps."
+
+            # 4. Version numbers: only a release raises them
+            if git diff -U0 "$mb" HEAD -- app/build.gradle.kts | grep -qE '^[+-][[:space:]]*version(Code|Name)[[:space:]]*='; then
+              fail "It changes versionCode or versionName. Only a release changes the version."
+            fi
+          fi
+
+          # Reminder (not a failure): the fallback Fermata version should match the submodule
+          pin=$(git ls-tree HEAD fermata | awk '$1=="160000"{print $3}')
+          fb=$(sed -n 's/^val fermataFallback = "\(.*\)"/\1/p' settings.gradle.kts)
+          if [ -n "$pin" ] && [ -n "$fb" ] && [ "${pin:0:${#fb}}" != "$fb" ]; then
+            echo "::warning::fermataFallback in settings.gradle.kts ($fb) doesn't match the Fermata submodule (${pin:0:10}). Update it when Fermata is moved."
+          fi
+
+          {
+            echo "### Safety check"
+            if [ ${#problems[@]} -eq 0 ]; then
+              echo "Nothing risky: no keys, no Fermata, signing, app ID, workflow or version changes."
+            else
+              echo "This pull request changes things it shouldn't. Don't merge it as it is:"
+              for p in "${problems[@]}"; do echo "- $p"; done
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ ${#problems[@]} -eq 0 ] || exit 1
+          echo "Nothing risky found."

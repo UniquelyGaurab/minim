@@ -1,0 +1,147 @@
+# Brings Google AI Studio's work into Minim as a pull request, with no copying by hand.
+# AI Studio pushes to the private UniquelyGaurab/minim-studio repo. This copies its main branch
+# onto the `studio` branch here (as one commit on top of the dev commit it started from) and opens
+# or updates a pull request from `studio` into `dev`, then runs the tests and the safety check on it.
+# It never pushes to main or dev. Minim's own .github folder is always kept as it is on dev.
+# Reading the private repo uses a read-only deploy key on minim-studio (secret STUDIO_DEPLOY_KEY).
+name: Bring in AI Studio changes
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */3 * * *" # every 3 hours; does nothing when minim-studio has nothing new
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: studio-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Fetch minim-studio
+        env:
+          KEY: ${{ secrets.STUDIO_DEPLOY_KEY }}
+        run: |
+          [ -n "$KEY" ] || { echo "::error::The secret STUDIO_DEPLOY_KEY is missing, so minim-studio can't be read."; exit 1; }
+          mkdir -p ~/.ssh && printf '%s\n' "$KEY" > ~/.ssh/studio && chmod 600 ~/.ssh/studio
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/studio -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git fetch --no-tags git@github.com:UniquelyGaurab/minim-studio.git +main:refs/remotes/studio/main
+          rm -f ~/.ssh/studio
+
+      - name: Build the studio branch
+        id: build
+        run: |
+          set -eu
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          s=refs/remotes/studio/main
+          # The dev commit AI Studio started from: shared history, or (if AI Studio replaced the
+          # history when it connected) the dev commit with the same files as its first commit.
+          if base=$(git merge-base origin/dev $s 2>/dev/null); then how="shared history"
+          else
+            root_tree=$(git rev-parse "$(git rev-list --max-parents=0 $s | tail -1)^{tree}")
+            base=$(git log origin/dev -n 500 --format='%H %T' | awk -v t="$root_tree" '$2==t{print $1; exit}')
+            how="same files as AI Studio's first commit"
+            [ -n "$base" ] || { base=$(git rev-parse origin/dev); how="no match found, so dev as it is now (check the diff for undone dev changes)"; }
+          fi
+          echo "Base: $base ($how)"
+
+          git checkout -q --detach "$base"
+          git read-tree "$s"
+          # Keep Minim's own workflows: AI Studio's copies are never brought over.
+          gh_changes=$(git diff --cached --name-only "$base" -- .github || true)
+          git rm -rq --cached .github 2>/dev/null || true
+          git read-tree --prefix=.github/ "$base:.github"
+          # If AI Studio simply couldn't import the Fermata submodule, keep it as it was.
+          # A stand-in fermata folder is kept, so the safety check flags it.
+          if [ -z "$(git ls-files --stage -- fermata .gitmodules)" ]; then
+            git update-index --add --cacheinfo "160000,$(git rev-parse "$base:fermata"),fermata"
+            git update-index --add --cacheinfo "100644,$(git rev-parse "$base:.gitmodules"),.gitmodules"
+          fi
+
+          tree=$(git write-tree)
+          if [ "$tree" = "$(git rev-parse "$base^{tree}")" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Nothing new from AI Studio." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          studio_sha=$(git rev-parse $s)
+          # This minim-studio commit is already in the open pull request: stay quiet.
+          prev=$(git log -1 --format=%s refs/remotes/origin/studio 2>/dev/null | sed -n 's/^AI Studio changes from minim-studio \([0-9a-f]*\)$/\1/p' || true)
+          if [ "$prev" = "$studio_sha" ] && [ -n "$(gh pr list --head studio --base dev --state open --json number --jq '.[0].number')" ]; then
+            echo "changed=same" >> "$GITHUB_OUTPUT"
+            echo "No new commits in minim-studio since the last run." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          subjects=$(git log --format='- %s' "$base..$s" 2>/dev/null | head -30 || true)
+          [ -n "$subjects" ] || subjects=$(git log -5 --format='- %s' $s)
+          printf 'AI Studio changes from minim-studio %s\n\n%s\n' "$studio_sha" "$subjects" > msg.txt
+          snap=$(git commit-tree "$tree" -p "$base" -F msg.txt)
+          # Put it on top of dev as it is now, so the pull request shows only what dev doesn't have yet
+          # (changes merged before don't come back). On a conflict, offer it on its own base instead.
+          if merged=$(git merge-tree --write-tree --merge-base="$base" origin/dev "$snap" 2>/dev/null); then
+            if [ "$merged" = "$(git rev-parse "origin/dev^{tree}")" ]; then
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              echo "Everything in minim-studio is already in dev." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            commit=$(git commit-tree "$merged" -p origin/dev -F msg.txt)
+            base=$(git rev-parse origin/dev); how="$how, moved onto the latest dev"
+          else
+            commit=$snap; how="$how; it clashes with newer changes on dev, so GitHub will show a conflict to resolve"
+          fi
+          git push --force origin "$commit:refs/heads/studio"
+          {
+            echo "changed=true"
+            echo "sha=$commit"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "Changes from AI Studio ([minim-studio@$(git rev-parse --short $s)](https://github.com/UniquelyGaurab/minim-studio/commit/$(git rev-parse $s))), as one commit on top of dev at \`${base:0:7}\` ($how)."
+            echo
+            echo "AI Studio's commits:"
+            echo "$subjects"
+            if [ -n "$gh_changes" ]; then
+              echo
+              echo "Not brought over: AI Studio changed these workflow files, and Minim keeps its own:"
+              echo "$gh_changes" | sed 's/^/- /'
+            fi
+            echo
+            echo "Tests, lint, a build check and the safety check run on this pull request. Merge only when they're green and you've tried the change."
+            echo "This pull request is updated automatically by the \"Bring in AI Studio changes\" workflow."
+          } > body.md
+
+      - name: Open or update the pull request
+        if: steps.build.outputs.changed == 'true'
+        run: |
+          n=$(gh pr list --head studio --base dev --state open --json number --jq '.[0].number')
+          if [ -n "$n" ]; then
+            gh pr edit "$n" --body-file body.md
+          else
+            gh pr create --head studio --base dev --title "AI Studio changes" --body-file body.md
+            n=$(gh pr list --head studio --base dev --state open --json number --jq '.[0].number')
+          fi
+          echo "- Pull request: #$n" >> "$GITHUB_STEP_SUMMARY"
+          # Pull requests opened by this workflow don't start other workflows on their own,
+          # so start the tests and the safety check on the studio branch here.
+          gh workflow run test-build.yml --ref studio
+          gh workflow run pr-guard.yml --ref studio -f base=dev
+
+      - name: Close the pull request when there's nothing left
+        if: steps.build.outputs.changed == 'false'
+        run: |
+          n=$(gh pr list --head studio --base dev --state open --json number --jq '.[0].number')
+          [ -z "$n" ] || gh pr close "$n" --comment "minim-studio now matches dev, so there's nothing left to bring in."
